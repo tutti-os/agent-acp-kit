@@ -138,8 +138,8 @@ for await (const event of runtime.run({
 
 | Provider | Status | Transport | Notes |
 | --- | --- | --- | --- |
-| Codex | Supported | `codex exec --json` JSONL | Dynamic model discovery via `codex debug models` when available |
-| Claude Code | Supported | `claude -p --output-format stream-json` | Uses fallback model hints and allows custom model pass-through |
+| Codex | Supported | `codex exec --json` JSONL | Dynamic model discovery via `codex debug models`; same-provider resume via `codex exec resume --json <session> -` |
+| Claude Code | Supported | `claude -p --output-format stream-json` | Uses fallback model hints, custom model pass-through, and same-provider resume via `--resume <session>` |
 | Hermes | Experimental | ACP JSON-RPC | Shared generic ACP transport |
 | Kimi | Experimental | ACP JSON-RPC | Shared generic ACP transport |
 | Kiro | Experimental | ACP JSON-RPC | Shared generic ACP transport |
@@ -284,6 +284,36 @@ Resume is conservative by design:
 - Same-provider resume may pass `providerSessionId` or `resumeToken` when the provider supports it.
 - If no provider resume metadata exists, pass `resume: { mode: "fresh" }`.
 - Cross-provider resume should be host-level handoff: rebuild prompt, history, and context, then start a fresh provider run.
+
+Hosts should still pass durable `history` on every run. Native resume is an optimization for the same provider, not the only source of continuity:
+
+```ts
+const sameProvider = previousRun?.provider === selectedProvider;
+const providerResumeId = previousRun?.providerSessionId ?? previousRun?.resumeToken;
+const resume = sameProvider && providerResumeId
+  ? {
+      mode: "provider" as const,
+      providerSessionId: previousRun?.providerSessionId,
+      resumeToken: previousRun?.resumeToken,
+    }
+  : { mode: "fresh" as const };
+
+for await (const event of runtime.run({
+  runId,
+  provider: selectedProvider,
+  cwd,
+  prompt,
+  history: durableMessages,
+  resume,
+})) {
+  if (event.type === "done") {
+    await saveRunResumeMetadata(runId, {
+      providerSessionId: event.sessionId,
+      resumeToken: event.resumeToken,
+    });
+  }
+}
+```
 
 ## Public API
 

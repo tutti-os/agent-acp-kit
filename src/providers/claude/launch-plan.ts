@@ -5,6 +5,13 @@ function normalizeClaudeModel(model: string | undefined) {
   return model;
 }
 
+function resolveProviderResumeId(
+  resume: AgentRunParams<"local-agent", "claude">["resume"],
+) {
+  if (!resume || resume.mode === "fresh") return undefined;
+  return (resume.providerSessionId ?? resume.resumeToken)?.trim() || undefined;
+}
+
 export function buildClaudeLaunchPlan(
   params: AgentRunParams<"local-agent", "claude">,
   executablePath = "claude",
@@ -14,6 +21,10 @@ export function buildClaudeLaunchPlan(
   const model = normalizeClaudeModel(params.model);
   if (model && model !== "default") {
     args.push("--model", model);
+  }
+  const resumeId = resolveProviderResumeId(params.resume);
+  if (resumeId) {
+    args.push("--resume", resumeId);
   }
   if (options?.mcpConfigPath) {
     args.push("--mcp-config", options.mcpConfigPath, "--strict-mcp-config");

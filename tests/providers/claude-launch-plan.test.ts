@@ -7,6 +7,12 @@ import { createClaudeProvider } from "../../src/providers/claude/index.js";
 import { buildClaudeLaunchPlan } from "../../src/providers/claude/launch-plan.js";
 
 describe("buildClaudeLaunchPlan", () => {
+  it("advertises same-provider native resume support", () => {
+    expect(createClaudeProvider().capabilities()).toMatchObject({
+      nativeResume: true,
+    });
+  });
+
   it("builds a stream-json stdin launch plan with repeatable add-dir flags", () => {
     expect(
       buildClaudeLaunchPlan({
@@ -36,6 +42,45 @@ describe("buildClaudeLaunchPlan", () => {
         "bypassPermissions",
       ],
     });
+  });
+
+  it("adds Claude Code --resume only when same-provider resume metadata exists", () => {
+    expect(
+      buildClaudeLaunchPlan({
+        runId: "run-1",
+        cwd: "/tmp/project",
+        prompt: "continue",
+        model: "claude:sonnet",
+        resume: {
+          mode: "provider",
+          providerSessionId: "claude-session-1",
+        },
+      }).args,
+    ).toEqual([
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--model",
+      "sonnet",
+      "--resume",
+      "claude-session-1",
+      "--permission-mode",
+      "bypassPermissions",
+    ]);
+  });
+
+  it("does not add Claude Code --resume for empty resume metadata", () => {
+    expect(
+      buildClaudeLaunchPlan({
+        runId: "run-1",
+        cwd: "/tmp/project",
+        prompt: "continue",
+        resume: {
+          mode: "provider",
+        },
+      }).args,
+    ).not.toContain("--resume");
   });
 
   it("passes MCP servers through a per-run Claude Code config file", async () => {
@@ -141,5 +186,26 @@ describe("buildClaudeLaunchPlan", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  it("returns Claude session ids on done events for future provider resume", async () => {
+    const adapter = createClaudeProvider().createAdapter();
+    expect(adapter).toBeDefined();
+
+    async function* stream() {
+      yield { type: "system", subtype: "init", session_id: "claude-session-1" };
+      yield { type: "done", status: "completed" };
+    }
+
+    const events = [];
+    for await (const event of adapter!.parseEvents(stream())) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "done",
+      status: "completed",
+      sessionId: "claude-session-1",
+    });
   });
 });

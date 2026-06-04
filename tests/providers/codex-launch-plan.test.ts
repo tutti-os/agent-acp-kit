@@ -7,6 +7,12 @@ import { createCodexProvider } from "../../src/providers/codex/index.js";
 import { buildCodexLaunchPlan } from "../../src/providers/codex/launch-plan.js";
 
 describe("buildCodexLaunchPlan", () => {
+  it("advertises same-provider native resume support", () => {
+    expect(createCodexProvider().capabilities()).toMatchObject({
+      nativeResume: true,
+    });
+  });
+
   it("uses trusted local execution, stdin delivery, cwd pinning, and repeatable add-dir flags", () => {
     expect(
       buildCodexLaunchPlan({
@@ -65,6 +71,58 @@ describe("buildCodexLaunchPlan", () => {
     ]);
   });
 
+  it("uses the Codex exec resume subcommand when same-provider resume metadata exists", () => {
+    expect(
+      buildCodexLaunchPlan({
+        runId: "run-1",
+        cwd: "/tmp/project",
+        prompt: "continue",
+        model: "gpt-5.4",
+        reasoning: "high",
+        extraAllowedDirs: ["/repo/skills"],
+        resume: {
+          mode: "provider",
+          providerSessionId: "codex-session-1",
+        },
+      }),
+    ).toEqual({
+      command: "codex",
+      cwd: "/tmp/project",
+      env: undefined,
+      prompt: "continue",
+      promptInput: "stdin",
+      args: [
+        "exec",
+        "resume",
+        "--json",
+        "--skip-git-repo-check",
+        "--disable",
+        "plugins",
+        "--ignore-rules",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--model",
+        "gpt-5.4",
+        "-c",
+        'model_reasoning_effort="high"',
+        "codex-session-1",
+        "-",
+      ],
+    });
+  });
+
+  it("falls back to fresh Codex exec when resume metadata is empty", () => {
+    expect(
+      buildCodexLaunchPlan({
+        runId: "run-1",
+        cwd: "/tmp/project",
+        prompt: "continue",
+        resume: {
+          mode: "provider",
+        },
+      }).args,
+    ).toContain("-C");
+  });
+
   it("prepends system prompts to the stdin prompt for provider runs", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "codex-system-prompt-plan-"));
     try {
@@ -80,5 +138,26 @@ describe("buildCodexLaunchPlan", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  it("returns Codex thread ids on done events for future provider resume", async () => {
+    const adapter = createCodexProvider().createAdapter();
+    expect(adapter).toBeDefined();
+
+    async function* stream() {
+      yield { type: "thread.started", thread: { id: "codex-thread-1" } };
+      yield { type: "done", status: "completed" };
+    }
+
+    const events = [];
+    for await (const event of adapter!.parseEvents(stream())) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "done",
+      status: "completed",
+      sessionId: "codex-thread-1",
+    });
   });
 });

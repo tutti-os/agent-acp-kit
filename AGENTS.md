@@ -123,6 +123,10 @@ When adding or changing a provider:
 - If resume metadata is missing, degrade to `fresh`.
 - Cross-provider resume is host-level handoff, not package-level magic.
 - Cancellation must produce or preserve one terminal status. Late process output must not overwrite a durable terminal event in the host.
+- Codex same-provider resume is a different argv shape: use `codex exec resume --json <session-id> -`, not `codex exec --resume`.
+- Claude Code same-provider resume is a flag on the print invocation: use `claude -p --output-format stream-json --resume <session-id>`.
+- Gemini is not currently a built-in provider. If it is added later, choose one transport shape first: `gemini --acp` through ACP JSON-RPC, or `gemini -p ... --output-format stream-json --resume <session-id>` through JSONL. Do not mix ACP flags with stream-json parsing.
+- Hosts should pass durable `history` on every run and treat native provider resume as an optimization. Store `done.sessionId` and `done.resumeToken` when providers emit them.
 
 ## Testing Expectations
 
