@@ -17,6 +17,8 @@
 
 It is built for apps that want to support Codex, Claude Code, and ACP-compatible agents without scattering provider-specific process, transport, MCP, skill, model, and event parsing logic throughout the app.
 
+This is an embeddable host SDK. It is not a replacement for ACP clients such as [`acpx`](https://github.com/openclaw/acpx), and it is not a single-provider ACP adapter binary such as `codex-acp`.
+
 ## Why This Exists
 
 Local coding agents do not all expose the same interface:
@@ -44,6 +46,24 @@ flowchart LR
   Runtime -->|"mcpServers"| Tools
   Runtime -->|"AgentEvent stream"| Host
 ```
+
+## Ecosystem Fit
+
+The ACP ecosystem has several layers. This package focuses on the host-app SDK layer.
+
+| If you need... | Use... |
+| --- | --- |
+| A Codex-compatible ACP agent binary for editors or ACP clients | `codex-acp` or another provider-specific ACP adapter |
+| A CLI/TUI client with persistent ACP sessions, queues, cancel, status, and config | [`acpx`](https://github.com/openclaw/acpx) |
+| A registry of ACP-compatible agents and install metadata | The [ACP Registry](https://agentclientprotocol.com/get-started/registry) |
+| An embeddable TypeScript runtime for your own desktop, web, or local host app | `@nextop-os/agent-acp-kit` |
+
+In practical terms:
+
+- ACP adapters expose one provider as an ACP agent process.
+- ACP clients consume ACP agents and manage user-facing sessions.
+- The ACP Registry helps clients discover installable agents.
+- `@nextop-os/agent-acp-kit` helps application hosts call multiple local agents while keeping product concepts such as messages, tools, replay, billing, and canvas state outside the package.
 
 ## Install
 
@@ -367,4 +387,3 @@ Recommended host policy:
 - Add more provider-specific adapters where shared ACP behavior is not enough.
 - Add first-class examples for desktop apps and local web apps.
 - Add repository-level `LICENSE`, `CONTRIBUTING.md`, and `SECURITY.md` before broader external contribution.
-
