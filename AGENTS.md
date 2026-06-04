@@ -151,7 +151,8 @@ Normal package releases should use `.github/workflows/npm-package-release.yml`.
 Release requirements:
 
 - Run from the `main` branch.
-- Provide a new semver version in the workflow input.
+- Choose `version_bump`: `patch`, `minor`, `major`, or `custom`.
+- Use `custom_version` only when `version_bump=custom`.
 - Keep the repository secret `NPM_TOKEN` configured with npm publish permission.
 - Use `dry_run: true` first when changing release behavior.
 - Let the workflow publish, commit the version bump, and push tag `v<version>`.

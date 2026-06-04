@@ -3,9 +3,19 @@ name: npm Package Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Semver version to publish, for example 0.1.1"
+      version_bump:
+        description: "How to compute the next package version"
         required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: "Required only when version_bump is custom, for example 0.2.0-beta.1"
+        required: false
         type: string
       dist_tag:
         description: "npm dist-tag"
@@ -33,7 +43,8 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       PACKAGE_NAME: "@nextop-os/agent-acp-kit"
-      RELEASE_VERSION: ${{ inputs.version }}
+      VERSION_BUMP: ${{ inputs.version_bump }}
+      CUSTOM_VERSION: ${{ inputs.custom_version }}
       DIST_TAG: ${{ inputs.dist_tag }}
       DRY_RUN: ${{ inputs.dry_run }}
 
@@ -67,16 +78,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate release version
+      - name: Resolve release version
+        id: version
         run: |
-          node -e 'const version = process.env.RELEASE_VERSION; if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) { console.error(`Invalid semver version: ${version}`); process.exit(1); }'
-          if npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version >/dev/null 2>&1; then
-            echo "${PACKAGE_NAME}@${RELEASE_VERSION} is already published."
+          if [ "${VERSION_BUMP}" = "custom" ]; then
+            if [ -z "${CUSTOM_VERSION}" ]; then
+              echo "custom_version is required when version_bump=custom."
+              exit 1
+            fi
+            npm version "${CUSTOM_VERSION}" --no-git-tag-version --allow-same-version
+          else
+            npm version "${VERSION_BUMP}" --no-git-tag-version
+          fi
+
+          release_version="$(node -p "require('./package.json').version")"
+          node -e 'const version = process.argv[1]; if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) { console.error(`Invalid semver version: ${version}`); process.exit(1); }' "${release_version}"
+
+          if npm view "${PACKAGE_NAME}@${release_version}" version >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${release_version} is already published."
             exit 1
           fi
 
-      - name: Apply package version
-        run: npm pkg set "version=${RELEASE_VERSION}"
+          printf 'release_version=%s\n' "${release_version}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${PACKAGE_NAME}@${release_version}"
 
       - name: Typecheck
         run: pnpm typecheck
@@ -102,6 +126,8 @@ jobs:
 
       - name: Commit release version and tag
         if: ${{ inputs.dry_run != true }}
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -347,17 +347,21 @@ import {
 
 ## Publishing Checklist
 
-Use the GitHub Actions workflow `.github/workflows/npm-package-release.yml` for normal releases. It is intentionally manual so maintainers choose the exact semver version and npm dist-tag.
+Use the GitHub Actions workflow `.github/workflows/npm-package-release.yml` for normal releases. It is intentionally manual-triggered but does not require typing the next version for normal releases.
 
 Required repository setup:
 
 - Add an npm automation token as the repository secret `NPM_TOKEN`.
 - Run the workflow from the `main` branch.
-- Enter the next semver version, for example `0.1.1`.
+- Choose `version_bump`: `patch`, `minor`, `major`, or `custom`.
+- Keep the default `patch` for routine compatible fixes.
+- Use `minor` for backward-compatible feature releases.
+- Use `major` for breaking public API changes.
+- Use `custom` only for prereleases or explicit versions, then fill `custom_version`, for example `0.2.0-beta.1`.
 - Keep `dist_tag` as `latest` for stable releases, or use a tag such as `next` for prereleases.
 - Use `dry_run: true` to validate the full release flow without publishing or pushing a tag.
 
-The workflow runs install, typecheck, tests, build, `npm pack --dry-run`, then publishes with npm provenance. After a successful real publish it commits the package version and pushes tag `v<version>`.
+The workflow computes the next version from `package.json` with `npm version <patch|minor|major> --no-git-tag-version`, or uses `custom_version` for custom releases. It then runs install, typecheck, tests, build, `npm pack --dry-run`, and publishes with npm provenance. After a successful real publish it commits the package version and pushes tag `v<version>`.
 
 Local fallback, only when GitHub Actions is unavailable:
 
