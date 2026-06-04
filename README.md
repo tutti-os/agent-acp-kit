@@ -46,25 +46,7 @@ flowchart LR
   Runtime -->|"AgentEvent stream"| Host
 ```
 
-## Ecosystem Fit
-
-The ACP ecosystem has several layers. This package focuses on the host-app SDK layer.
-
-| If you need... | Use... |
-| --- | --- |
-| A Codex-compatible ACP agent binary for editors or ACP clients | `codex-acp` or another provider-specific ACP adapter |
-| A CLI/TUI client with persistent ACP sessions, queues, cancel, status, and config | [`acpx`](https://github.com/openclaw/acpx) |
-| A registry of ACP-compatible agents and install metadata | The [ACP Registry](https://agentclientprotocol.com/get-started/registry) |
-| An embeddable TypeScript runtime for your own desktop, web, or local host app | `@nextop-os/agent-acp-kit` |
-
-In practical terms:
-
-- ACP adapters expose one provider as an ACP agent process.
-- ACP clients consume ACP agents and manage user-facing sessions.
-- The ACP Registry helps clients discover installable agents.
-- `@nextop-os/agent-acp-kit` helps application hosts call multiple local agents while keeping product concepts such as messages, tools, replay, billing, and canvas state outside the package.
-
-### ACP-compatible examples
+## ACP-compatible Agents
 
 ACP-compatible agents in the wider ecosystem include:
 
