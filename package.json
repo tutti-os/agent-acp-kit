@@ -21,6 +21,7 @@
     }
   },
   "files": [
+    "assets",
     "dist",
     "README.md",
     "AGENTS.md"

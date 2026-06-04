@@ -29,22 +29,7 @@ Local coding agents do not all expose the same interface:
 
 This package sits in the middle. It owns local agent execution. Your application owns product behavior.
 
-```mermaid
-flowchart LR
-  Host["Host app"]
-  Runtime["@nextop-os/agent-acp-kit"]
-  Codex["Codex provider"]
-  Claude["Claude provider"]
-  ACP["ACP providers"]
-  Tools["Host MCP tools"]
-
-  Host -->|"AgentRunInput"| Runtime
-  Runtime --> Codex
-  Runtime --> Claude
-  Runtime --> ACP
-  Runtime -->|"mcpServers"| Tools
-  Runtime -->|"AgentEvent stream"| Host
-```
+![Architecture diagram for @nextop-os/agent-acp-kit](https://raw.githubusercontent.com/nextop-os/agent-acp-kit/main/assets/agent-acp-kit-architecture.png)
 
 ## ACP-compatible Agents
 
