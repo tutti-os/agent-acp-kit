@@ -14,7 +14,7 @@
 
 `@nextop-os/agent-acp-kit` lets a host application detect, launch, stream, cancel, and resume local coding agents through a stable TypeScript facade.
 
-It is built for apps that want to support Codex, Claude Code, and ACP-compatible agents from an ecosystem that includes Gemini CLI, Cursor Agent, GitHub Copilot CLI, fast-agent, OpenCode, Qwen Code, Kimi CLI, Kiro CLI, Trae CLI, and more, without scattering provider-specific process, transport, MCP, skill, model, and event parsing logic throughout the app.
+It is built for apps that want to support Codex, Claude Code, and ACP-compatible agents without scattering provider-specific process, transport, MCP, skill, model, and event parsing logic throughout the app.
 
 This is an embeddable host SDK. It is not a replacement for ACP clients such as [`acpx`](https://github.com/openclaw/acpx), and it is not a single-provider ACP adapter binary such as `codex-acp`.
 
@@ -24,7 +24,7 @@ Local coding agents do not all expose the same interface:
 
 - Codex is CLI-first and can stream JSONL from `codex exec --json`.
 - Claude Code is CLI-first and streams `stream-json` output.
-- ACP-compatible agents such as Gemini CLI, Cursor Agent, GitHub Copilot CLI, fast-agent, OpenCode, Qwen Code, Kimi CLI, Kiro CLI, and Trae CLI speak JSON-RPC session protocols.
+- ACP-compatible agents speak JSON-RPC session protocols and can be discovered through the ACP Registry.
 - Host apps still need their own messages, sessions, tool permissions, replay, canvas state, billing, and product semantics.
 
 This package sits in the middle. It owns local agent execution. Your application owns product behavior.
@@ -346,31 +346,6 @@ pnpm test
 pnpm build
 pnpm pack:check
 ```
-
-Provider-specific changes should cover:
-
-- Detection success and fallback.
-- Launch plan args, env, model, MCP, and prompt input.
-- Parser output for text, tools, errors, and terminal events.
-- Cancellation and nonzero exit stderr.
-- ACP initialize, session, model, prompt, and cancel lifecycle when applicable.
-
-## Release
-
-Normal releases use the GitHub Actions workflow `.github/workflows/npm-package-release.yml`.
-
-Release inputs:
-
-| Input | Use |
-| --- | --- |
-| `version_bump=patch` | Routine compatible fixes |
-| `version_bump=minor` | Backward-compatible features |
-| `version_bump=major` | Breaking public API changes |
-| `version_bump=custom` | Prereleases or explicit versions, with `custom_version` |
-| `dist_tag` | npm dist-tag, usually `latest` or `next` |
-| `dry_run` | Validate without publishing, committing, or tagging |
-
-The workflow computes the next version from `package.json`, runs install, typecheck, tests, build, `npm pack --dry-run`, publishes with npm provenance, then commits the version bump and pushes tag `v<version>`.
 
 ## Security
 
