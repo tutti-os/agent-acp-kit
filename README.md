@@ -19,7 +19,15 @@ The package is intentionally framework-agnostic. It can be used by desktop apps,
 ## Install
 
 ```bash
+npm install @nextop-os/agent-acp-kit
+```
+
+Package managers such as `pnpm`, `yarn`, and `bun` also work:
+
+```bash
 pnpm add @nextop-os/agent-acp-kit
+yarn add @nextop-os/agent-acp-kit
+bun add @nextop-os/agent-acp-kit
 ```
 
 The package is ESM-only and requires Node.js 22 or newer.
