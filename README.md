@@ -6,7 +6,6 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@nextop-os/agent-acp-kit"><img src="https://img.shields.io/npm/v/@nextop-os/agent-acp-kit.svg" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/@nextop-os/agent-acp-kit"><img src="https://img.shields.io/npm/dm/@nextop-os/agent-acp-kit.svg" alt="npm downloads"></a>
   <a href="https://github.com/nextop-os/agent-acp-kit/actions/workflows/npm-package-release.yml"><img src="https://github.com/nextop-os/agent-acp-kit/actions/workflows/npm-package-release.yml/badge.svg" alt="release workflow"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22-339933" alt="Node.js >= 22">
   <img src="https://img.shields.io/badge/TypeScript-ready-3178c6" alt="TypeScript ready">
@@ -15,7 +14,7 @@
 
 `@nextop-os/agent-acp-kit` lets a host application detect, launch, stream, cancel, and resume local coding agents through a stable TypeScript facade.
 
-It is built for apps that want to support Codex, Claude Code, and ACP-compatible agents without scattering provider-specific process, transport, MCP, skill, model, and event parsing logic throughout the app.
+It is built for apps that want to support Codex, Claude Code, and ACP-compatible agents from an ecosystem that includes Gemini CLI, Cursor Agent, GitHub Copilot CLI, fast-agent, OpenCode, Qwen Code, Kimi CLI, Kiro CLI, Trae CLI, and more, without scattering provider-specific process, transport, MCP, skill, model, and event parsing logic throughout the app.
 
 This is an embeddable host SDK. It is not a replacement for ACP clients such as [`acpx`](https://github.com/openclaw/acpx), and it is not a single-provider ACP adapter binary such as `codex-acp`.
 
@@ -25,7 +24,7 @@ Local coding agents do not all expose the same interface:
 
 - Codex is CLI-first and can stream JSONL from `codex exec --json`.
 - Claude Code is CLI-first and streams `stream-json` output.
-- ACP-compatible agents speak JSON-RPC session protocols.
+- ACP-compatible agents such as Gemini CLI, Cursor Agent, GitHub Copilot CLI, fast-agent, OpenCode, Qwen Code, Kimi CLI, Kiro CLI, and Trae CLI speak JSON-RPC session protocols.
 - Host apps still need their own messages, sessions, tool permissions, replay, canvas state, billing, and product semantics.
 
 This package sits in the middle. It owns local agent execution. Your application owns product behavior.
@@ -64,6 +63,31 @@ In practical terms:
 - ACP clients consume ACP agents and manage user-facing sessions.
 - The ACP Registry helps clients discover installable agents.
 - `@nextop-os/agent-acp-kit` helps application hosts call multiple local agents while keeping product concepts such as messages, tools, replay, billing, and canvas state outside the package.
+
+### ACP-compatible examples
+
+ACP-compatible agents in the wider ecosystem include:
+
+| Agent | Typical ACP command |
+| --- | --- |
+| Gemini CLI | `gemini --acp` |
+| Cursor Agent | `cursor-agent acp` |
+| GitHub Copilot CLI | `copilot --acp --stdio` |
+| Factory Droid | `droid exec --output-format acp` |
+| fast-agent | `uvx fast-agent-mcp acp` |
+| OpenCode | `npx -y opencode-ai acp` |
+| Qwen Code | `qwen --acp` |
+| Kimi CLI | `kimi acp` |
+| Kiro CLI | `kiro-cli-chat acp` |
+| Trae CLI | `traecli acp serve` |
+
+This table is for ecosystem orientation. Commands can vary by agent version, so use the registry as the source of truth. Built-in provider support in this package is listed below, and hosts can use `createGenericAcpProvider()` or a custom provider plugin when they already have an ACP command to launch.
+
+For the latest installable agent list, see:
+
+- [ACP Registry guide](https://agentclientprotocol.com/get-started/registry)
+- [agentclientprotocol/registry](https://github.com/agentclientprotocol/registry)
+- [latest registry JSON](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
 
 ## Install
 
