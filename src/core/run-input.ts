@@ -1,0 +1,33 @@
+import type { LocalAgentMcpServerConfig } from "./mcp.js";
+import type { AgentRunMessage } from "./provider-plugin.js";
+import type { SkillMaterializationRecord } from "./skills.js";
+
+export type AgentRunInput<
+  TKind extends string = string,
+  TProvider extends string = string,
+> = {
+  runId: string;
+  sessionId?: string;
+  conversationId?: string;
+  cwd: string;
+  prompt: string;
+  systemPrompt?: string;
+  model?: string;
+  provider: TProvider;
+  runtimeKind?: TKind;
+  runtimeProvider?: TProvider;
+  history?: AgentRunMessage[];
+  mcpServers?: LocalAgentMcpServerConfig[];
+  env?: Record<string, string>;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  skillManifest?: SkillMaterializationRecord[];
+  reasoning?: string;
+  extraAllowedDirs?: string[];
+  metadata?: Record<string, unknown>;
+  resume?: {
+    mode: "native" | "provider" | "fresh";
+    providerSessionId?: string;
+    resumeToken?: string;
+  };
+};

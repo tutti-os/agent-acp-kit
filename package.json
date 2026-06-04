@@ -1,0 +1,42 @@
+{
+  "name": "@nextop-os/agent-acp-kit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ACP-oriented toolkit for detecting, launching, and streaming local coding agents.",
+  "packageManager": "pnpm@10.26.2",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime-control-plane": {
+      "types": "./dist/runtime/control-plane.d.ts",
+      "import": "./dist/runtime/control-plane.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "AGENTS.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc --build tsconfig.json --force",
+    "test": "vitest run tests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

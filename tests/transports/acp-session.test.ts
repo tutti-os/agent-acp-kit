@@ -1,0 +1,53 @@
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { buildAcpSessionNewParams } from "../../src/transports/acp/acp-session.js";
+
+describe("buildAcpSessionNewParams", () => {
+  it("defaults to an empty mcp server list", () => {
+    expect(buildAcpSessionNewParams("/tmp/project")).toEqual({
+      cwd: path.resolve("/tmp/project"),
+      mcpServers: [],
+    });
+  });
+
+  it("normalizes stdio and http servers to ACP shape", () => {
+    expect(
+      buildAcpSessionNewParams("/tmp/project", {
+        mcpServers: [
+          {
+            name: "toolbox",
+            command: "node",
+            args: ["mcp.js"],
+            env: { TOKEN: "secret" },
+          },
+          {
+            type: "http",
+            name: "remote",
+            url: "http://127.0.0.1:3000/mcp",
+            headers: { Authorization: "Bearer x" },
+          },
+        ],
+      }),
+    ).toEqual({
+      cwd: path.resolve("/tmp/project"),
+      mcpServers: [
+        {
+          type: "stdio",
+          name: "toolbox",
+          command: "node",
+          args: ["mcp.js"],
+          env: [{ key: "TOKEN", value: "secret" }],
+        },
+        {
+          type: "http",
+          name: "remote",
+          url: "http://127.0.0.1:3000/mcp",
+          headers: { Authorization: "Bearer x" },
+          env: [],
+        },
+      ],
+    });
+  });
+});
