@@ -25,9 +25,33 @@ function normalizeCodexModel(model: string | undefined) {
 }
 
 async function* parseCodexRawEvents(stream: RawAgentStream): AsyncGenerator<AgentEvent> {
+  let sessionId: string | undefined;
   for await (const item of stream) {
+    const record =
+      item && typeof item === "object" && !Array.isArray(item)
+        ? (item as Record<string, unknown>)
+        : undefined;
+    if (record?.type === "thread.started") {
+      const thread =
+        record.thread && typeof record.thread === "object" && !Array.isArray(record.thread)
+          ? (record.thread as Record<string, unknown>)
+          : undefined;
+      const candidate =
+        record.threadId ??
+        record.thread_id ??
+        record.sessionId ??
+        record.session_id ??
+        thread?.id;
+      if (typeof candidate === "string" && candidate.trim()) {
+        sessionId = candidate;
+      }
+    }
     if (item && typeof item === "object" && "type" in item) {
       const candidate = item as AgentEvent;
+      if (candidate.type === "done" && sessionId && !candidate.sessionId) {
+        yield { ...candidate, sessionId };
+        continue;
+      }
       if (
         candidate.type === "done" ||
         candidate.type === "error" ||
@@ -282,7 +306,7 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     capabilities() {
       return {
         cancel: true,
-        nativeResume: false,
+        nativeResume: true,
         streaming: true,
         toolGateway: true,
         maxConcurrentRuns: 1,

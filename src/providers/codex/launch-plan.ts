@@ -1,20 +1,29 @@
 import type { AgentRunParams, ProviderLaunchPlan } from "../../core/provider-plugin.js";
 import { clampCodexReasoning } from "./fallback-models.js";
 
+function resolveProviderResumeId(
+  resume: AgentRunParams<"local-agent", "codex">["resume"],
+) {
+  if (!resume || resume.mode === "fresh") return undefined;
+  return (resume.providerSessionId ?? resume.resumeToken)?.trim() || undefined;
+}
+
 export function buildCodexLaunchPlan(
   params: AgentRunParams<"local-agent", "codex">,
   executablePath = "codex",
 ): ProviderLaunchPlan {
-  const args = [
-    "exec",
-    "--json",
+  const resumeId = resolveProviderResumeId(params.resume);
+  const args = resumeId ? ["exec", "resume", "--json"] : ["exec", "--json"];
+  args.push(
     "--skip-git-repo-check",
     "--disable",
     "plugins",
     "--ignore-rules",
     "--dangerously-bypass-approvals-and-sandbox",
-  ];
-  args.push("-C", params.cwd);
+  );
+  if (!resumeId) {
+    args.push("-C", params.cwd);
+  }
 
   if (params.model && params.model !== "default") {
     args.push("--model", params.model);
@@ -25,10 +34,16 @@ export function buildCodexLaunchPlan(
     args.push("-c", `model_reasoning_effort="${reasoning}"`);
   }
 
-  for (const dir of params.extraAllowedDirs ?? []) {
-    if (dir) {
-      args.push("--add-dir", dir);
+  if (!resumeId) {
+    for (const dir of params.extraAllowedDirs ?? []) {
+      if (dir) {
+        args.push("--add-dir", dir);
+      }
     }
+  }
+
+  if (resumeId) {
+    args.push(resumeId, "-");
   }
 
   return {
