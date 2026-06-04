@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACP_PROVIDER_SPECS,
+  DEFAULT_LOCAL_AGENT_PROVIDER_IDS,
+  createDefaultLocalAgentProviderPlugins,
   createGenericAcpProvider,
-  createHermesProvider,
-  createKimiProvider,
-  createKiroProvider,
+  createKnownAcpProvider,
 } from "../../src/index.js";
 
 describe("ACP provider wrappers", () => {
@@ -26,19 +27,8 @@ describe("ACP provider wrappers", () => {
   });
 
   it("exposes concrete provider plugins backed by the shared ACP transport", async () => {
-    const providers = [
-      createHermesProvider(),
-      createKimiProvider(),
-      createKiroProvider(),
-    ];
-
-    expect(providers.map((provider) => provider.id)).toEqual([
-      "hermes",
-      "kimi",
-      "kiro",
-    ]);
-
-    for (const provider of providers) {
+    for (const spec of ACP_PROVIDER_SPECS) {
+      const provider = createKnownAcpProvider(spec.id);
       const plan = await provider.buildLaunchPlan({
         runId: `run_${provider.id}`,
         cwd: "/tmp",
@@ -48,11 +38,22 @@ describe("ACP provider wrappers", () => {
       });
 
       expect(plan.promptInput).toBe("stdin");
-      expect(plan.args).toEqual(["acp"]);
+      expect(plan.args).toEqual(spec.args);
       expect(provider.capabilities()).toMatchObject({
         nativeResume: false,
         streaming: true,
       });
     }
+  });
+
+  it("builds the default provider list with dedicated Codex and Claude plus ACP presets", () => {
+    const providers = createDefaultLocalAgentProviderPlugins();
+
+    expect(providers.map((provider) => provider.id)).toEqual(
+      DEFAULT_LOCAL_AGENT_PROVIDER_IDS,
+    );
+    expect(providers.map((provider) => provider.kind)).toEqual(
+      providers.map(() => "local-agent"),
+    );
   });
 });

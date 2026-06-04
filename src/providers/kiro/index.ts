@@ -1,1 +1,1 @@
-export { createKiroProvider, kiroProvider } from "./provider.js";
+export { createKiroProvider, kiroProvider } from "../acp-presets/index.js";

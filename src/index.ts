@@ -7,9 +7,38 @@ export { createClaudeProvider, claudeProvider } from "./providers/claude/index.j
 export { createCodexProvider, codexProvider } from "./providers/codex/index.js";
 export { createFakeProvider, fakeProvider } from "./providers/fake/index.js";
 export { createGenericAcpProvider } from "./providers/generic-acp/index.js";
-export { createHermesProvider, hermesProvider } from "./providers/hermes/index.js";
-export { createKimiProvider, kimiProvider } from "./providers/kimi/index.js";
-export { createKiroProvider, kiroProvider } from "./providers/kiro/index.js";
+export {
+  ACP_PROVIDER_SPECS,
+  DEFAULT_LOCAL_AGENT_PROVIDER_IDS,
+  createCursorProvider,
+  createDefaultLocalAgentProviderPlugins,
+  createDevinProvider,
+  createGeminiProvider,
+  createHermesProvider,
+  createKiloProvider,
+  createKimiProvider,
+  createKiroProvider,
+  createKnownAcpProvider,
+  createMistralVibeProvider,
+  createOpenCodeProvider,
+  createQoderProvider,
+  createQwenProvider,
+  cursorProvider,
+  devinProvider,
+  geminiProvider,
+  hermesProvider,
+  kiloProvider,
+  kimiProvider,
+  kiroProvider,
+  mistralVibeProvider,
+  openCodeProvider,
+  qoderProvider,
+  qwenProvider,
+} from "./providers/acp-presets/index.js";
+export type {
+  AcpProviderId,
+  AcpProviderSpec,
+} from "./providers/acp-presets/index.js";
 
 export {
   LocalAgentRuntimeError,

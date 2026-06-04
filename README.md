@@ -42,10 +42,11 @@ ACP-compatible agents in the wider ecosystem include:
 | GitHub Copilot CLI | `copilot --acp --stdio` |
 | Factory Droid | `droid exec --output-format acp` |
 | fast-agent | `uvx fast-agent-mcp acp` |
-| OpenCode | `npx -y opencode-ai acp` |
-| Qwen Code | `qwen --acp` |
+| OpenCode | `opencode acp` |
+| Qwen Code | `qwen --acp --experimental-skills` |
 | Kimi CLI | `kimi acp` |
-| Kiro CLI | `kiro-cli-chat acp` |
+| Kilo | `kilo acp` |
+| Mistral Vibe | `vibe-acp` |
 | Trae CLI | `traecli acp serve` |
 
 This table is for ecosystem orientation. Commands can vary by agent version, so use the registry as the source of truth. Built-in provider support in this package is listed below, and hosts can use `createGenericAcpProvider()` or a custom provider plugin when they already have an ACP command to launch.
@@ -126,7 +127,7 @@ for await (const event of runtime.run({
 | Area | Included |
 | --- | --- |
 | Runtime facade | `detect()`, `run()`, `cancel()`, `listProviders()` |
-| Providers | Codex, Claude Code, Hermes, Kimi, Kiro, generic ACP, fake test provider |
+| Providers | Codex, Claude Code, ACP presets, generic ACP, fake test provider |
 | Process runtime | command resolution, stdin prompt delivery, timeout, cancel, stderr tail, redaction |
 | Transports | JSONL, plain stdout, ACP JSON-RPC |
 | MCP delivery | normalized stdio/http MCP server config passed into provider launch plans |
@@ -140,9 +141,17 @@ for await (const event of runtime.run({
 | --- | --- | --- | --- |
 | Codex | Supported | `codex exec --json` JSONL | Dynamic model discovery via `codex debug models`; same-provider resume via `codex exec resume --json <session> -` |
 | Claude Code | Supported | `claude -p --output-format stream-json` | Uses fallback model hints, custom model pass-through, and same-provider resume via `--resume <session>` |
-| Hermes | Experimental | ACP JSON-RPC | Shared generic ACP transport |
-| Kimi | Experimental | ACP JSON-RPC | Shared generic ACP transport |
-| Kiro | Experimental | ACP JSON-RPC | Shared generic ACP transport |
+| Devin for Terminal | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `DEVIN_ACP_BIN` |
+| Hermes | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `HERMES_ACP_BIN` |
+| Kimi | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `KIMI_ACP_BIN` |
+| Kiro | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `KIRO_ACP_BIN` |
+| Kilo | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `KILO_ACP_BIN` |
+| Mistral Vibe | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `VIBE_ACP_BIN` |
+| Cursor Agent | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `CURSOR_ACP_BIN` |
+| Gemini CLI | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `GEMINI_ACP_BIN` |
+| OpenCode | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `OPENCODE_ACP_BIN` |
+| Qoder CLI | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `QODER_ACP_BIN` |
+| Qwen Code | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `QWEN_ACP_BIN` |
 | Generic ACP | Experimental | ACP JSON-RPC | Bring your own ACP agent command |
 | Fake | Test helper | In-memory async events | For host tests and conformance checks |
 
@@ -324,10 +333,8 @@ import {
   createLocalAgentRuntime,
   createCodexProvider,
   createClaudeProvider,
+  createDefaultLocalAgentProviderPlugins,
   createGenericAcpProvider,
-  createHermesProvider,
-  createKimiProvider,
-  createKiroProvider,
   type AgentEvent,
   type AgentRunInput,
 } from "@nextop-os/agent-acp-kit";

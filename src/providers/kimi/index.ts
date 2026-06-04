@@ -1,1 +1,1 @@
-export { createKimiProvider, kimiProvider } from "./provider.js";
+export { createKimiProvider, kimiProvider } from "../acp-presets/index.js";
