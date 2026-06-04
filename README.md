@@ -283,6 +283,7 @@ Recommended checks:
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm pack:check
 ```
 
 Provider-specific tests should cover:
@@ -346,11 +347,39 @@ import {
 
 ## Publishing Checklist
 
-Before publishing as a standalone package or moving to a standalone repository:
+Use the GitHub Actions workflow `.github/workflows/npm-package-release.yml` for normal releases. It is intentionally manual so maintainers choose the exact semver version and npm dist-tag.
+
+Required repository setup:
+
+- Add an npm automation token as the repository secret `NPM_TOKEN`.
+- Run the workflow from the `main` branch.
+- Enter the next semver version, for example `0.1.1`.
+- Keep `dist_tag` as `latest` for stable releases, or use a tag such as `next` for prereleases.
+- Use `dry_run: true` to validate the full release flow without publishing or pushing a tag.
+
+The workflow runs install, typecheck, tests, build, `npm pack --dry-run`, then publishes with npm provenance. After a successful real publish it commits the package version and pushes tag `v<version>`.
+
+Local fallback, only when GitHub Actions is unavailable:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm pack:check
+npm version <next-version> --no-git-tag-version
+npm publish --access public --provenance
+git add package.json
+git commit -m "Release @nextop-os/agent-acp-kit v<next-version>"
+git tag v<next-version>
+git push origin main --follow-tags
+```
+
+Before publishing:
 
 - Keep host-specific code out of this package.
 - Keep provider-specific differences inside providers.
 - Keep `AgentRunInput` and `AgentEvent` backward compatible when possible.
 - Include README, AGENTS, package tests, and provider conformance tests.
 - Run typecheck, tests, and build.
-- Validate npm package contents with `npm pack --dry-run`.
+- Validate npm package contents with `pnpm pack:check`.

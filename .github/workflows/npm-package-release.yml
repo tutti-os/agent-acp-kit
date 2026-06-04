@@ -1,0 +1,110 @@
+name: npm Package Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver version to publish, for example 0.1.1"
+        required: true
+        type: string
+      dist_tag:
+        description: "npm dist-tag"
+        required: true
+        default: "latest"
+        type: string
+      dry_run:
+        description: "Run all checks and npm publish --dry-run without pushing a tag"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: npm-package-release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      PACKAGE_NAME: "@nextop-os/agent-acp-kit"
+      RELEASE_VERSION: ${{ inputs.version }}
+      DIST_TAG: ${{ inputs.dist_tag }}
+      DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Ensure main branch release
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Releases must run from main, got ${GITHUB_REF_NAME}."
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release version
+        run: |
+          node -e 'const version = process.env.RELEASE_VERSION; if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) { console.error(`Invalid semver version: ${version}`); process.exit(1); }'
+          if npm view "${PACKAGE_NAME}@${RELEASE_VERSION}" version >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${RELEASE_VERSION} is already published."
+            exit 1
+          fi
+
+      - name: Apply package version
+        run: npm pkg set "version=${RELEASE_VERSION}"
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Validate package tarball
+        run: npm pack --dry-run
+
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "${DRY_RUN}" = "true" ]; then
+            npm publish --access public --tag "${DIST_TAG}" --dry-run
+          else
+            npm publish --access public --tag "${DIST_TAG}" --provenance
+          fi
+
+      - name: Commit release version and tag
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "Release ${PACKAGE_NAME} v${RELEASE_VERSION}"
+          git tag "v${RELEASE_VERSION}"
+          git push origin "HEAD:main" --follow-tags

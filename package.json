@@ -36,6 +36,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc --build tsconfig.json --force",
+    "pack:check": "npm pack --dry-run",
     "test": "vitest run tests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }

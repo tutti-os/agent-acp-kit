@@ -139,10 +139,24 @@ For changes that affect a host integration, also run the host tests that consume
 For release readiness, run:
 
 ```bash
-npm pack --dry-run
+pnpm pack:check
 ```
 
 and verify the tarball includes `dist`, `README.md`, `AGENTS.md`, and `package.json`.
+
+## Release Workflow
+
+Normal package releases should use `.github/workflows/npm-package-release.yml`.
+
+Release requirements:
+
+- Run from the `main` branch.
+- Provide a new semver version in the workflow input.
+- Keep the repository secret `NPM_TOKEN` configured with npm publish permission.
+- Use `dry_run: true` first when changing release behavior.
+- Let the workflow publish, commit the version bump, and push tag `v<version>`.
+
+Do not publish ad hoc from a local machine unless GitHub Actions is unavailable. If local publishing is necessary, run typecheck, tests, build, and `pnpm pack:check` before `npm publish`.
 
 ## Documentation Expectations
 
