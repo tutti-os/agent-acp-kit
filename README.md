@@ -247,10 +247,10 @@ const modelOptions = await runtime.detect();
 Provider behavior differs:
 
 - Codex: attempts dynamic discovery with `codex debug models`, then falls back to bundled or package model hints.
-- Claude Code: returns fallback hints such as `sonnet`, `opus`, `haiku`, and known full ids. Custom model ids can be passed through.
+- Claude Code: returns fallback hints such as `sonnet`, `opus`, `haiku`, and known full ids, then adds configured custom ids from the Claude settings file when present. Custom model ids can be passed through.
 - ACP providers: attempt model discovery through ACP session lifecycle when the peer supports it.
 
-Hosts should not hardcode Codex or Claude model lists above this package. If a UI needs custom models, keep that UI behavior in the host and pass the chosen id into `AgentRunInput.model`.
+Hosts should not hardcode Codex or Claude model lists above this package. If a UI needs additional custom models, keep that UI behavior in the host and pass the chosen id into `AgentRunInput.model`.
 
 ## Installing Local Providers
 
