@@ -12,9 +12,13 @@
   <img src="https://img.shields.io/badge/ACP-oriented-111827" alt="ACP oriented">
 </p>
 
+<p align="center">
+  <img src="./assets/agent-acp-kit-hero.png" alt="@nextop-os/agent-acp-kit connects a host app with Codex, Claude Code, ACP agents, and MCP tools">
+</p>
+
 `@nextop-os/agent-acp-kit` lets a host application detect, launch, stream, cancel, and resume local coding agents through a stable TypeScript facade.
 
-It is built for apps that want to support Codex, Claude Code, and ACP-compatible agents without scattering provider-specific process, transport, MCP, skill, model, and event parsing logic throughout the app.
+It is built for apps that want to support Codex, Claude Code, and ACP-compatible agents such as Gemini CLI, Cursor Agent, GitHub Copilot CLI, Factory Droid, fast-agent, OpenCode, Qwen Code, Kimi CLI, Kilo, Mistral Vibe, and Trae CLI without scattering provider-specific process, transport, MCP, skill, model, and event parsing logic throughout the app.
 
 This is an embeddable host SDK. It is not a replacement for ACP clients such as [`acpx`](https://github.com/openclaw/acpx), and it is not a single-provider ACP adapter binary such as `codex-acp`.
 
