@@ -33,7 +33,7 @@ Local coding agents do not all expose the same interface:
 
 This package sits in the middle. It owns local agent execution. Your application owns product behavior.
 
-![Architecture diagram for @nextop-os/agent-acp-kit](https://raw.githubusercontent.com/nextop-os/agent-acp-kit/main/assets/agent-acp-kit-architecture.png)
+![Architecture diagram for @nextop-os/agent-acp-kit](./assets/agent-acp-kit-architecture.png)
 
 ## ACP-compatible Agents
 
