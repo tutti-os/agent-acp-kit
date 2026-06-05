@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/agent-acp-kit-hero.png" alt="@nextop-os/agent-acp-kit connects a host app with Codex, Claude Code, ACP agents, and MCP tools">
+  <img src="./assets/agent-acp-kit-architecture.png" alt="Architecture diagram for @nextop-os/agent-acp-kit">
 </p>
 
 `@nextop-os/agent-acp-kit` lets a host application detect, launch, stream, cancel, and resume local coding agents through a stable TypeScript facade.
@@ -32,8 +32,6 @@ Local coding agents do not all expose the same interface:
 - Host apps still need their own messages, sessions, tool permissions, replay, canvas state, billing, and product semantics.
 
 This package sits in the middle. It owns local agent execution. Your application owns product behavior.
-
-![Architecture diagram for @nextop-os/agent-acp-kit](./assets/agent-acp-kit-architecture.png)
 
 ## ACP-compatible Agents
 
