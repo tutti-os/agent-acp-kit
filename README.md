@@ -250,6 +250,31 @@ Provider behavior differs:
 
 Hosts should not hardcode Codex or Claude model lists above this package. If a UI needs custom models, keep that UI behavior in the host and pass the chosen id into `AgentRunInput.model`.
 
+## Installing Local Providers
+
+Hosts can expose an install action for supported local providers through one
+public function:
+
+```ts
+import { installAgentProvider } from "@nextop-os/agent-acp-kit";
+
+const result = await installAgentProvider("codex");
+```
+
+Supported install targets are `codex` and `claude`. The function probes the
+provider CLI and ACP adapter first, then chooses the right npm command:
+
+- Codex full install: `npm install -g @openai/codex @zed-industries/codex-acp`
+- Codex adapter-only install: `npm install -g @zed-industries/codex-acp`
+- Claude Code full install: `npm install -g @anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp`
+- Claude Code adapter-only install: `npm install -g @agentclientprotocol/claude-agent-acp`
+
+The result is structured instead of throwing raw shell output. Failed installs
+include a `failureReason` such as `install_command_failed`,
+`install_timed_out`, or `post_install_probe_failed`. A successful install can
+still return `auth_required` in `after.availability`; hosts should then prompt
+the user to log in with the provider CLI.
+
 ## MCP Tools
 
 This package does not define product tools. It accepts `mcpServers` and converts them into the provider's expected format.
@@ -335,6 +360,7 @@ import {
   createClaudeProvider,
   createDefaultLocalAgentProviderPlugins,
   createGenericAcpProvider,
+  installAgentProvider,
   type AgentEvent,
   type AgentRunInput,
 } from "@nextop-os/agent-acp-kit";

@@ -35,6 +35,23 @@ export {
   qoderProvider,
   qwenProvider,
 } from "./providers/acp-presets/index.js";
+export {
+  AGENT_PROVIDER_INSTALL_SPECS,
+  getAgentProviderInstallStatus,
+  installAgentProvider,
+  runShellInstallCommand,
+} from "./providers/install.js";
+export type {
+  AgentProviderInstallAvailability,
+  AgentProviderInstallCommandResult,
+  AgentProviderInstallFailureReason,
+  AgentProviderInstallOptions,
+  AgentProviderInstallReason,
+  AgentProviderInstallResult,
+  AgentProviderInstallSpec,
+  AgentProviderInstallStatus,
+  InstallableAgentProviderId,
+} from "./providers/install.js";
 export type {
   AcpProviderId,
   AcpProviderSpec,

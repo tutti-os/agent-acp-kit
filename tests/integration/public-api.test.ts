@@ -10,6 +10,9 @@ describe("public api", () => {
     expect(runtime.codexProvider.id).toBe("codex");
     expect(runtime.createClaudeProvider).toBeTypeOf("function");
     expect(runtime.claudeProvider.id).toBe("claude");
+    expect(runtime.installAgentProvider).toBeTypeOf("function");
+    expect(runtime.getAgentProviderInstallStatus).toBeTypeOf("function");
+    expect(runtime.AGENT_PROVIDER_INSTALL_SPECS.codex.cliBinary).toBe("codex");
     expect(runtime.createDefaultLocalAgentProviderPlugins).toBeTypeOf("function");
     expect(runtime.DEFAULT_LOCAL_AGENT_PROVIDER_IDS).toEqual([
       "codex",
