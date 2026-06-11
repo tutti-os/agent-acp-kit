@@ -140,7 +140,7 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
-  it("preserves configured Codex model providers in the per-run CODEX_HOME", async () => {
+  it("copies user Codex config and overlays run model and MCP without duplicate tables", async () => {
     const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
     let runHome: string | undefined;
@@ -155,6 +155,8 @@ describe("buildCodexLaunchPlan", () => {
       await writeFile(
         join(sourceHome, "config.toml"),
         [
+          'notify = ["say", "done"]',
+          'sandbox_mode = "workspace-write"',
           'model_provider = "OpenAI"',
           'model = "minimax-m2.5"',
           "",
@@ -162,6 +164,18 @@ describe("buildCodexLaunchPlan", () => {
           'name = "OpenAI"',
           'base_url = "https://llm-api.nextop.sh/v1"',
           'wire_api = "responses"',
+          "",
+          "[mcp_servers.chrome-devtools]",
+          'command = "npx"',
+          'args = ["chrome-devtools-mcp@latest"]',
+          "",
+          "[mcp_servers.aimc]",
+          'type = "stdio"',
+          'command = "old-node"',
+          'args = ["old-server.js"]',
+          "",
+          "[mcp_servers.aimc.env]",
+          'OLD_TOKEN = "old-token"',
           "",
           "[profiles.unrelated]",
           'model = "other"',
@@ -193,15 +207,28 @@ describe("buildCodexLaunchPlan", () => {
       expect(runHome).not.toBe(sourceHome);
 
       const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).toContain('notify = ["say", "done"]');
+      expect(config).toContain('sandbox_mode = "workspace-write"');
       expect(config).toContain('model_provider = "OpenAI"');
       expect(config).toContain('model = "gpt-5.4"');
+      expect(config).not.toContain('model = "minimax-m2.5"');
       expect(config).toContain("[model_providers.OpenAI]");
       expect(config).toContain('base_url = "https://llm-api.nextop.sh/v1"');
+      expect(config).toContain("[mcp_servers.chrome-devtools]");
       expect(config).toContain("[mcp_servers.aimc]");
+      expect(config).toContain('command = "node"');
+      expect(config).toContain('AIMC_TOOL_TOKEN = "tool-token"');
+      expect(config).not.toContain('command = "old-node"');
+      expect(config).not.toContain('OLD_TOKEN = "old-token"');
+      const firstTableIndex = config.search(/^\[/m);
+      const rootConfig = config.slice(0, firstTableIndex);
+      expect(rootConfig.match(/^model\s*=/gm) ?? []).toHaveLength(1);
+      expect(config.match(/^\[mcp_servers\.aimc\]$/gm)).toHaveLength(1);
+      expect(config.match(/^\[mcp_servers\.aimc\.env\]$/gm)).toHaveLength(1);
       expect(config.indexOf('model = "gpt-5.4"')).toBeLessThan(
         config.indexOf("[model_providers.OpenAI]"),
       );
-      expect(config).not.toContain("[profiles.unrelated]");
+      expect(config).toContain("[profiles.unrelated]");
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });

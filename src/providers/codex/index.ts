@@ -189,74 +189,97 @@ function collectMcpRedactionSecrets(
   return secrets.filter((secret) => secret.length > 0);
 }
 
-function extractCodexModelProviderLine(config: string) {
-  const match = config.match(
-    /^model_provider\s*=\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\r\n#]+)/m,
-  );
-  return match?.[0]?.trim();
-}
-
-function extractCodexModelProviderTables(config: string) {
-  const blocks: string[] = [];
-  let currentBlock: string[] | null = null;
-
-  for (const line of config.split(/\r?\n/)) {
-    if (line.startsWith("[")) {
-      if (currentBlock) {
-        blocks.push(currentBlock.join("\n").trim());
-      }
-      currentBlock = line.startsWith("[model_providers.") ? [line] : null;
-      continue;
-    }
-
-    if (currentBlock) {
-      currentBlock.push(line);
-    }
-  }
-
-  if (currentBlock) {
-    blocks.push(currentBlock.join("\n").trim());
-  }
-
-  return blocks.filter(Boolean);
-}
-
-function splitTomlRoot(config: string) {
-  const firstTableIndex = config.search(/^\[/m);
-  if (firstTableIndex < 0) {
-    return { root: config.trim(), tables: "" };
-  }
-
-  return {
-    root: config.slice(0, firstTableIndex).trim(),
-    tables: config.slice(firstTableIndex).trim(),
-  };
-}
-
-function mergeCodexConfigToml(sourceConfig: string, generatedConfig: string) {
-  const modelProviderLine = extractCodexModelProviderLine(sourceConfig);
-  const providerTables = extractCodexModelProviderTables(sourceConfig);
-  if (!modelProviderLine && providerTables.length === 0) {
-    return generatedConfig;
-  }
-
-  const generated = splitTomlRoot(generatedConfig);
-  const sections = [
-    modelProviderLine,
-    generated.root,
-    providerTables.join("\n\n"),
-    generated.tables,
-  ].filter((section) => section?.trim());
-
-  return `${sections.join("\n\n")}\n`;
-}
-
 async function readOptionalFile(path: string) {
   try {
     return await readFile(path, "utf8");
   } catch {
     return undefined;
   }
+}
+
+function getTomlTableName(line: string) {
+  const match = line.trim().match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
+  return match?.[1]?.trim();
+}
+
+function isTomlTableHeader(line: string) {
+  return Boolean(getTomlTableName(line));
+}
+
+function isRootTomlKey(line: string, key: string) {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^\\s*${escapedKey}\\s*=`).test(line);
+}
+
+function isMcpServerTable(tableName: string | undefined, serverNames: Set<string>) {
+  if (!tableName) return false;
+  for (const serverName of serverNames) {
+    const prefix = `mcp_servers.${serverName}`;
+    if (tableName === prefix || tableName.startsWith(`${prefix}.`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function mergeCodexConfigToml(params: {
+  sourceConfig?: string;
+  model?: string;
+  mcpServers: ReturnType<typeof normalizeMcpServerConfigs>;
+}) {
+  const mcpConfigBlock = buildMcpConfigBlock(params.mcpServers).trim();
+  if (!params.sourceConfig) {
+    const lines = [
+      params.model && params.model !== "default"
+        ? `model = "${escapeTomlString(params.model)}"`
+        : undefined,
+      mcpConfigBlock,
+    ].filter(Boolean);
+    return `${lines.join("\n\n")}\n`;
+  }
+
+  const serverNames = new Set(params.mcpServers.map((server) => server.name));
+  const sourceLines = params.sourceConfig.split(/\r?\n/);
+  const rootLines: string[] = [];
+  const tableBlocks: string[][] = [];
+  let currentTable: string[] | undefined;
+
+  for (const line of sourceLines) {
+    if (isTomlTableHeader(line)) {
+      currentTable = [line];
+      tableBlocks.push(currentTable);
+      continue;
+    }
+
+    if (currentTable) {
+      currentTable.push(line);
+    } else {
+      rootLines.push(line);
+    }
+  }
+
+  const mergedRootLines = rootLines.filter(
+    (line) => !(params.model && params.model !== "default" && isRootTomlKey(line, "model")),
+  );
+  while (mergedRootLines.length > 0 && !mergedRootLines[mergedRootLines.length - 1]?.trim()) {
+    mergedRootLines.pop();
+  }
+  if (params.model && params.model !== "default") {
+    mergedRootLines.push(`model = "${escapeTomlString(params.model)}"`);
+  }
+
+  const mergedTableBlocks = tableBlocks.filter((block) => {
+    const tableName = getTomlTableName(block[0] ?? "");
+    return !isMcpServerTable(tableName, serverNames);
+  });
+
+  const sections = [
+    mergedRootLines.join("\n").trim(),
+    ...mergedTableBlocks.map((block) => block.join("\n").trim()).filter(Boolean),
+    mcpConfigBlock,
+  ].filter(Boolean);
+
+  return `${sections.join("\n\n")}\n`;
 }
 
 async function materializeCodexHome(params: {
@@ -285,23 +308,14 @@ async function materializeCodexHome(params: {
     );
   }
 
-  const configLines: string[] = [];
-  if (params.model && params.model !== "default") {
-    configLines.push(`model = "${escapeTomlString(params.model)}"`);
-  }
-
-  const mcpConfigBlock = buildMcpConfigBlock(normalizedServers);
-  if (mcpConfigBlock) {
-    configLines.push(mcpConfigBlock);
-  }
-
-  const generatedConfig = `${configLines.filter(Boolean).join("\n\n")}\n`;
   const sourceConfig = await readOptionalFile(join(sourceHome, "config.toml"));
   await writeFile(
     join(runHome, "config.toml"),
-    sourceConfig
-      ? mergeCodexConfigToml(sourceConfig, generatedConfig)
-      : generatedConfig,
+    mergeCodexConfigToml({
+      sourceConfig,
+      ...(params.model ? { model: params.model } : {}),
+      mcpServers: normalizedServers,
+    }),
     "utf8",
   );
 
