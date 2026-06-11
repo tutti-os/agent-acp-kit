@@ -211,6 +211,13 @@ function isRootTomlKey(line: string, key: string) {
   return new RegExp(`^\\s*${escapedKey}\\s*=`).test(line);
 }
 
+function isUnsupportedCodexServiceTierLine(line: string) {
+  if (!isRootTomlKey(line, "service_tier")) return false;
+  const match = line.match(/^\s*service_tier\s*=\s*(?:"([^"]*)"|'([^']*)'|([^#\s]+))/);
+  const value = match?.[1] ?? match?.[2] ?? match?.[3];
+  return value !== "fast" && value !== "flex";
+}
+
 function isMcpServerTable(tableName: string | undefined, serverNames: Set<string>) {
   if (!tableName) return false;
   for (const serverName of serverNames) {
@@ -258,9 +265,12 @@ function mergeCodexConfigToml(params: {
     }
   }
 
-  const mergedRootLines = rootLines.filter(
-    (line) => !(params.model && params.model !== "default" && isRootTomlKey(line, "model")),
-  );
+  const mergedRootLines = rootLines.filter((line) => {
+    if (params.model && params.model !== "default" && isRootTomlKey(line, "model")) {
+      return false;
+    }
+    return !isUnsupportedCodexServiceTierLine(line);
+  });
   while (mergedRootLines.length > 0 && !mergedRootLines[mergedRootLines.length - 1]?.trim()) {
     mergedRootLines.pop();
   }

@@ -157,6 +157,7 @@ describe("buildCodexLaunchPlan", () => {
         [
           'notify = ["say", "done"]',
           'sandbox_mode = "workspace-write"',
+          'service_tier = "priority"',
           'model_provider = "OpenAI"',
           'model = "minimax-m2.5"',
           "",
@@ -209,6 +210,7 @@ describe("buildCodexLaunchPlan", () => {
       const config = await readFile(join(runHome!, "config.toml"), "utf8");
       expect(config).toContain('notify = ["say", "done"]');
       expect(config).toContain('sandbox_mode = "workspace-write"');
+      expect(config).not.toContain('service_tier = "priority"');
       expect(config).toContain('model_provider = "OpenAI"');
       expect(config).toContain('model = "gpt-5.4"');
       expect(config).not.toContain('model = "minimax-m2.5"');
