@@ -134,4 +134,4 @@ jobs:
           git add package.json
           git commit -m "Release ${PACKAGE_NAME} v${RELEASE_VERSION}"
           git tag "v${RELEASE_VERSION}"
-          git push origin "HEAD:main" --follow-tags
+          git push origin "HEAD:main" "v${RELEASE_VERSION}"
