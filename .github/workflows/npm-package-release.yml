@@ -121,7 +121,7 @@ jobs:
           if [ "${DRY_RUN}" = "true" ]; then
             npm publish --access public --tag "${DIST_TAG}" --dry-run
           else
-            npm publish --access public --tag "${DIST_TAG}" --provenance
+            npm publish --access public --tag "${DIST_TAG}"
           fi
 
       - name: Commit release version and tag
