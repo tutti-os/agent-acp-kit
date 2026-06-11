@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -189,6 +189,76 @@ function collectMcpRedactionSecrets(
   return secrets.filter((secret) => secret.length > 0);
 }
 
+function extractCodexModelProviderLine(config: string) {
+  const match = config.match(
+    /^model_provider\s*=\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\r\n#]+)/m,
+  );
+  return match?.[0]?.trim();
+}
+
+function extractCodexModelProviderTables(config: string) {
+  const blocks: string[] = [];
+  let currentBlock: string[] | null = null;
+
+  for (const line of config.split(/\r?\n/)) {
+    if (line.startsWith("[")) {
+      if (currentBlock) {
+        blocks.push(currentBlock.join("\n").trim());
+      }
+      currentBlock = line.startsWith("[model_providers.") ? [line] : null;
+      continue;
+    }
+
+    if (currentBlock) {
+      currentBlock.push(line);
+    }
+  }
+
+  if (currentBlock) {
+    blocks.push(currentBlock.join("\n").trim());
+  }
+
+  return blocks.filter(Boolean);
+}
+
+function splitTomlRoot(config: string) {
+  const firstTableIndex = config.search(/^\[/m);
+  if (firstTableIndex < 0) {
+    return { root: config.trim(), tables: "" };
+  }
+
+  return {
+    root: config.slice(0, firstTableIndex).trim(),
+    tables: config.slice(firstTableIndex).trim(),
+  };
+}
+
+function mergeCodexConfigToml(sourceConfig: string, generatedConfig: string) {
+  const modelProviderLine = extractCodexModelProviderLine(sourceConfig);
+  const providerTables = extractCodexModelProviderTables(sourceConfig);
+  if (!modelProviderLine && providerTables.length === 0) {
+    return generatedConfig;
+  }
+
+  const generated = splitTomlRoot(generatedConfig);
+  const sections = [
+    modelProviderLine,
+    generated.root,
+    providerTables.join("\n\n"),
+    generated.tables,
+  ].filter((section) => section?.trim());
+
+  return `${sections.join("\n\n")}\n`;
+}
+
+async function readOptionalFile(path: string) {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 async function materializeCodexHome(params: {
   mcpServers?: Parameters<typeof normalizeMcpServerConfigs>[0];
   env?: Record<string, string>;
@@ -225,9 +295,13 @@ async function materializeCodexHome(params: {
     configLines.push(mcpConfigBlock);
   }
 
+  const generatedConfig = `${configLines.filter(Boolean).join("\n\n")}\n`;
+  const sourceConfig = await readOptionalFile(join(sourceHome, "config.toml"));
   await writeFile(
     join(runHome, "config.toml"),
-    `${configLines.filter(Boolean).join("\n\n")}\n`,
+    sourceConfig
+      ? mergeCodexConfigToml(sourceConfig, generatedConfig)
+      : generatedConfig,
     "utf8",
   );
 
