@@ -13,6 +13,12 @@ describe("buildCodexLaunchPlan", () => {
     });
   });
 
+  it("allows independent local Codex runs to make progress concurrently", () => {
+    expect(createCodexProvider().capabilities()).toMatchObject({
+      maxConcurrentRuns: Number.MAX_SAFE_INTEGER,
+    });
+  });
+
   it("uses trusted local execution, stdin delivery, cwd pinning, and repeatable add-dir flags", () => {
     expect(
       buildCodexLaunchPlan({

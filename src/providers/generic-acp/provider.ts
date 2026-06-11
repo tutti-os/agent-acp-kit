@@ -62,7 +62,7 @@ export function createGenericAcpProvider(input: {
         nativeResume: false,
         streaming: true,
         toolGateway: false,
-        maxConcurrentRuns: 1,
+        maxConcurrentRuns: Number.MAX_SAFE_INTEGER,
       };
     },
     async buildLaunchPlan(params) {

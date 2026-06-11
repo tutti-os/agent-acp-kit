@@ -157,6 +157,8 @@ for await (const event of runtime.run({
 | Generic ACP | Experimental | ACP JSON-RPC | Bring your own ACP agent command |
 | Fake | Test helper | In-memory async events | For host tests and conformance checks |
 
+Built-in real local providers do not impose a provider-level concurrency cap. Hosts can still enforce stricter queueing, cancellation, or watchdog policies around `runtime.run()` when a product surface needs serialized execution.
+
 ## Host Integration Pattern
 
 Treat this package as the local-agent execution layer, not as your application orchestrator.

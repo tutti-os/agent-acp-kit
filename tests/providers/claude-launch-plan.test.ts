@@ -13,6 +13,12 @@ describe("buildClaudeLaunchPlan", () => {
     });
   });
 
+  it("allows independent local Claude runs to make progress concurrently", () => {
+    expect(createClaudeProvider().capabilities()).toMatchObject({
+      maxConcurrentRuns: Number.MAX_SAFE_INTEGER,
+    });
+  });
+
   it("builds a stream-json stdin launch plan with repeatable add-dir flags", () => {
     expect(
       buildClaudeLaunchPlan({

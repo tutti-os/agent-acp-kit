@@ -407,7 +407,7 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
         nativeResume: true,
         streaming: true,
         toolGateway: true,
-        maxConcurrentRuns: 1,
+        maxConcurrentRuns: Number.MAX_SAFE_INTEGER,
       };
     },
     async buildLaunchPlan(params) {

@@ -40,6 +40,7 @@ describe("ACP provider wrappers", () => {
       expect(plan.promptInput).toBe("stdin");
       expect(plan.args).toEqual(spec.args);
       expect(provider.capabilities()).toMatchObject({
+        maxConcurrentRuns: Number.MAX_SAFE_INTEGER,
         nativeResume: false,
         streaming: true,
       });
