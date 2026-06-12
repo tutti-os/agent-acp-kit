@@ -1,5 +1,5 @@
 import type { AgentRunParams, ProviderLaunchPlan } from "../../core/provider-plugin.js";
-import { clampCodexReasoning } from "./fallback-models.js";
+import { clampCodexReasoning } from "./reasoning.js";
 
 function resolveProviderResumeId(
   resume: AgentRunParams<"local-agent", "codex">["resume"],

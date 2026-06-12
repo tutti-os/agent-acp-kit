@@ -1,91 +1,128 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import type { AgentModelOption } from "../../core/provider-plugin.js";
 import { resolveCommandExecutable } from "../../process/command-resolver.js";
-import { CLAUDE_FALLBACK_MODELS } from "./fallback-models.js";
 
 const execFileAsync = promisify(execFile);
-
-const CLAUDE_CONFIG_MODEL_ENV_KEYS = [
-  "ANTHROPIC_MODEL",
-  "ANTHROPIC_DEFAULT_SONNET_MODEL",
-  "ANTHROPIC_DEFAULT_OPUS_MODEL",
-  "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-] as const;
-
-function toRecord(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
-}
-
-function normalizeConfiguredModel(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
+const CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS = 8_000;
+const CLAUDE_DEFAULT_MODELS: AgentModelOption[] = [
+  { id: "default", label: "Default (CLI config)" },
+];
 
 function resolveClaudeConfigDir(env?: NodeJS.ProcessEnv) {
   const configured = env?.CLAUDE_CONFIG_DIR?.trim();
   return configured || path.join(homedir(), ".claude");
 }
 
-async function readClaudeConfiguredModels(configDir: string) {
+type ClaudeSdkModelInfo = {
+  value?: unknown;
+  displayName?: unknown;
+  description?: unknown;
+};
+
+async function* idleClaudePrompt(): AsyncIterable<never> {
+  await new Promise<void>(() => {
+    // Keep streaming input open until the SDK initialization response is read.
+  });
+}
+
+function normalizeClaudeSdkModels(sdkModels: unknown): AgentModelOption[] {
+  const models = Array.isArray(sdkModels) ? sdkModels : [];
+  const normalized: AgentModelOption[] = [];
+  const seen = new Set<string>();
+
+  function append(model: AgentModelOption) {
+    if (!model.id || seen.has(model.id)) return;
+    seen.add(model.id);
+    normalized.push(model);
+  }
+
+  for (const entry of models) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as ClaudeSdkModelInfo;
+    const id =
+      typeof record.value === "string" && record.value.trim()
+        ? record.value.trim()
+        : undefined;
+    if (!id) continue;
+    const label =
+      typeof record.displayName === "string" && record.displayName.trim()
+        ? record.displayName.trim()
+        : id;
+    const description =
+      typeof record.description === "string" && record.description.trim()
+        ? record.description.trim()
+        : undefined;
+    append({
+      id,
+      label,
+      ...(description ? { description } : {}),
+    });
+  }
+
+  if (!seen.has("default")) {
+    normalized.unshift(CLAUDE_DEFAULT_MODELS[0]!);
+  }
+
+  return normalized.length > 0 ? normalized : CLAUDE_DEFAULT_MODELS;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  let timer: NodeJS.Timeout | undefined;
   try {
-    const payload = JSON.parse(
-      await readFile(path.join(configDir, "settings.json"), "utf8"),
-    ) as unknown;
-    const settings = toRecord(payload);
-    const models = [
-      normalizeConfiguredModel(settings?.model),
-      ...CLAUDE_CONFIG_MODEL_ENV_KEYS.map((key) =>
-        normalizeConfiguredModel(toRecord(settings?.env)?.[key]),
-      ),
-    ];
-    return models.filter((model): model is string => Boolean(model));
-  } catch {
-    return [];
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Claude SDK model discovery timed out.")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
-function withConfiguredClaudeModels(configuredModels: string[]) {
-  const existingModels = CLAUDE_FALLBACK_MODELS;
-  const seen = new Set(existingModels.map((model) => model.id));
-  const appendedModels: AgentModelOption[] = [];
-
-  for (const modelId of configuredModels) {
-    if (seen.has(modelId)) continue;
-    seen.add(modelId);
-    appendedModels.push({ id: modelId, label: modelId });
+async function discoverClaudeSdkModels(input: {
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  executablePath: string;
+}) {
+  const sdk = await import("@anthropic-ai/claude-agent-sdk");
+  const queryHandle = sdk.query({
+    prompt: idleClaudePrompt(),
+    options: {
+      cwd: input.cwd,
+      env: input.env,
+      includePartialMessages: true,
+      pathToClaudeCodeExecutable: input.executablePath,
+      settingSources: ["user", "project", "local"],
+    },
+  });
+  try {
+    const models = await withTimeout(
+      queryHandle.supportedModels(),
+      CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS,
+    );
+    return normalizeClaudeSdkModels(models);
+  } finally {
+    queryHandle.close();
   }
-
-  if (appendedModels.length === 0) return existingModels;
-
-  const defaultIndex = existingModels.findIndex(
-    (model) => model.id === "default",
-  );
-  return defaultIndex >= 0
-    ? [
-        ...existingModels.slice(0, defaultIndex + 1),
-        ...appendedModels,
-        ...existingModels.slice(defaultIndex + 1),
-      ]
-    : [...appendedModels, ...existingModels];
 }
 
 export async function detectClaude(options?: {
   command?: string;
+  cwd?: string;
   env?: NodeJS.ProcessEnv;
   overridePath?: string;
 }) {
   const command = options?.command ?? "claude";
   const configDir = resolveClaudeConfigDir(options?.env);
-  const models = withConfiguredClaudeModels(
-    await readClaudeConfiguredModels(configDir),
-  );
+  const fallbackModels = CLAUDE_DEFAULT_MODELS;
   let executablePath: string;
   try {
     executablePath = await resolveCommandExecutable({
@@ -99,7 +136,7 @@ export async function detectClaude(options?: {
       authState: "missing" as const,
       configDir,
       executablePath: command,
-      models,
+      models: fallbackModels,
       skillsDir: path.join(configDir, "skills"),
       supported: false,
       unsupportedReason:
@@ -120,7 +157,7 @@ export async function detectClaude(options?: {
       authState: "unknown" as const,
       configDir,
       executablePath,
-      models,
+      models: fallbackModels,
       skillsDir: path.join(configDir, "skills"),
       supported: false,
       unsupportedReason:
@@ -129,6 +166,17 @@ export async function detectClaude(options?: {
           : `Unable to run ${command} --version`,
       version: "unknown",
     };
+  }
+
+  let models = fallbackModels;
+  try {
+    models = await discoverClaudeSdkModels({
+      cwd: options?.cwd ?? process.cwd(),
+      ...(options?.env ? { env: options.env } : {}),
+      executablePath,
+    });
+  } catch {
+    models = fallbackModels;
   }
 
   return {

@@ -1,6 +1,6 @@
 {
   "name": "@nextop-os/agent-acp-kit",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "ACP-oriented toolkit for detecting, launching, and streaming local coding agents.",
   "packageManager": "pnpm@10.26.2",
@@ -29,7 +29,10 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.2.101",
+    "zod": "^4.0.0"
+  },
   "devDependencies": {
     "@types/node": "^22.13.10",
     "typescript": "^5.7.3",

@@ -2,12 +2,27 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { detectClaude } from "../../src/providers/claude/detect.js";
 
+const claudeSdk = vi.hoisted(() => ({
+  query: vi.fn(),
+}));
+
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+  query: claudeSdk.query,
+}));
+
 describe("detectClaude", () => {
   const tempDirs: string[] = [];
+
+  beforeEach(() => {
+    claudeSdk.query.mockReset();
+    claudeSdk.query.mockImplementation(() => {
+      throw new Error("Claude SDK unavailable in test.");
+    });
+  });
 
   afterEach(() => {
     while (tempDirs.length > 0) {
@@ -31,7 +46,7 @@ describe("detectClaude", () => {
       version: "not-installed",
     });
     expect(detection.unsupportedReason).toContain("Executable not found");
-    expect(detection.models.map((model) => model.id)).toContain("sonnet");
+    expect(detection.models.map((model) => model.id)).toEqual(["default"]);
   });
 
   it("falls back to openclaude and reports config roots", async () => {
@@ -58,18 +73,12 @@ describe("detectClaude", () => {
     });
     expect(detection.models.map((model) => model.id)).toEqual([
       "default",
-      "sonnet",
-      "opus",
-      "haiku",
-      "claude-opus-4-5",
-      "claude-sonnet-4-5",
-      "claude-haiku-4-5",
     ]);
   });
 
-  it("adds configured Claude Code custom models after the default model hint", async () => {
+  it("uses Claude SDK supportedModels as the dynamic model source", async () => {
     const dir = mkdtempSync(
-      join(tmpdir(), "agent-acp-kit-claude-config-models-"),
+      join(tmpdir(), "agent-acp-kit-claude-sdk-models-"),
     );
     const configDir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-home-"));
     tempDirs.push(dir, configDir);
@@ -79,33 +88,71 @@ describe("detectClaude", () => {
       "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"openclaude 0.9.0\"; exit 0; fi\nexit 1\n",
     );
     chmodSync(openClaude, 0o755);
-    writeFileSync(
-      join(configDir, "settings.json"),
-      JSON.stringify({
-        model: "sonnet",
-        env: {
-          ANTHROPIC_MODEL: "minimax-m2.5",
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "minimax-m2.5",
-          ANTHROPIC_DEFAULT_OPUS_MODEL: "router-opus",
+    const close = vi.fn();
+    claudeSdk.query.mockReturnValue({
+      close,
+      supportedModels: vi.fn().mockResolvedValue([
+        {
+          value: "default",
+          displayName: "Default (recommended)",
+          description: "Use the default model (currently minimax-m2.5)",
         },
-      }),
-    );
+        {
+          value: "opus",
+          displayName: "minimax-m2.5",
+          description: "Custom Opus model",
+        },
+        {
+          value: "sonnet",
+          displayName: "minimax-m2.5",
+          description: "Custom Sonnet model",
+        },
+        {
+          value: "minimax-m2.5",
+          displayName: "minimax-m2.5",
+          description: "Custom model",
+        },
+      ]),
+    });
 
     const detection = await detectClaude({
+      cwd: dir,
       env: { PATH: dir, CLAUDE_CONFIG_DIR: configDir },
     });
 
     expect(detection.configDir).toBe(configDir);
-    expect(detection.models.map((model) => model.id)).toEqual([
-      "default",
-      "minimax-m2.5",
-      "router-opus",
-      "sonnet",
-      "opus",
-      "haiku",
-      "claude-opus-4-5",
-      "claude-sonnet-4-5",
-      "claude-haiku-4-5",
+    expect(detection.models).toEqual([
+      {
+        id: "default",
+        label: "Default (recommended)",
+        description: "Use the default model (currently minimax-m2.5)",
+      },
+      {
+        id: "opus",
+        label: "minimax-m2.5",
+        description: "Custom Opus model",
+      },
+      {
+        id: "sonnet",
+        label: "minimax-m2.5",
+        description: "Custom Sonnet model",
+      },
+      {
+        id: "minimax-m2.5",
+        label: "minimax-m2.5",
+        description: "Custom model",
+      },
     ]);
+    expect(claudeSdk.query).toHaveBeenCalledWith({
+      prompt: expect.any(Object),
+      options: {
+        cwd: dir,
+        env: { PATH: dir, CLAUDE_CONFIG_DIR: configDir },
+        includePartialMessages: true,
+        pathToClaudeCodeExecutable: openClaude,
+        settingSources: ["user", "project", "local"],
+      },
+    });
+    expect(close).toHaveBeenCalled();
   });
 });

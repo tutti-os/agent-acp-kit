@@ -30,7 +30,9 @@ describe("detectCodex", () => {
       version: "not-installed",
     });
     expect(detection.unsupportedReason).toContain("Executable not found");
-    expect(detection.models?.length).toBeGreaterThan(0);
+    expect(detection.models).toEqual([
+      { id: "default", label: "Default (CLI config)" },
+    ]);
   });
 
   it("returns config and skills directories from CODEX_HOME", async () => {
@@ -83,7 +85,59 @@ exit 1
     ]);
   });
 
-  it("falls back to the bundled Codex catalog when refreshed discovery fails", async () => {
+  it("prefers Codex app-server model/list over the debug catalog", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-app-server-"));
+    tempDirs.push(dir);
+    const codexBin = join(dir, "codex");
+    writeFileSync(
+      codexBin,
+      `#!${process.execPath}
+const readline = require("node:readline");
+if (process.argv[2] === "--version") {
+  console.log("codex 1.2.3");
+  process.exit(0);
+}
+if (process.argv[2] === "app-server") {
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.on("line", (line) => {
+    const message = JSON.parse(line);
+    if (message.method === "initialize") {
+      console.log(JSON.stringify({ id: message.id, result: {} }));
+    } else if (message.method === "model/list") {
+      console.log(JSON.stringify({
+        id: message.id,
+        result: {
+          data: [
+            { id: "gpt-5.5", displayName: "GPT-5.5", description: "Frontier", hidden: false },
+            { id: "gpt-5.4", displayName: "GPT-5.4", hidden: false },
+            { id: "hidden", displayName: "Hidden", hidden: true }
+          ]
+        }
+      }));
+      process.exit(0);
+    }
+  });
+} else if (process.argv[2] === "debug" && process.argv[3] === "models") {
+  console.log(JSON.stringify({ models: [{ slug: "debug-only", display_name: "Debug Only" }] }));
+} else {
+  process.exit(1);
+}
+`,
+    );
+    chmodSync(codexBin, 0o755);
+
+    const detection = await detectCodex({
+      env: { PATH: dir, CODEX_HOME: join(dir, ".codex-home") },
+    });
+
+    expect(detection.models).toEqual([
+      { id: "default", label: "Default (CLI config)" },
+      { id: "gpt-5.5", label: "GPT-5.5", description: "Frontier" },
+      { id: "gpt-5.4", label: "GPT-5.4" },
+    ]);
+  });
+
+  it("does not expose bundled Codex catalog entries when refreshed discovery fails", async () => {
     const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-bundled-models-"));
     tempDirs.push(dir);
     const codexBin = join(dir, "codex");
@@ -106,7 +160,6 @@ exit 1
 
     expect(detection.models).toEqual([
       { id: "default", label: "Default (CLI config)" },
-      { id: "gpt-bundled", label: "GPT Bundled" },
     ]);
   });
 });

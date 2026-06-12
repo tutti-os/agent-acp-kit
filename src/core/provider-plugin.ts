@@ -45,6 +45,7 @@ export type RuntimeLease<
 export type AgentModelOption = {
   id: string;
   label: string;
+  description?: string;
 };
 
 export type AgentDetection<TModel extends AgentModelOption = AgentModelOption> = {
