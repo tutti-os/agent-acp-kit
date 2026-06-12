@@ -108,6 +108,14 @@ if (process.argv[2] === "app-server") {
         id: message.id,
         result: {
           data: [
+            {
+              id: "gpt-5.3-codex",
+              displayName: "gpt-5.3-codex",
+              description: "Coding-optimized model.",
+              hidden: false,
+              isDefault: true,
+              upgrade: "gpt-5.4"
+            },
             { id: "gpt-5.5", displayName: "GPT-5.5", description: "Frontier", hidden: false },
             { id: "gpt-5.4", displayName: "GPT-5.4", hidden: false },
             { id: "hidden", displayName: "Hidden", hidden: true }

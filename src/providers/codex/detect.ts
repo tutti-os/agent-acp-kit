@@ -52,6 +52,10 @@ function getString(record: Record<string, unknown>, key: string) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function isLegacyConcreteDefaultModel(record: Record<string, unknown>) {
+  return record.isDefault === true && Boolean(getString(record, "upgrade"));
+}
+
 function normalizeCodexCatalog(payload: unknown): AgentModelOption[] {
   const payloadRecord = toRecord(payload);
   const rawModels = Array.isArray(payloadRecord?.data)
@@ -80,6 +84,7 @@ function normalizeCodexCatalog(payload: unknown): AgentModelOption[] {
     const record = toRecord(entry);
     if (!record) continue;
     if (record.hidden === true || record.visibility === "hide") continue;
+    if (isLegacyConcreteDefaultModel(record)) continue;
 
     const id = getString(record, "id") ?? getString(record, "model") ?? getString(record, "slug");
     if (!id) continue;
