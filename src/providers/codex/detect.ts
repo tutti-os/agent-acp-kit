@@ -52,8 +52,8 @@ function getString(record: Record<string, unknown>, key: string) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function isLegacyConcreteDefaultModel(record: Record<string, unknown>) {
-  return record.isDefault === true && Boolean(getString(record, "upgrade"));
+function isSupersededCodexModel(record: Record<string, unknown>) {
+  return Boolean(getString(record, "upgrade"));
 }
 
 function normalizeCodexCatalog(payload: unknown): AgentModelOption[] {
@@ -84,7 +84,7 @@ function normalizeCodexCatalog(payload: unknown): AgentModelOption[] {
     const record = toRecord(entry);
     if (!record) continue;
     if (record.hidden === true || record.visibility === "hide") continue;
-    if (isLegacyConcreteDefaultModel(record)) continue;
+    if (isSupersededCodexModel(record)) continue;
 
     const id = getString(record, "id") ?? getString(record, "model") ?? getString(record, "slug");
     if (!id) continue;
@@ -137,13 +137,23 @@ async function loadCodexAppServerModelCatalog(
   function request(method: string, params: unknown) {
     const id = nextId;
     nextId += 1;
-    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`Codex app-server ${method} timed out.`));
       }, CODEX_MODEL_DISCOVERY_TIMEOUT_MS);
       pending.set(id, { reject, resolve, timer });
+      child.stdin.write(
+        `${JSON.stringify({ id, method, params })}\n`,
+        (error) => {
+          if (!error) return;
+          const waiter = pending.get(id);
+          if (!waiter) return;
+          pending.delete(id);
+          clearTimeout(waiter.timer);
+          waiter.reject(error);
+        },
+      );
     });
   }
 
@@ -172,6 +182,9 @@ async function loadCodexAppServerModelCatalog(
     waiter.resolve(message.result);
   });
   child.on("error", (error) => {
+    rejectPending(error);
+  });
+  child.stdin.on("error", (error) => {
     rejectPending(error);
   });
   child.on("close", (code, signal) => {

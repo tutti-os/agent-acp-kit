@@ -117,7 +117,15 @@ if (process.argv[2] === "app-server") {
               upgrade: "gpt-5.4"
             },
             { id: "gpt-5.5", displayName: "GPT-5.5", description: "Frontier", hidden: false },
-            { id: "gpt-5.4", displayName: "GPT-5.4", hidden: false },
+            {
+              id: "gpt-5.2",
+              displayName: "gpt-5.2",
+              description: "Optimized for professional work and long-running agents.",
+              hidden: false,
+              upgrade: "gpt-5.4"
+            },
+            { id: "gpt-5.4", displayName: "GPT-5.4", hidden: false, upgrade: "gpt-5.5" },
+            { id: "gpt-5.4-mini", displayName: "GPT-5.4-Mini", hidden: false },
             { id: "hidden", displayName: "Hidden", hidden: true }
           ]
         }
@@ -141,7 +149,7 @@ if (process.argv[2] === "app-server") {
     expect(detection.models).toEqual([
       { id: "default", label: "Default (CLI config)" },
       { id: "gpt-5.5", label: "GPT-5.5", description: "Frontier" },
-      { id: "gpt-5.4", label: "GPT-5.4" },
+      { id: "gpt-5.4-mini", label: "GPT-5.4-Mini" },
     ]);
   });
 
