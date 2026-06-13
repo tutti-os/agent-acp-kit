@@ -141,7 +141,7 @@ for await (const event of runtime.run({
 
 | Provider | Status | Transport | Notes |
 | --- | --- | --- | --- |
-| Codex | Supported | `codex exec --json` JSONL | Dynamic model discovery via `codex debug models`; same-provider resume via `codex exec resume --json <session> -` |
+| Codex | Supported | `codex exec --json` JSONL | Dynamic model discovery via `codex debug models`; per-run `CODEX_HOME` with copied auth and sanitized config; same-provider resume via `codex exec resume --json <session> -` |
 | Claude Code | Supported | `claude -p --output-format stream-json` | Uses fallback model hints, custom model pass-through, and same-provider resume via `--resume <session>` |
 | Devin for Terminal | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `DEVIN_ACP_BIN` |
 | Hermes | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `HERMES_ACP_BIN` |
@@ -158,6 +158,12 @@ for await (const event of runtime.run({
 | Fake | Test helper | In-memory async events | For host tests and conformance checks |
 
 Built-in real local providers do not impose a provider-level concurrency cap. Hosts can still enforce stricter queueing, cancellation, or watchdog policies around `runtime.run()` when a product surface needs serialized execution.
+
+Codex runs always use a run-scoped temporary `CODEX_HOME`. The provider copies
+`auth.json` from the requested `CODEX_HOME` or the user's default
+`~/.codex`, preserves compatible `config.toml` settings such as custom model
+providers and `base_url`, removes Codex config values known to break current
+CLI parsing, and overlays any run-scoped MCP server config.
 
 ## Host Integration Pattern
 

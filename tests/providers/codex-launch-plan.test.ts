@@ -130,19 +130,78 @@ describe("buildCodexLaunchPlan", () => {
   });
 
   it("prepends system prompts to the stdin prompt for provider runs", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "codex-system-prompt-plan-"));
     try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
       const plan = await createCodexProvider().buildLaunchPlan({
         runId: "run-1",
         cwd,
         prompt: "draw a poster",
         systemPrompt: "Host system rules",
+        env: { CODEX_HOME: sourceHome },
       });
 
       expect(plan.prompt).toMatch(/^Host system rules\n\n/);
       expect(plan.prompt).toContain("Current request:\n\ndraw a poster");
     } finally {
+      await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("copies and sanitizes user Codex config even when no MCP servers are provided", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        [
+          'model_provider = "OpenAI"',
+          'service_tier = "default"',
+          "",
+          "[model_providers.OpenAI]",
+          'name = "OpenAI"',
+          'base_url = "https://llm-api.nextop.sh/v1"',
+          'wire_api = "responses"',
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-no-mcp",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      expect(runHome).toBeTruthy();
+      expect(runHome).not.toBe(sourceHome);
+
+      const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).toContain('model_provider = "OpenAI"');
+      expect(config).toContain('base_url = "https://llm-api.nextop.sh/v1"');
+      expect(config).not.toContain('service_tier = "default"');
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
     }
   });
 

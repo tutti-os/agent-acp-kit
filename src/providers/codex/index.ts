@@ -298,10 +298,6 @@ async function materializeCodexHome(params: {
   model?: string;
 }) {
   const normalizedServers = normalizeMcpServerConfigs(params.mcpServers ?? []);
-  if (normalizedServers.length === 0) {
-    return null;
-  }
-
   const sourceHome =
     params.env?.CODEX_HOME ??
     process.env.CODEX_HOME ??
