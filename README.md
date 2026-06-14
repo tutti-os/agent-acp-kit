@@ -159,11 +159,16 @@ for await (const event of runtime.run({
 
 Built-in real local providers do not impose a provider-level concurrency cap. Hosts can still enforce stricter queueing, cancellation, or watchdog policies around `runtime.run()` when a product surface needs serialized execution.
 
-Codex runs always use a run-scoped temporary `CODEX_HOME`. The provider copies
-`auth.json` from the requested `CODEX_HOME` or the user's default
-`~/.codex`, preserves compatible `config.toml` settings such as custom model
-providers and `base_url`, removes Codex config values known to break current
-CLI parsing, and overlays any run-scoped MCP server config.
+Codex runs always use a run-scoped temporary `CODEX_HOME`. The provider shares
+`auth.json`, `sessions/`, and `plugins/cache/` with the requested `CODEX_HOME`
+or the user's default `~/.codex` so token refreshes, native resume, and plugin
+assets stay durable across runs; plugin cache exposure is best-effort and does
+not block a run. It copies isolated config files such as
+`config.json`, `config.toml`, and `instructions.md`, preserves compatible
+`config.toml` settings such as custom model providers and `base_url`, removes
+Codex config values known to break current CLI parsing, disables Codex native
+multi-agent for single-process run lifecycle safety, and overlays any run-scoped
+MCP server config.
 
 ## Host Integration Pattern
 

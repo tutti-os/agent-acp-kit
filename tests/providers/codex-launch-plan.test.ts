@@ -78,23 +78,22 @@ describe("buildCodexLaunchPlan", () => {
   });
 
   it("uses the Codex exec resume subcommand when same-provider resume metadata exists", () => {
-    expect(
-      buildCodexLaunchPlan({
-        runId: "run-1",
-        cwd: "/tmp/project",
-        prompt: "continue",
-        model: "gpt-5.4",
-        reasoning: "high",
-        extraAllowedDirs: ["/repo/skills"],
-        resume: {
-          mode: "provider",
-          providerSessionId: "codex-session-1",
-        },
-      }),
-    ).toEqual({
+    const plan = buildCodexLaunchPlan({
+      runId: "run-1",
+      cwd: "/tmp/project",
+      prompt: "continue",
+      model: "gpt-5.4",
+      reasoning: "high",
+      extraAllowedDirs: ["/repo/skills"],
+      resume: {
+        mode: "provider",
+        providerSessionId: "codex-session-1",
+      },
+    });
+
+    expect(plan).toMatchObject({
       command: "codex",
       cwd: "/tmp/project",
-      env: undefined,
       prompt: "continue",
       promptInput: "stdin",
       args: [
@@ -114,6 +113,54 @@ describe("buildCodexLaunchPlan", () => {
         "-",
       ],
     });
+    expect(plan.fallbackPlan).toMatchObject({
+      command: "codex",
+      cwd: "/tmp/project",
+      prompt: "continue",
+      promptInput: "stdin",
+      args: [
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--disable",
+        "plugins",
+        "--ignore-rules",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-C",
+        "/tmp/project",
+        "--model",
+        "gpt-5.4",
+        "-c",
+        'model_reasoning_effort="high"',
+        "--add-dir",
+        "/repo/skills",
+      ],
+    });
+  });
+
+  it("uses the Codex resume token when no provider session id is available", () => {
+    expect(
+      buildCodexLaunchPlan({
+        runId: "run-1",
+        cwd: "/tmp/project",
+        prompt: "continue",
+        resume: {
+          mode: "provider",
+          resumeToken: "codex-token-1",
+        },
+      }).args,
+    ).toEqual([
+      "exec",
+      "resume",
+      "--json",
+      "--skip-git-repo-check",
+      "--disable",
+      "plugins",
+      "--ignore-rules",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "codex-token-1",
+      "-",
+    ]);
   });
 
   it("falls back to fresh Codex exec when resume metadata is empty", () => {
@@ -196,6 +243,243 @@ describe("buildCodexLaunchPlan", () => {
       expect(config).toContain('model_provider = "OpenAI"');
       expect(config).toContain('base_url = "https://llm-api.tutti.sh/v1"');
       expect(config).not.toContain('service_tier = "default"');
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("shares Codex sessions, auth, plugin cache, and copied config files with the source home", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await mkdir(join(sourceHome, "sessions"), { recursive: true });
+      await mkdir(join(sourceHome, "plugins", "cache", "superpowers"), { recursive: true });
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ refresh_token: "v1" }),
+        "utf8",
+      );
+      await writeFile(join(sourceHome, "config.json"), JSON.stringify({ model: "o3" }), "utf8");
+      await writeFile(join(sourceHome, "instructions.md"), "Be helpful.", "utf8");
+      await writeFile(
+        join(sourceHome, "plugins", "cache", "superpowers", "SKILL.md"),
+        "Use superpowers.",
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-shared-home",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      expect(runHome).toBeTruthy();
+      expect(runHome).not.toBe(sourceHome);
+
+      await writeFile(join(runHome!, "sessions", "probe.jsonl"), "session-log", "utf8");
+      await writeFile(
+        join(runHome!, "auth.json"),
+        JSON.stringify({ refresh_token: "v2" }),
+        "utf8",
+      );
+      await writeFile(join(runHome!, "plugins", "cache", "probe.txt"), "plugin-cache", "utf8");
+
+      await expect(readFile(join(sourceHome, "sessions", "probe.jsonl"), "utf8")).resolves.toBe(
+        "session-log",
+      );
+      await expect(readFile(join(sourceHome, "auth.json"), "utf8")).resolves.toBe(
+        JSON.stringify({ refresh_token: "v2" }),
+      );
+      await expect(readFile(join(sourceHome, "plugins", "cache", "probe.txt"), "utf8")).resolves.toBe(
+        "plugin-cache",
+      );
+      await expect(readFile(join(runHome!, "config.json"), "utf8")).resolves.toBe(
+        JSON.stringify({ model: "o3" }),
+      );
+      await expect(readFile(join(runHome!, "instructions.md"), "utf8")).resolves.toBe(
+        "Be helpful.",
+      );
+      await expect(
+        readFile(join(runHome!, "plugins", "cache", "superpowers", "SKILL.md"), "utf8"),
+      ).resolves.toBe("Use superpowers.");
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("continues when the shared Codex plugin cache cannot be exposed", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(join(sourceHome, "plugins"), "not-a-directory", "utf8");
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-plugin-cache-best-effort",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      expect(runHome).toBeTruthy();
+      await expect(readFile(join(runHome!, "config.toml"), "utf8")).resolves.toContain(
+        "features.multi_agent = false",
+      );
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("strips inherited Codex skills config entries from the run config", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        [
+          'model_provider = "OpenAI"',
+          "",
+          "[[skills.config]]",
+          'name = "superpowers:brainstorming"',
+          "",
+          "[[skills.config]]",
+          'path = "/Users/me/.codex/skills/writing"',
+          "",
+          "[profiles.unrelated]",
+          'model = "gpt-5.4"',
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-strip-skills",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).not.toContain("[[skills.config]]");
+      expect(config).not.toContain("superpowers:brainstorming");
+      expect(config).not.toContain("/Users/me/.codex/skills/writing");
+      expect(config).toContain("[profiles.unrelated]");
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("disables Codex native multi-agent in generated run config", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-disable-multi-agent",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).toContain("features.multi_agent = false");
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("disables Codex native multi-agent inside an existing features table", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        [
+          'model_provider = "OpenAI"',
+          "",
+          "[features]",
+          "multi_agent = true",
+          "web_search = true",
+          "",
+          "[profiles.unrelated]",
+          'model = "gpt-5.4"',
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-disable-multi-agent-table",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).toContain("[features]\nmulti_agent = false\nweb_search = true");
+      expect(config).not.toContain("features.multi_agent = false");
+      expect(config).not.toContain("multi_agent = true");
+      expect(config).toContain("[profiles.unrelated]");
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 {
   "name": "@tutti-os/agent-acp-kit",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "type": "module",
   "description": "ACP-oriented toolkit for detecting, launching, and streaming local coding agents.",
   "packageManager": "pnpm@10.26.2",

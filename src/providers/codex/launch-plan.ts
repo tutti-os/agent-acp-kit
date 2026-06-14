@@ -46,7 +46,7 @@ export function buildCodexLaunchPlan(
     args.push(resumeId, "-");
   }
 
-  return {
+  const plan: ProviderLaunchPlan = {
     args,
     command: executablePath,
     cwd: params.cwd,
@@ -54,4 +54,16 @@ export function buildCodexLaunchPlan(
     prompt: params.prompt,
     promptInput: "stdin",
   };
+
+  if (resumeId) {
+    plan.fallbackPlan = buildCodexLaunchPlan(
+      {
+        ...params,
+        resume: { mode: "fresh" },
+      },
+      executablePath,
+    );
+  }
+
+  return plan;
 }

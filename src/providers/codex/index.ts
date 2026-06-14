@@ -1,4 +1,13 @@
-import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -136,6 +145,26 @@ async function copyOptionalFile(source: string, target: string) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function linkDirectory(source: string, target: string) {
+  await mkdir(source, { recursive: true });
+  await ensureParentDirectory(target);
+  await rm(target, { recursive: true, force: true });
+  await symlink(source, target, process.platform === "win32" ? "junction" : "dir");
+}
+
+async function linkFile(source: string, target: string) {
+  await ensureParentDirectory(target);
+  await rm(target, { force: true });
+  try {
+    await symlink(source, target);
+    return;
+  } catch {
+    // Windows often disallows file symlinks without Developer Mode/admin.
+    // A hard link still lets token refresh writes update the shared auth file.
+    await link(source, target);
   }
 }
 
@@ -292,6 +321,83 @@ function mergeCodexConfigToml(params: {
   return `${sections.join("\n\n")}\n`;
 }
 
+function stripSkillsConfigEntries(content: string) {
+  if (!content.includes("[[skills.config]]")) {
+    return content;
+  }
+
+  const lines = content.split(/\r?\n/);
+  const out: string[] = [];
+  let inSkillsConfig = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("[")) {
+      if (trimmed === "[[skills.config]]") {
+        inSkillsConfig = true;
+        continue;
+      }
+      inSkillsConfig = false;
+      out.push(line);
+      continue;
+    }
+    if (!inSkillsConfig) {
+      out.push(line);
+    }
+  }
+
+  const stripped = `${out.join("\n").trimEnd()}\n`;
+  return stripped.trim() ? stripped : "";
+}
+
+const rootFeaturesTableHeaderRe = /^\s*\[\s*features\s*\]\s*(?:#.*)?$/;
+const rootDottedMultiAgentRe = /^\s*features\s*\.\s*multi_agent\s*=/;
+const featuresTableMultiAgentRe = /^\s*multi_agent\s*=/;
+
+function stripMultiAgentDirectives(content: string) {
+  const lines = content.split(/\r?\n/);
+  const out: string[] = [];
+  let currentTable = "";
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (rootFeaturesTableHeaderRe.test(line)) {
+      currentTable = "[features]";
+      out.push(line);
+      continue;
+    }
+    if (trimmed.startsWith("[")) {
+      currentTable = trimmed;
+      out.push(line);
+      continue;
+    }
+    if (currentTable === "" && rootDottedMultiAgentRe.test(trimmed)) {
+      continue;
+    }
+    if (currentTable === "[features]" && featuresTableMultiAgentRe.test(trimmed)) {
+      continue;
+    }
+    out.push(line);
+  }
+
+  return out.join("\n");
+}
+
+function ensureCodexMultiAgentDisabled(content: string) {
+  const stripped = stripMultiAgentDirectives(content);
+  const lines = stripped.split(/\r?\n/);
+  const featuresIndex = lines.findIndex((line) => rootFeaturesTableHeaderRe.test(line));
+  if (featuresIndex >= 0) {
+    const next = [...lines];
+    next.splice(featuresIndex + 1, 0, "multi_agent = false");
+    return next.join("\n");
+  }
+
+  const trimmed = stripped.trimStart();
+  const block = "features.multi_agent = false\n";
+  return trimmed ? `${block}\n${trimmed}` : block;
+}
+
 async function materializeCodexHome(params: {
   mcpServers?: Parameters<typeof normalizeMcpServerConfigs>[0];
   env?: Record<string, string>;
@@ -304,24 +410,35 @@ async function materializeCodexHome(params: {
     join(homedir(), ".codex");
   const runHome = await mkdtemp(join(tmpdir(), "agent-acp-kit-codex-home-"));
 
-  const authCopied = await copyOptionalFile(
-    join(sourceHome, "auth.json"),
-    join(runHome, "auth.json"),
-  );
-  if (!authCopied) {
+  try {
+    await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
+  } catch {
     throw new Error(
       `Codex auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
     );
   }
 
-  const sourceConfig = await readOptionalFile(join(sourceHome, "config.toml"));
-  await writeFile(
-    join(runHome, "config.toml"),
-    mergeCodexConfigToml({
-      sourceConfig,
+  await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
+  try {
+    await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
+  } catch {
+    // Plugin cache is an optimization for bundled/plugin-backed assets.
+    // Codex can still run without it, so keep this best-effort like Multica.
+  }
+  await copyOptionalFile(join(sourceHome, "config.json"), join(runHome, "config.json"));
+  await copyOptionalFile(join(sourceHome, "instructions.md"), join(runHome, "instructions.md"));
+
+  const sourceConfig = stripSkillsConfigEntries(
+    (await readOptionalFile(join(sourceHome, "config.toml"))) ?? "",
+  );
+  const mergedConfig = mergeCodexConfigToml({
+      ...(sourceConfig ? { sourceConfig } : {}),
       ...(params.model ? { model: params.model } : {}),
       mcpServers: normalizedServers,
-    }),
+    });
+  await writeFile(
+    join(runHome, "config.toml"),
+    ensureCodexMultiAgentDisabled(mergedConfig),
     "utf8",
   );
 
