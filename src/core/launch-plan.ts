@@ -5,6 +5,7 @@ export type LaunchPlan = {
   command: string;
   cwd: string;
   env?: Record<string, string>;
+  fallbackPlan?: LaunchPlan;
   prompt: string;
   promptInput: "stdin" | "argv";
   mcpServers?: LocalAgentMcpServerConfig[];

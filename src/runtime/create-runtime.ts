@@ -242,85 +242,121 @@ async function* normalizeAgentEvents(
 }
 
 function createBuiltInJsonlTransport(): Transport {
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+  }
+
+  function hasThreadStarted(events: RawAgentEvent[]) {
+    return events.some((event) => isRecord(event) && event.type === "thread.started");
+  }
+
+  function shouldRunFallback(events: RawAgentEvent[]) {
+    return (
+      !hasThreadStarted(events) &&
+      events.some(
+        (event) =>
+          isRecord(event) &&
+          event.type === "error" &&
+          event.code === "process_exit_nonzero",
+      )
+    );
+  }
+
+  async function* runOnce(plan: LaunchPlan, signal?: AbortSignal): AsyncGenerator<RawAgentEvent> {
+    const processHandle = spawnSupervisedProcess({
+      ...plan,
+      ...(signal ? { signal } : {}),
+    });
+    const queue: RawAgentEvent[] = [];
+    let done = false;
+    let transportError: unknown;
+
+    const parser = createJsonlParser<RawAgentEvent>((item) => {
+      queue.push(item);
+    });
+
+    processHandle.child.stdout.on("data", (chunk: string) => {
+      try {
+        parser.feed(chunk);
+      } catch (error) {
+        transportError = error;
+      }
+    });
+
+    void processHandle.waitForExit().then(({ code, signal, timedOut }) => {
+      try {
+        parser.flush();
+      } catch (error) {
+        transportError = error;
+      }
+      const canceled = signal != null;
+      if (timedOut) {
+        queue.push({
+          type: "error",
+          code: "process_timeout",
+          message: `Process timed out after ${plan.timeoutMs}ms.`,
+        });
+        queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
+      } else if (canceled) {
+        queue.push({ type: "done", status: "canceled", reason: "cancelled", exitCode: code });
+      } else if (transportError) {
+        queue.push({
+          type: "error",
+          code: "jsonl_parse_failed",
+          message:
+            transportError instanceof Error
+              ? transportError.message
+              : String(transportError),
+        });
+        queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
+      } else if (code && code !== 0) {
+        const stderrTail = processHandle.stderr.tail().trim();
+        queue.push({
+          type: "error",
+          code: "process_exit_nonzero",
+          message:
+            stderrTail.length > 0
+              ? stderrTail
+              : `Process exited with code ${code}.`,
+        });
+        queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
+      } else {
+        queue.push({
+          type: "done",
+          status: "completed",
+          reason: "completed",
+          exitCode: code,
+        });
+      }
+      done = true;
+    });
+
+    while (!done || queue.length > 0) {
+      const next = queue.shift();
+      if (next) {
+        yield next;
+        continue;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
   return {
     kind: "jsonl",
     async *run(plan, signal) {
-      const processHandle = spawnSupervisedProcess({
-        ...plan,
-        ...(signal ? { signal } : {}),
-      });
-      const queue: RawAgentEvent[] = [];
-      let done = false;
-      let transportError: unknown;
-
-      const parser = createJsonlParser<RawAgentEvent>((item) => {
-        queue.push(item);
-      });
-
-      processHandle.child.stdout.on("data", (chunk: string) => {
-        try {
-          parser.feed(chunk);
-        } catch (error) {
-          transportError = error;
+      if (plan.fallbackPlan) {
+        const firstAttempt: RawAgentEvent[] = [];
+        for await (const event of runOnce(plan, signal)) {
+          firstAttempt.push(event);
         }
-      });
-
-      void processHandle.waitForExit().then(({ code, signal, timedOut }) => {
-        try {
-          parser.flush();
-        } catch (error) {
-          transportError = error;
+        if (shouldRunFallback(firstAttempt)) {
+          yield* runOnce(plan.fallbackPlan, signal);
+          return;
         }
-        const canceled = signal != null;
-        if (timedOut) {
-          queue.push({
-            type: "error",
-            code: "process_timeout",
-            message: `Process timed out after ${plan.timeoutMs}ms.`,
-          });
-          queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
-        } else if (canceled) {
-          queue.push({ type: "done", status: "canceled", reason: "cancelled", exitCode: code });
-        } else if (transportError) {
-          queue.push({
-            type: "error",
-            code: "jsonl_parse_failed",
-            message:
-              transportError instanceof Error
-                ? transportError.message
-                : String(transportError),
-          });
-          queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
-        } else if (code && code !== 0) {
-          const stderrTail = processHandle.stderr.tail().trim();
-          queue.push({
-            type: "error",
-            code: "process_exit_nonzero",
-            message:
-              stderrTail.length > 0
-                ? stderrTail
-                : `Process exited with code ${code}.`,
-          });
-          queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
-        } else {
-          queue.push({
-            type: "done",
-            status: "completed",
-            reason: "completed",
-            exitCode: code,
-          });
-        }
-        done = true;
-      });
-
-      while (!done || queue.length > 0) {
-        const next = queue.shift();
-        if (next) {
-          yield next;
-          continue;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        yield* firstAttempt;
+        return;
       }
+      yield* runOnce(plan, signal);
     },
   };
 }
