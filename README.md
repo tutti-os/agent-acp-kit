@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <a href="./LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue" /></a>
   <a href="https://www.npmjs.com/package/@tutti-os/agent-acp-kit"><img src="https://img.shields.io/npm/v/@tutti-os/agent-acp-kit.svg" alt="npm version"></a>
   <a href="https://github.com/tutti-os/agent-acp-kit/actions/workflows/npm-package-release.yml"><img src="https://github.com/tutti-os/agent-acp-kit/actions/workflows/npm-package-release.yml/badge.svg" alt="release workflow"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22-339933" alt="Node.js >= 22">
@@ -424,10 +425,14 @@ Recommended host policy:
 - Gate dangerous provider flags behind trusted local mode.
 - Persist terminal events durably so cancellation or failure cannot be overwritten by late process output.
 
+## License
+
+@tutti-os/agent-acp-kit is licensed under the [Apache License 2.0](./LICENSE).
+
 ## Roadmap
 
 - Stabilize the public `AgentRunInput` and `AgentEvent` contracts.
 - Expand provider conformance tests for ACP lifecycle edge cases.
 - Add more provider-specific adapters where shared ACP behavior is not enough.
 - Add first-class examples for desktop apps and local web apps.
-- Add repository-level `LICENSE`, `CONTRIBUTING.md`, and `SECURITY.md` before broader external contribution.
+- Add repository-level `CONTRIBUTING.md` and `SECURITY.md` before broader external contribution.
