@@ -173,7 +173,7 @@ describe("buildCodexLaunchPlan", () => {
           "",
           "[model_providers.OpenAI]",
           'name = "OpenAI"',
-          'base_url = "https://llm-api.nextop.sh/v1"',
+          'base_url = "https://llm-api.tutti.sh/v1"',
           'wire_api = "responses"',
           "",
         ].join("\n"),
@@ -194,7 +194,7 @@ describe("buildCodexLaunchPlan", () => {
 
       const config = await readFile(join(runHome!, "config.toml"), "utf8");
       expect(config).toContain('model_provider = "OpenAI"');
-      expect(config).toContain('base_url = "https://llm-api.nextop.sh/v1"');
+      expect(config).toContain('base_url = "https://llm-api.tutti.sh/v1"');
       expect(config).not.toContain('service_tier = "default"');
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
@@ -228,7 +228,7 @@ describe("buildCodexLaunchPlan", () => {
           "",
           "[model_providers.OpenAI]",
           'name = "OpenAI"',
-          'base_url = "https://llm-api.nextop.sh/v1"',
+          'base_url = "https://llm-api.tutti.sh/v1"',
           'wire_api = "responses"',
           "",
           "[mcp_servers.chrome-devtools]",
@@ -280,7 +280,7 @@ describe("buildCodexLaunchPlan", () => {
       expect(config).toContain('model = "gpt-5.4"');
       expect(config).not.toContain('model = "minimax-m2.5"');
       expect(config).toContain("[model_providers.OpenAI]");
-      expect(config).toContain('base_url = "https://llm-api.nextop.sh/v1"');
+      expect(config).toContain('base_url = "https://llm-api.tutti.sh/v1"');
       expect(config).toContain("[mcp_servers.chrome-devtools]");
       expect(config).toContain("[mcp_servers.aimc]");
       expect(config).toContain('command = "node"');

@@ -1,22 +1,22 @@
-# @nextop-os/agent-acp-kit
+# @tutti-os/agent-acp-kit
 
 <p align="center">
   <strong>A TypeScript toolkit for running local coding agents through one ACP-oriented host API.</strong>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@nextop-os/agent-acp-kit"><img src="https://img.shields.io/npm/v/@nextop-os/agent-acp-kit.svg" alt="npm version"></a>
-  <a href="https://github.com/nextop-os/agent-acp-kit/actions/workflows/npm-package-release.yml"><img src="https://github.com/nextop-os/agent-acp-kit/actions/workflows/npm-package-release.yml/badge.svg" alt="release workflow"></a>
+  <a href="https://www.npmjs.com/package/@tutti-os/agent-acp-kit"><img src="https://img.shields.io/npm/v/@tutti-os/agent-acp-kit.svg" alt="npm version"></a>
+  <a href="https://github.com/tutti-os/agent-acp-kit/actions/workflows/npm-package-release.yml"><img src="https://github.com/tutti-os/agent-acp-kit/actions/workflows/npm-package-release.yml/badge.svg" alt="release workflow"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D22-339933" alt="Node.js >= 22">
   <img src="https://img.shields.io/badge/TypeScript-ready-3178c6" alt="TypeScript ready">
   <img src="https://img.shields.io/badge/ACP-oriented-111827" alt="ACP oriented">
 </p>
 
 <p align="center">
-  <img src="./assets/agent-acp-kit-architecture.png" alt="Architecture diagram for @nextop-os/agent-acp-kit">
+  <img src="./assets/agent-acp-kit-architecture.png" alt="Architecture diagram for @tutti-os/agent-acp-kit">
 </p>
 
-`@nextop-os/agent-acp-kit` lets a host application detect, launch, stream, cancel, and resume local coding agents through a stable TypeScript facade.
+`@tutti-os/agent-acp-kit` lets a host application detect, launch, stream, cancel, and resume local coding agents through a stable TypeScript facade.
 
 It is built for apps that want to support Codex, Claude Code, and ACP-compatible agents such as Gemini CLI, Cursor Agent, GitHub Copilot CLI, Factory Droid, fast-agent, OpenCode, Qwen Code, Kimi CLI, Kilo, Mistral Vibe, and Trae CLI without scattering provider-specific process, transport, MCP, skill, model, and event parsing logic throughout the app.
 
@@ -62,15 +62,15 @@ For the latest installable agent list, see:
 ## Install
 
 ```bash
-npm install @nextop-os/agent-acp-kit
+npm install @tutti-os/agent-acp-kit
 ```
 
 Other package managers work too:
 
 ```bash
-pnpm add @nextop-os/agent-acp-kit
-yarn add @nextop-os/agent-acp-kit
-bun add @nextop-os/agent-acp-kit
+pnpm add @tutti-os/agent-acp-kit
+yarn add @tutti-os/agent-acp-kit
+bun add @tutti-os/agent-acp-kit
 ```
 
 Requirements:
@@ -86,7 +86,7 @@ import {
   createClaudeProvider,
   createCodexProvider,
   createLocalAgentRuntime,
-} from "@nextop-os/agent-acp-kit";
+} from "@tutti-os/agent-acp-kit";
 
 const runtime = createLocalAgentRuntime({
   providers: [
@@ -266,7 +266,7 @@ Hosts can expose an install action for supported local providers through one
 public function:
 
 ```ts
-import { installAgentProvider } from "@nextop-os/agent-acp-kit";
+import { installAgentProvider } from "@tutti-os/agent-acp-kit";
 
 const result = await installAgentProvider("codex");
 ```
@@ -373,7 +373,7 @@ import {
   installAgentProvider,
   type AgentEvent,
   type AgentRunInput,
-} from "@nextop-os/agent-acp-kit";
+} from "@tutti-os/agent-acp-kit";
 ```
 
 Runtime control plane export:
@@ -382,7 +382,7 @@ Runtime control plane export:
 import {
   createRuntimeControlPlane,
   inferRuntimeKind,
-} from "@nextop-os/agent-acp-kit/runtime-control-plane";
+} from "@tutti-os/agent-acp-kit/runtime-control-plane";
 ```
 
 Testing export:
@@ -392,7 +392,7 @@ import {
   assertProviderConformance,
   createFakeAcpPeer,
   createFakeProvider,
-} from "@nextop-os/agent-acp-kit/testing";
+} from "@tutti-os/agent-acp-kit/testing";
 ```
 
 ## Development

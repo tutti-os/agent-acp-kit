@@ -1,4 +1,4 @@
-# @nextop-os/agent-acp-kit Agent Guide
+# @tutti-os/agent-acp-kit Agent Guide
 
 This package is intended to become an independently published ACP-oriented local agent SDK. Treat it as reusable infrastructure, not as an AI Media Canvas feature folder.
 
@@ -13,7 +13,7 @@ import {
   createClaudeProvider,
   createCodexProvider,
   createLocalAgentRuntime,
-} from "@nextop-os/agent-acp-kit";
+} from "@tutti-os/agent-acp-kit";
 
 const runtime = createLocalAgentRuntime({
   providers: [createCodexProvider(), createClaudeProvider()],
@@ -138,7 +138,7 @@ pnpm test
 pnpm build
 ```
 
-For changes that affect a host integration, also run the host tests that consume `@nextop-os/agent-acp-kit`.
+For changes that affect a host integration, also run the host tests that consume `@tutti-os/agent-acp-kit`.
 
 For release readiness, run:
 

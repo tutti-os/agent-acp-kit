@@ -42,7 +42,7 @@ jobs:
 
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      PACKAGE_NAME: "@nextop-os/agent-acp-kit"
+      PACKAGE_NAME: "@tutti-os/agent-acp-kit"
       VERSION_BUMP: ${{ inputs.version_bump }}
       CUSTOM_VERSION: ${{ inputs.custom_version }}
       DIST_TAG: ${{ inputs.dist_tag }}
