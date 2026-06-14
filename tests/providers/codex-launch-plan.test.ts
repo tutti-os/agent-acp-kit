@@ -138,6 +138,31 @@ describe("buildCodexLaunchPlan", () => {
     });
   });
 
+  it("uses the Codex resume token when no provider session id is available", () => {
+    expect(
+      buildCodexLaunchPlan({
+        runId: "run-1",
+        cwd: "/tmp/project",
+        prompt: "continue",
+        resume: {
+          mode: "provider",
+          resumeToken: "codex-token-1",
+        },
+      }).args,
+    ).toEqual([
+      "exec",
+      "resume",
+      "--json",
+      "--skip-git-repo-check",
+      "--disable",
+      "plugins",
+      "--ignore-rules",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "codex-token-1",
+      "-",
+    ]);
+  });
+
   it("falls back to fresh Codex exec when resume metadata is empty", () => {
     expect(
       buildCodexLaunchPlan({

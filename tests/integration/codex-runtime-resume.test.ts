@@ -52,6 +52,10 @@ process.stdin.on("end", () => {
     }
     fs.appendFileSync(sessionPath, "resumed\\n");
     console.log(JSON.stringify({ type: "thread.started", thread: { id: resumeId } }));
+    if (process.env.FAKE_CODEX_FAIL_AFTER_STARTED === "1") {
+      process.stderr.write("resume failed after thread started\\n");
+      process.exit(1);
+    }
     console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "resumed:" + resumeId } }));
     process.exit(0);
   }
@@ -251,6 +255,64 @@ describe("Codex runtime native resume", () => {
       expect(calls[1]!.args).toContain("-C");
       expect(calls[1]!.prompt).toContain("User:\nhistory survives retry");
       expect(calls[1]!.prompt).toContain("Current request:\n\ncontinue after missing session");
+    } finally {
+      await rm(binDir, { recursive: true, force: true });
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does not fresh fallback after a resumed Codex thread has already started", async () => {
+    const { binDir } = await createFakeCodexBin();
+    const sourceHome = await createCodexHome();
+    const cwd = await mkdtemp(join(tmpdir(), "agent-acp-kit-codex-cwd-"));
+    const logPath = join(sourceHome, "calls.jsonl");
+
+    try {
+      await mkdir(join(sourceHome, "sessions"), { recursive: true });
+      await writeFile(join(sourceHome, "sessions", "started-then-failed.jsonl"), "seed\n", "utf8");
+
+      const runtime = createLocalAgentRuntime({ providers: [createCodexProvider()] });
+      const events: AgentEvent[] = [];
+      for await (const event of runtime.run({
+        runId: "codex-resume-started-then-failed",
+        provider: "codex",
+        cwd,
+        prompt: "continue native resume",
+        history: [{ role: "user", content: "do not retry after start" }],
+        resume: { mode: "provider", providerSessionId: "started-then-failed" },
+        env: {
+          PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`,
+          CODEX_HOME: sourceHome,
+          FAKE_CODEX_LOG: logPath,
+          FAKE_CODEX_FAIL_AFTER_STARTED: "1",
+          FAKE_CODEX_SESSION_ID: "should-not-be-created",
+        },
+      })) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          code: "process_exit_nonzero",
+        }),
+      );
+      expect(events).toContainEqual({
+        type: "done",
+        status: "failed",
+        reason: "error",
+        exitCode: 1,
+        sessionId: "started-then-failed",
+      });
+      await expect(
+        readFile(join(sourceHome, "sessions", "should-not-be-created.jsonl"), "utf8"),
+      ).rejects.toThrow();
+
+      const calls = await readJsonl(logPath);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.args.slice(0, 3)).toEqual(["exec", "resume", "--json"]);
+      expect(calls[0]!.args).toContain("started-then-failed");
     } finally {
       await rm(binDir, { recursive: true, force: true });
       await rm(sourceHome, { recursive: true, force: true });
