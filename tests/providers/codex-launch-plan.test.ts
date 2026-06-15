@@ -252,6 +252,55 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
+  it("marks the run cwd as the Codex project root", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        [
+          'model_provider = "OpenAI"',
+          'project_root_markers = [".git"]',
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-project-root-marker",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).toContain('project_root_markers = [".agent-acp-kit-codex-root", ".git"]');
+      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).resolves.toBe("");
+
+      for await (const _event of adapter!.parseEvents((async function* () {})())) {
+        // Drain to trigger run-scoped cleanup.
+      }
+
+      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).rejects.toThrow();
+      runHome = undefined;
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("shares Codex sessions, auth, plugin cache, and copied config files with the source home", async () => {
     const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
@@ -480,6 +529,51 @@ describe("buildCodexLaunchPlan", () => {
       expect(config).not.toContain("features.multi_agent = false");
       expect(config).not.toContain("multi_agent = true");
       expect(config).toContain("[profiles.unrelated]");
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("migrates deprecated Codex hooks feature flags in generated run config", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        [
+          'model_provider = "OpenAI"',
+          "",
+          "[features]",
+          "codex_hooks = true",
+          "web_search = true",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-migrate-hooks-feature",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).toContain("[features]\nmulti_agent = false\nhooks = true\nweb_search = true");
+      expect(config).not.toContain("codex_hooks");
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
