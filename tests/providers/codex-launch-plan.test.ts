@@ -267,7 +267,7 @@ describe("buildCodexLaunchPlan", () => {
         join(sourceHome, "config.toml"),
         [
           'model_provider = "OpenAI"',
-          'project_root_markers = [".git"]',
+          'project_root_markers = [".vibe-workspace", ".git"]',
           "",
         ].join("\n"),
         "utf8",
@@ -283,7 +283,9 @@ describe("buildCodexLaunchPlan", () => {
       runHome = plan.env?.CODEX_HOME;
 
       const config = await readFile(join(runHome!, "config.toml"), "utf8");
-      expect(config).toContain('project_root_markers = [".agent-acp-kit-codex-root", ".git"]');
+      expect(config).toContain(
+        'project_root_markers = [".agent-acp-kit-codex-root", ".vibe-workspace", ".git"]',
+      );
       await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).resolves.toBe("");
 
       for await (const _event of adapter!.parseEvents((async function* () {})())) {
