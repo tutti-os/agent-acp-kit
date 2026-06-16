@@ -233,6 +233,9 @@ export function createClaudeEventMapper() {
     if (type === "stream_event") {
       return mapStreamEvent(item, state);
     }
+    if (type === "assistant" && typeof item.text === "string") {
+      return parseClaudeStreamEvent(item, state);
+    }
     if (type === "assistant" || type === "user") {
       return mapCompleteMessage(item, state);
     }
