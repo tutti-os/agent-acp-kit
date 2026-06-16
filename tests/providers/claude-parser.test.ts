@@ -42,6 +42,8 @@ describe("parseClaudeStreamEvent", () => {
         type: "tool_call",
         id: "toolu_1",
         name: "generate_image",
+        rawName: "mcp__aimc-tools-mcp__generate_image",
+        mcpServerName: "aimc-tools-mcp",
         input: { prompt: "agent poster", model: "codex/gpt-image-2" },
       },
     ]);
@@ -93,12 +95,16 @@ describe("parseClaudeStreamEvent", () => {
         type: "tool_call",
         id: "toolu_1",
         name: "generate_image",
+        rawName: "mcp__aimc-tools-mcp__generate_image",
+        mcpServerName: "aimc-tools-mcp",
         input: { prompt: "agent poster" },
       },
       {
         type: "tool_result",
         id: "toolu_1",
         name: "generate_image",
+        rawName: "mcp__aimc-tools-mcp__generate_image",
+        mcpServerName: "aimc-tools-mcp",
         output: {
           output: {
             imageUrl: "https://example.com/generated.png",
@@ -135,7 +141,80 @@ describe("parseClaudeStreamEvent", () => {
         type: "tool_call",
         id: "toolu_2",
         name: "generate_image",
+        rawName: "mcp__aimc-tools-mcp__generate_image",
+        mcpServerName: "aimc-tools-mcp",
         input: {},
+      },
+    ]);
+  });
+
+  it("preserves MCP server identity for same-named tools from different servers", async () => {
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "assistant",
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_image_a",
+                name: "mcp__server-a__generate_image",
+                input: { prompt: "a" },
+              },
+              {
+                type: "tool_use",
+                id: "toolu_image_b",
+                name: "mcp__server-b__generate_image",
+                input: { prompt: "b" },
+              },
+            ],
+          },
+        },
+      ]),
+    ).resolves.toEqual([
+      {
+        type: "tool_call",
+        id: "toolu_image_a",
+        name: "generate_image",
+        rawName: "mcp__server-a__generate_image",
+        mcpServerName: "server-a",
+        input: { prompt: "a" },
+      },
+      {
+        type: "tool_call",
+        id: "toolu_image_b",
+        name: "generate_image",
+        rawName: "mcp__server-b__generate_image",
+        mcpServerName: "server-b",
+        input: { prompt: "b" },
+      },
+    ]);
+  });
+
+  it("preserves Claude API MCP connector server_name fields", async () => {
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "stream_event",
+          event: {
+            type: "content_block_start",
+            content_block: {
+              type: "mcp_tool_use",
+              id: "mcptoolu_1",
+              name: "echo",
+              server_name: "example-mcp",
+              input: { value: "hello" },
+            },
+          },
+        },
+      ]),
+    ).resolves.toEqual([
+      {
+        type: "tool_call",
+        id: "mcptoolu_1",
+        name: "echo",
+        mcpServerName: "example-mcp",
+        input: { value: "hello" },
       },
     ]);
   });

@@ -40,6 +40,10 @@ function pushSessionUpdateEvents(queue: AgentEvent[], params: unknown) {
       type: "tool_call",
       id: String(source.id ?? source.toolCallId ?? source.callId ?? "tool"),
       name: String(source.name ?? source.toolName ?? "tool"),
+      ...(typeof source.rawName === "string" ? { rawName: source.rawName } : {}),
+      ...(typeof source.mcpServerName === "string"
+        ? { mcpServerName: source.mcpServerName }
+        : {}),
       ...(source.input !== undefined ? { input: source.input } : {}),
     });
     return;
@@ -61,6 +65,10 @@ function pushSessionUpdateEvents(queue: AgentEvent[], params: unknown) {
       id: String(source.id ?? source.toolCallId ?? source.callId ?? "tool"),
       ...(source.name ?? source.toolName
         ? { name: String(source.name ?? source.toolName) }
+        : {}),
+      ...(typeof source.rawName === "string" ? { rawName: source.rawName } : {}),
+      ...(typeof source.mcpServerName === "string"
+        ? { mcpServerName: source.mcpServerName }
         : {}),
       status: isFailed ? "failed" : "completed",
       ...(source.output !== undefined ? { output: source.output } : {}),

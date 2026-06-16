@@ -248,6 +248,11 @@ Common event types:
 | `error` | Runtime or provider error |
 | `done` | Terminal event with `completed`, `failed`, or `canceled` |
 
+For MCP tool events, `name` is the normalized short tool name. Providers that
+surface a server namespace may also include `rawName` and `mcpServerName`, so
+hosts can distinguish same-named tools exposed by different MCP servers while
+keeping backward-compatible short-name routing.
+
 Hosts should persist enough event data for replay and should treat `done` as the terminal source of truth for a run.
 
 ## Models

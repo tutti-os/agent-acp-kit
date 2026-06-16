@@ -1,7 +1,13 @@
 import type { AgentEvent } from "../../core/events.js";
 
 type ClaudeParserState = {
-  toolNamesById: Map<string, string>;
+  toolsById: Map<string, ToolIdentity>;
+};
+
+type ToolIdentity = {
+  name: string;
+  rawName?: string;
+  mcpServerName?: string;
 };
 
 function toRecord(value: unknown): Record<string, unknown> | undefined {
@@ -16,6 +22,34 @@ function normalizeClaudeToolName(name: string) {
   const parts = name.split("__");
   if (parts.length < 3) return name;
   return parts.slice(2).join("__") || name;
+}
+
+function parseClaudeToolIdentity(name: string, serverName?: unknown): ToolIdentity {
+  const identity: ToolIdentity = {
+    name: normalizeClaudeToolName(name),
+  };
+  if (identity.name !== name) {
+    identity.rawName = name;
+  }
+  if (typeof serverName === "string" && serverName.trim()) {
+    identity.mcpServerName = serverName.trim();
+    return identity;
+  }
+  if (name.startsWith("mcp__")) {
+    const parts = name.split("__");
+    if (parts.length >= 3 && parts[1]) {
+      identity.mcpServerName = parts[1];
+    }
+  }
+  return identity;
+}
+
+function getToolIdentityFields(identity?: ToolIdentity) {
+  if (!identity) return {};
+  return {
+    ...(identity.rawName ? { rawName: identity.rawName } : {}),
+    ...(identity.mcpServerName ? { mcpServerName: identity.mcpServerName } : {}),
+  };
 }
 
 function isToolUseBlock(block: Record<string, unknown>) {
@@ -61,12 +95,16 @@ function toolCallFromBlock(
 ): AgentEvent | undefined {
   if (!isToolUseBlock(block)) return undefined;
   const id = String(block.id ?? "");
-  const name = normalizeClaudeToolName(String(block.name ?? "tool"));
-  if (id) state.toolNamesById.set(id, name);
+  const identity = parseClaudeToolIdentity(
+    String(block.name ?? "tool"),
+    block.server_name ?? block.serverName,
+  );
+  if (id) state.toolsById.set(id, identity);
   return {
     type: "tool_call",
     id,
-    name,
+    name: identity.name,
+    ...getToolIdentityFields(identity),
     ...(block.input !== undefined ? { input: block.input } : {}),
   };
 }
@@ -83,8 +121,11 @@ function toolResultFromBlock(
   return {
     type: "tool_result",
     id,
-    ...(state.toolNamesById.get(id)
-      ? { name: state.toolNamesById.get(id) }
+    ...(state.toolsById.get(id)
+      ? {
+          name: state.toolsById.get(id)!.name,
+          ...getToolIdentityFields(state.toolsById.get(id)),
+        }
       : {}),
     output,
     status: isError ? "failed" : "completed",
@@ -145,7 +186,7 @@ function mapStreamEvent(
 
 export function createClaudeEventMapper() {
   const state: ClaudeParserState = {
-    toolNamesById: new Map(),
+    toolsById: new Map(),
   };
 
   return (item: Record<string, unknown>): AgentEvent[] => {
@@ -160,23 +201,32 @@ export function createClaudeEventMapper() {
       return [item as AgentEvent];
     }
     if (type === "tool_call") {
+      const identity = parseClaudeToolIdentity(
+        String(item.name ?? "tool"),
+        item.server_name ?? item.serverName ?? item.mcpServerName,
+      );
       const event = {
         ...(item as Extract<AgentEvent, { type: "tool_call" }>),
-        name: normalizeClaudeToolName(String(item.name ?? "tool")),
+        name: identity.name,
+        ...getToolIdentityFields(identity),
       };
-      if (event.id) state.toolNamesById.set(event.id, event.name);
+      if (event.id) state.toolsById.set(event.id, identity);
       return [event];
     }
     if (type === "tool_result") {
       const id = String(item.id ?? "");
+      const identity = item.name
+        ? parseClaudeToolIdentity(
+            String(item.name),
+            item.server_name ?? item.serverName ?? item.mcpServerName,
+          )
+        : state.toolsById.get(id);
       return [
         {
           ...(item as Extract<AgentEvent, { type: "tool_result" }>),
-          ...(item.name
-            ? { name: normalizeClaudeToolName(String(item.name)) }
-            : state.toolNamesById.get(id)
-              ? { name: state.toolNamesById.get(id) }
-              : {}),
+          ...(identity
+            ? { name: identity.name, ...getToolIdentityFields(identity) }
+            : {}),
         },
       ];
     }
@@ -192,7 +242,7 @@ export function createClaudeEventMapper() {
 
 export function parseClaudeStreamEvent(
   item: Record<string, unknown>,
-  state: ClaudeParserState = { toolNamesById: new Map() },
+  state: ClaudeParserState = { toolsById: new Map() },
 ): AgentEvent[] {
   const type = typeof item.type === "string" ? item.type : "";
   if (type === "assistant" && typeof item.text === "string") {
@@ -206,11 +256,16 @@ export function parseClaudeStreamEvent(
     return toolCall ? [toolCall] : [];
   }
   if (type === "tool_result") {
+    const identity = parseClaudeToolIdentity(
+      String(item.name ?? "tool"),
+      item.server_name ?? item.serverName ?? item.mcpServerName,
+    );
     return [
       {
         type: "tool_result",
         id: String(item.id ?? ""),
-        name: normalizeClaudeToolName(String(item.name ?? "tool")),
+        name: identity.name,
+        ...getToolIdentityFields(identity),
         output: item.output,
         status: "completed",
       },
