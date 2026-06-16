@@ -18,6 +18,17 @@ async function collectClaudeEvents(items: unknown[]) {
 }
 
 describe("parseClaudeStreamEvent", () => {
+  it("maps assistant text fields into text deltas", async () => {
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "assistant",
+          text: "Hello from Claude.",
+        },
+      ]),
+    ).resolves.toEqual([{ type: "text_delta", text: "Hello from Claude." }]);
+  });
+
   it("maps assistant content tool_use blocks into normalized tool calls", async () => {
     await expect(
       collectClaudeEvents([
