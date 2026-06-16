@@ -53,6 +53,7 @@ export function buildCodexLaunchPlan(
     ...(params.env ? { env: params.env } : {}),
     prompt: params.prompt,
     promptInput: "stdin",
+    ...(params.timeoutMs ? { timeoutMs: params.timeoutMs } : {}),
   };
 
   if (resumeId) {

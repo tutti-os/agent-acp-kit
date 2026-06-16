@@ -76,6 +76,17 @@ describe("buildClaudeLaunchPlan", () => {
     ]);
   });
 
+  it("propagates the caller timeout to the launch plan", () => {
+    expect(
+      buildClaudeLaunchPlan({
+        runId: "run-1",
+        cwd: "/tmp/project",
+        prompt: "continue",
+        timeoutMs: 1234,
+      }).timeoutMs,
+    ).toBe(1234);
+  });
+
   it("does not add Claude Code --resume for empty resume metadata", () => {
     expect(
       buildClaudeLaunchPlan({
