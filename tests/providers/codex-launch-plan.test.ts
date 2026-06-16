@@ -163,6 +163,22 @@ describe("buildCodexLaunchPlan", () => {
     ]);
   });
 
+  it("propagates the caller timeout to the launch plan and fallback plan", () => {
+    const plan = buildCodexLaunchPlan({
+      runId: "run-1",
+      cwd: "/tmp/project",
+      prompt: "continue",
+      timeoutMs: 1234,
+      resume: {
+        mode: "provider",
+        providerSessionId: "codex-session-1",
+      },
+    });
+
+    expect(plan.timeoutMs).toBe(1234);
+    expect(plan.fallbackPlan?.timeoutMs).toBe(1234);
+  });
+
   it("falls back to fresh Codex exec when resume metadata is empty", () => {
     expect(
       buildCodexLaunchPlan({

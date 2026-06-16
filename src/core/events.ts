@@ -8,11 +8,20 @@ export type AgentEvent =
   | { type: "thinking"; text: string }
   | { type: "thinking_delta"; text: string }
   | { type: "text_delta"; text: string }
-  | { type: "tool_call"; id: string; name: string; input?: unknown }
+  | {
+      type: "tool_call";
+      id: string;
+      name: string;
+      input?: unknown;
+      rawName?: string;
+      mcpServerName?: string;
+    }
   | {
       type: "tool_result";
       id: string;
       name?: string;
+      rawName?: string;
+      mcpServerName?: string;
       status?: "completed" | "failed";
       output?: unknown;
       summary?: string;
