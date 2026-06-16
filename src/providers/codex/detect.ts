@@ -52,8 +52,12 @@ function getString(record: Record<string, unknown>, key: string) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function isSupersededCodexModel(record: Record<string, unknown>) {
-  return Boolean(getString(record, "upgrade"));
+function isSupersededCodexModel(
+  record: Record<string, unknown>,
+  upgradedModelIds: Set<string>,
+) {
+  const upgrade = getString(record, "upgrade");
+  return Boolean(upgrade && upgradedModelIds.has(upgrade));
 }
 
 function normalizeCodexCatalog(payload: unknown): AgentModelOption[] {
@@ -68,6 +72,19 @@ function normalizeCodexCatalog(payload: unknown): AgentModelOption[] {
     { id: "default", label: "Default (CLI config)" },
   ];
   seen.add("default");
+  const records = rawModels
+    .map((entry) => toRecord(entry))
+    .filter((record): record is Record<string, unknown> => Boolean(record));
+  const upgradedModelIds = new Set<string>();
+  for (const record of records) {
+    const id =
+      getString(record, "id") ??
+      getString(record, "model") ??
+      getString(record, "slug");
+    if (id && getString(record, "upgrade")) {
+      upgradedModelIds.add(id);
+    }
+  }
   const upgradeModels: AgentModelOption[] = [];
 
   function appendModel(id: string, label: string, description?: string) {
@@ -80,11 +97,9 @@ function normalizeCodexCatalog(payload: unknown): AgentModelOption[] {
     });
   }
 
-  for (const entry of rawModels) {
-    const record = toRecord(entry);
-    if (!record) continue;
+  for (const record of records) {
     if (record.hidden === true || record.visibility === "hide") continue;
-    if (isSupersededCodexModel(record)) continue;
+    if (isSupersededCodexModel(record, upgradedModelIds)) continue;
 
     const id = getString(record, "id") ?? getString(record, "model") ?? getString(record, "slug");
     if (!id) continue;

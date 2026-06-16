@@ -149,6 +149,7 @@ if (process.argv[2] === "app-server") {
     expect(detection.models).toEqual([
       { id: "default", label: "Default (CLI config)" },
       { id: "gpt-5.5", label: "GPT-5.5", description: "Frontier" },
+      { id: "gpt-5.4", label: "GPT-5.4" },
       { id: "gpt-5.4-mini", label: "GPT-5.4-Mini" },
     ]);
   });
