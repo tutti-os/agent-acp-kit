@@ -22,6 +22,10 @@ export type {
 export type { DetectionResult, DetectContext } from "./detection.js";
 export type { LaunchPlan, TransportKind } from "./launch-plan.js";
 export type {
+  ManagedAgentInvocation,
+  ManagedAgentInvocationProviderId,
+} from "./managed-invocation.js";
+export type {
   ProviderAdapter,
   RawAgentEvent,
   RawAgentStream,
@@ -47,3 +51,9 @@ export type { LocalAgentRuntimeErrorCode } from "./errors.js";
 export { normalizeMcpEnvEntries, normalizeMcpServerConfig, normalizeMcpServerConfigs } from "./mcp.js";
 export { LocalAgentRuntimeError } from "./errors.js";
 export { getRuntimeTarget, getRuntimeTargetKey } from "./registry.js";
+export {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  MANAGED_AGENT_INVOCATION_PROVIDER_IDS,
+  isManagedAgentInvocationCwd,
+  isManagedAgentInvocationProviderId,
+} from "./managed-invocation.js";

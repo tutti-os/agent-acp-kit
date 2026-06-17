@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { redactManagedAgentInvocationSecrets } from "../../core/managed-invocation.js";
 import type { AgentModelOption } from "../../core/provider-plugin.js";
 import { resolveCommandExecutable } from "../../process/command-resolver.js";
 
@@ -141,7 +142,7 @@ export async function detectClaude(options?: {
       supported: false,
       unsupportedReason:
         error instanceof Error
-          ? error.message
+          ? redactManagedAgentInvocationSecrets(error.message, options?.env)
           : "Executable not found on PATH: claude, openclaude",
       version: "not-installed",
     };
@@ -150,6 +151,7 @@ export async function detectClaude(options?: {
   let stdout: string;
   try {
     ({ stdout } = await execFileAsync(executablePath, ["--version"], {
+      ...(options?.cwd ? { cwd: options.cwd } : {}),
       env: options?.env,
     }));
   } catch (error) {
@@ -162,7 +164,10 @@ export async function detectClaude(options?: {
       supported: false,
       unsupportedReason:
         error instanceof Error
-          ? `Unable to run ${command} --version: ${error.message}`
+          ? redactManagedAgentInvocationSecrets(
+              `Unable to run ${command} --version: ${error.message}`,
+              options?.env,
+            )
           : `Unable to run ${command} --version`,
       version: "unknown",
     };

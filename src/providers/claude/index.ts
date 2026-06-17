@@ -5,6 +5,10 @@ import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
 import type { AgentEvent } from "../../core/events.js";
 import type { RawAgentStream } from "../../core/transport.js";
 import {
+  applyManagedAgentInvocationToRunParams,
+  prepareManagedAgentInvocationDetectContext,
+} from "../../core/managed-invocation.js";
+import {
   normalizeMcpServerConfigs,
   type NormalizedLocalAgentMcpServerConfig,
 } from "../../core/mcp.js";
@@ -136,6 +140,7 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
   async function prepareLaunchPlan(
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "claude">["buildLaunchPlan"]>[0],
   ) {
+    params = applyManagedAgentInvocationToRunParams("claude", params);
     const materialized = await materializeSkills(
       params.cwd,
       params.skillManifest ?? [],
@@ -188,8 +193,15 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
     id: "claude",
     displayName: "Claude Code",
     kind: "local-agent",
-    async detect() {
-      return detectClaude();
+    async detect(context) {
+      const detectionContext = prepareManagedAgentInvocationDetectContext(
+        "claude",
+        context,
+      );
+      return detectClaude({
+        ...(detectionContext?.cwd ? { cwd: detectionContext.cwd } : {}),
+        ...(detectionContext?.env ? { env: detectionContext.env } : {}),
+      });
     },
     capabilities() {
       return {

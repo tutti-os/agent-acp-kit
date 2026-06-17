@@ -1,6 +1,11 @@
 import type { AgentEvent } from "../../core/events.js";
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
 import type { RawAgentStream } from "../../core/transport.js";
+import {
+  applyManagedAgentInvocationToLaunchPlan,
+  applyManagedAgentInvocationToRunParams,
+  prepareManagedAgentInvocationDetectContext,
+} from "../../core/managed-invocation.js";
 import { resolveCommandExecutable } from "../../process/command-resolver.js";
 import { composePromptWithSystem } from "../../skills/prompt-injection.js";
 import { runAcpTransport } from "../../transports/acp/acp-client.js";
@@ -24,11 +29,16 @@ export function createGenericAcpProvider(input: {
     id: input.providerId,
     displayName: input.displayName,
     kind: "local-agent",
-    async detect() {
+    async detect(context) {
+      const detectionContext = prepareManagedAgentInvocationDetectContext(
+        input.providerId,
+        context,
+      );
       let executablePath: string;
       try {
         executablePath = await resolveCommandExecutable({
           command: input.command,
+          ...(detectionContext?.env ? { env: detectionContext.env } : {}),
         });
       } catch (error) {
         return {
@@ -46,7 +56,8 @@ export function createGenericAcpProvider(input: {
       const models = await detectAcpModels({
         args: input.args,
         bin: executablePath,
-        cwd: process.cwd(),
+        cwd: detectionContext?.cwd ?? process.cwd(),
+        ...(detectionContext?.env ? { env: detectionContext.env } : {}),
       }).catch(() => []);
       return {
         authState: "unknown",
@@ -66,11 +77,12 @@ export function createGenericAcpProvider(input: {
       };
     },
     async buildLaunchPlan(params) {
+      params = applyManagedAgentInvocationToRunParams(input.providerId, params);
       const prompt = composePromptWithSystem({
         prompt: params.prompt,
         ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
       });
-      return {
+      return applyManagedAgentInvocationToLaunchPlan(input.providerId, {
         args: input.args,
         command: input.command,
         cwd: params.cwd,
@@ -83,7 +95,7 @@ export function createGenericAcpProvider(input: {
         promptInput: "stdin",
         runId: params.runId,
         transport: "acp-json-rpc",
-      };
+      }, params.managedAgentInvocation);
     },
     createAdapter() {
       return {
@@ -93,9 +105,11 @@ export function createGenericAcpProvider(input: {
       };
     },
     async *run(params) {
+      params = applyManagedAgentInvocationToRunParams(input.providerId, params);
       const plan = await plugin.buildLaunchPlan(params);
       yield* runAcpTransport(plan, {
         ...params,
+        cwd: plan.cwd,
         prompt: plan.prompt,
       });
     },

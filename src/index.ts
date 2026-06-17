@@ -59,8 +59,12 @@ export type {
 
 export {
   LocalAgentRuntimeError,
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  MANAGED_AGENT_INVOCATION_PROVIDER_IDS,
   getRuntimeTarget,
   getRuntimeTargetKey,
+  isManagedAgentInvocationCwd,
+  isManagedAgentInvocationProviderId,
   normalizeMcpEnvEntries,
   normalizeMcpServerConfig,
   normalizeMcpServerConfigs,
@@ -87,6 +91,8 @@ export type {
   LocalAgentProviderAdapter,
   LocalAgentProviderPlugin,
   LocalAgentRuntimeErrorCode,
+  ManagedAgentInvocation,
+  ManagedAgentInvocationProviderId,
   ProviderAdapter,
   ProviderLaunchPlan,
   RawAgentEvent,

@@ -266,6 +266,47 @@ Provider behavior differs:
 
 Hosts should not hardcode Codex or Claude model lists above this package. If a UI needs additional custom models, keep that UI behavior in the host and pass the chosen id into `AgentRunInput.model`.
 
+## Managed Agent Invocation
+
+Hosts that run inside a managed reverse-exec environment can pass a per-operation
+managed invocation context to both detection and runs:
+
+```ts
+const managedAgentInvocation = {
+  credential,
+  cwd: "/workspace/project",
+};
+
+await runtime.detect({ managedAgentInvocation });
+
+for await (const event of runtime.run({
+  runId,
+  provider: "codex",
+  cwd: "/workspace/project",
+  prompt,
+  managedAgentInvocation,
+})) {
+  // Project AgentEvent into the host protocol.
+}
+```
+
+When this context is present, the SDK injects
+`TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL` only into the current provider
+operation and sets the provider process cwd from `managedAgentInvocation.cwd`.
+The managed cwd must be `/workspace` or a path below `/workspace`; invalid cwd
+values fail fast.
+
+Managed invocation is intentionally limited to provider ids `codex`, `claude`,
+and `nexight`. There is no `nextop` alias. Codex and Claude are built-in
+providers; `nexight` can be supplied by a host-owned provider plugin when the
+host has a defined Nexight transport contract. The SDK expects managed CLI
+shims to be available on `PATH` and does not hardcode shim paths.
+
+Managed credentials are not written to `process.env`, detection cache keys,
+provider config files, or global skill directories. They are added to
+run-scoped process env and redaction secrets so stderr tails and transport
+errors do not expose the credential.
+
 ## Installing Local Providers
 
 Hosts can expose an install action for supported local providers through one
@@ -377,8 +418,10 @@ import {
   createDefaultLocalAgentProviderPlugins,
   createGenericAcpProvider,
   installAgentProvider,
+  MANAGED_AGENT_INVOCATION_PROVIDER_IDS,
   type AgentEvent,
   type AgentRunInput,
+  type ManagedAgentInvocation,
 } from "@tutti-os/agent-acp-kit";
 ```
 
@@ -423,6 +466,8 @@ Recommended host policy:
 - Clean per-run temporary directories.
 - Limit MCP tool allowlists per run.
 - Gate dangerous provider flags behind trusted local mode.
+- Treat managed invocation credentials as per-operation values; do not store
+  them, pass them through global env, or reuse them across detect/run calls.
 - Persist terminal events durably so cancellation or failure cannot be overwritten by late process output.
 
 ## License

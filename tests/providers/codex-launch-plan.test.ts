@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
 import { createCodexProvider } from "../../src/providers/codex/index.js";
 import { buildCodexLaunchPlan } from "../../src/providers/codex/launch-plan.js";
 
@@ -48,6 +49,35 @@ describe("buildCodexLaunchPlan", () => {
         "--add-dir",
         "/tmp/codex/generated_images",
       ],
+    });
+  });
+
+  it("injects managed invocation env and cwd into Codex launch plans", () => {
+    const plan = buildCodexLaunchPlan({
+      runId: "run-1",
+      cwd: "/tmp/project",
+      prompt: "draw a poster",
+      managedAgentInvocation: {
+        credential: "managed-codex-secret",
+        cwd: "/workspace/project",
+      },
+      resume: {
+        mode: "provider",
+        providerSessionId: "codex-session-1",
+      },
+    });
+
+    expect(plan.cwd).toBe("/workspace/project");
+    expect(plan.env).toMatchObject({
+      [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
+    });
+    expect(plan.redactionSecrets).toEqual(["managed-codex-secret"]);
+    expect(plan.fallbackPlan).toMatchObject({
+      cwd: "/workspace/project",
+      env: {
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
+      },
+      redactionSecrets: ["managed-codex-secret"],
     });
   });
 

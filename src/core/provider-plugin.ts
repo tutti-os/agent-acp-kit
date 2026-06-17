@@ -1,6 +1,8 @@
 import type { AgentRuntimeRecord, RuntimeTarget } from "./capabilities.js";
+import type { DetectContext } from "./detection.js";
 import type { AgentEvent } from "./events.js";
 import type { LaunchPlan, TransportKind } from "./launch-plan.js";
+import type { ManagedAgentInvocation } from "./managed-invocation.js";
 import type { LocalAgentMcpServerConfig } from "./mcp.js";
 import type { SkillMaterializationRecord } from "./skills.js";
 import type { RawAgentStream } from "./transport.js";
@@ -83,6 +85,7 @@ export type AgentRunParams<
   signal?: AbortSignal;
   skillManifest?: SkillMaterializationRecord[];
   env?: Record<string, string>;
+  managedAgentInvocation?: ManagedAgentInvocation;
   timeoutMs?: number;
   metadata?: Record<string, unknown>;
   resume?: {
@@ -110,7 +113,7 @@ export type LocalAgentProviderPlugin<
   id: TProvider;
   displayName: string;
   kind: TKind;
-  detect(): Promise<AgentDetection | null>;
+  detect(context?: DetectContext): Promise<AgentDetection | null>;
   capabilities(): AgentRuntimeRecord<TKind, TProvider>["capabilities"];
   createAdapter?(): LocalAgentProviderAdapter<TKind, TProvider>;
   buildLaunchPlan(params: AgentRunParams<TKind, TProvider>): Promise<ProviderLaunchPlan>;
