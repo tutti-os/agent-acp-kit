@@ -194,6 +194,14 @@ function buildMcpConfigBlock(servers: ReturnType<typeof normalizeMcpServerConfig
         );
       }
     }
+    if (server.startupTimeoutMs) {
+      lines.push(
+        `startup_timeout_sec = ${Math.ceil(server.startupTimeoutMs / 1000)}`,
+      );
+    }
+    if (server.toolTimeoutMs) {
+      lines.push(`tool_timeout_sec = ${Math.ceil(server.toolTimeoutMs / 1000)}`);
+    }
 
     if (server.env.length > 0) {
       lines.push("", `[mcp_servers.${server.name}.env]`);
