@@ -50,4 +50,30 @@ describe("buildAcpSessionNewParams", () => {
       ],
     });
   });
+
+  it("does not emit provider-specific MCP timeouts into generic ACP session params", () => {
+    expect(
+      buildAcpSessionNewParams("/tmp/project", {
+        mcpServers: [
+          {
+            name: "toolbox",
+            command: "node",
+            startupTimeoutMs: 120_000,
+            toolTimeoutMs: 1_800_000,
+          },
+        ],
+      }),
+    ).toEqual({
+      cwd: path.resolve("/tmp/project"),
+      mcpServers: [
+        {
+          type: "stdio",
+          name: "toolbox",
+          command: "node",
+          args: [],
+          env: [],
+        },
+      ],
+    });
+  });
 });

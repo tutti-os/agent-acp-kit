@@ -59,6 +59,7 @@ function buildClaudeMcpConfig(
         type: "http",
         url: server.url,
         ...(server.headers ? { headers: server.headers } : {}),
+        ...(server.toolTimeoutMs ? { timeout: server.toolTimeoutMs } : {}),
         ...(server.env.length > 0 ? { env: envEntriesToObject(server.env) } : {}),
       };
       continue;
@@ -68,6 +69,7 @@ function buildClaudeMcpConfig(
       type: "stdio",
       command: server.command,
       ...(server.args ? { args: server.args } : {}),
+      ...(server.toolTimeoutMs ? { timeout: server.toolTimeoutMs } : {}),
       ...(server.env.length > 0 ? { env: envEntriesToObject(server.env) } : {}),
     };
   }

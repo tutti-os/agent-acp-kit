@@ -307,8 +307,15 @@ const mcpServers = [{
   command: "node",
   args: ["/absolute/path/to/app-tools-mcp.js"],
   env: { APP_TOOL_TOKEN: runScopedToken },
+  toolTimeoutMs: 30 * 60_000,
+  startupTimeoutMs: 2 * 60_000,
 }];
 ```
+
+Timeouts are normalized by provider. Codex writes `startup_timeout_sec` and
+`tool_timeout_sec` into its per-run config. Claude Code writes per-server
+`timeout` for tool calls. Generic ACP providers receive only standard ACP MCP
+server fields because the ACP MCP server schema does not define timeout fields.
 
 Keep tool tokens run-scoped and short-lived. Do not pass broad application secrets or database credentials directly to agent processes.
 

@@ -660,6 +660,8 @@ describe("buildCodexLaunchPlan", () => {
             command: "node",
             args: ["server.js"],
             env: { AIMC_TOOL_TOKEN: "tool-token" },
+            startupTimeoutMs: 120_000,
+            toolTimeoutMs: 1_800_000,
           },
         ],
       });
@@ -680,6 +682,8 @@ describe("buildCodexLaunchPlan", () => {
       expect(config).toContain("[mcp_servers.chrome-devtools]");
       expect(config).toContain("[mcp_servers.aimc]");
       expect(config).toContain('command = "node"');
+      expect(config).toContain("startup_timeout_sec = 120");
+      expect(config).toContain("tool_timeout_sec = 1800");
       expect(config).toContain('AIMC_TOOL_TOKEN = "tool-token"');
       expect(config).not.toContain('command = "old-node"');
       expect(config).not.toContain('OLD_TOKEN = "old-token"');
