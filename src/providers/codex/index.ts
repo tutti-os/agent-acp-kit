@@ -26,6 +26,9 @@ import { detectCodex } from "./detect.js";
 import { buildCodexLaunchPlan } from "./launch-plan.js";
 import { parseCodexItem } from "./parser.js";
 
+const CODEX_PROJECT_ROOT_MARKER = ".agent-acp-kit-codex-root";
+const DEFAULT_CODEX_PROJECT_ROOT_MARKERS = [CODEX_PROJECT_ROOT_MARKER, ".git"] as const;
+
 function escapeTomlString(value: string) {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
@@ -195,6 +198,14 @@ function buildMcpConfigBlock(servers: ReturnType<typeof normalizeMcpServerConfig
         );
       }
     }
+    if (server.startupTimeoutMs) {
+      lines.push(
+        `startup_timeout_sec = ${Math.ceil(server.startupTimeoutMs / 1000)}`,
+      );
+    }
+    if (server.toolTimeoutMs) {
+      lines.push(`tool_timeout_sec = ${Math.ceil(server.toolTimeoutMs / 1000)}`);
+    }
 
     if (server.env.length > 0) {
       lines.push("", `[mcp_servers.${server.name}.env]`);
@@ -357,6 +368,157 @@ function stripSkillsConfigEntries(content: string) {
 const rootFeaturesTableHeaderRe = /^\s*\[\s*features\s*\]\s*(?:#.*)?$/;
 const rootDottedMultiAgentRe = /^\s*features\s*\.\s*multi_agent\s*=/;
 const featuresTableMultiAgentRe = /^\s*multi_agent\s*=/;
+const rootProjectRootMarkersRe = /^\s*project_root_markers\s*=/;
+const rootDottedCodexHooksRe = /^(\s*features\s*\.\s*)codex_hooks(\s*=.*)$/;
+const rootDottedHooksRe = /^\s*features\s*\.\s*hooks\s*=/;
+const featuresTableCodexHooksRe = /^(\s*)codex_hooks(\s*=.*)$/;
+const featuresTableHooksRe = /^\s*hooks\s*=/;
+
+function hasFeaturesTableHookDirective(lines: string[]) {
+  let currentTable = "";
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (rootFeaturesTableHeaderRe.test(line)) {
+      currentTable = "[features]";
+      continue;
+    }
+    if (trimmed.startsWith("[")) {
+      currentTable = trimmed;
+      continue;
+    }
+    if (currentTable === "[features]" && featuresTableHooksRe.test(trimmed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function migrateDeprecatedCodexHooksFeature(content: string) {
+  const lines = content.split(/\r?\n/);
+  const out: string[] = [];
+  let currentTable = "";
+  let hasRootHooks = lines.some((line) => rootDottedHooksRe.test(line.trim()));
+  let hasFeaturesTableHooks = hasFeaturesTableHookDirective(lines);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (rootFeaturesTableHeaderRe.test(line)) {
+      currentTable = "[features]";
+      out.push(line);
+      continue;
+    }
+    if (trimmed.startsWith("[")) {
+      currentTable = trimmed;
+      out.push(line);
+      continue;
+    }
+
+    if (currentTable === "") {
+      const rootDottedMatch = line.match(rootDottedCodexHooksRe);
+      if (rootDottedMatch) {
+        if (!hasRootHooks) {
+          out.push(`${rootDottedMatch[1]}hooks${rootDottedMatch[2]}`);
+          hasRootHooks = true;
+        }
+        continue;
+      }
+    }
+
+    if (currentTable === "[features]") {
+      if (featuresTableHooksRe.test(trimmed)) {
+        hasFeaturesTableHooks = true;
+        out.push(line);
+        continue;
+      }
+
+      const featuresTableMatch = line.match(featuresTableCodexHooksRe);
+      if (featuresTableMatch) {
+        if (!hasFeaturesTableHooks) {
+          out.push(`${featuresTableMatch[1]}hooks${featuresTableMatch[2]}`);
+          hasFeaturesTableHooks = true;
+        }
+        continue;
+      }
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n");
+}
+
+function readTomlStringArray(line: string) {
+  const array = line.match(/\[(.*)\]/)?.[1];
+  if (!array) return [];
+  const values: string[] = [];
+  const stringRe = /"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'/g;
+  let match: RegExpExecArray | null;
+  while ((match = stringRe.exec(array))) {
+    const value = match[1] ?? match[2];
+    if (value) values.push(value);
+  }
+  return values;
+}
+
+function formatTomlStringArray(values: string[]) {
+  return `[${values.map((value) => `"${escapeTomlString(value)}"`).join(", ")}]`;
+}
+
+function mergeCodexProjectRootMarkers(values: string[]) {
+  const next: string[] = [];
+  for (const marker of [
+    CODEX_PROJECT_ROOT_MARKER,
+    ...values,
+    ...DEFAULT_CODEX_PROJECT_ROOT_MARKERS,
+  ]) {
+    if (!next.includes(marker)) next.push(marker);
+  }
+  return next;
+}
+
+function ensureCodexProjectRootMarkers(content: string) {
+  const lines = content.split(/\r?\n/);
+  const out: string[] = [];
+  let inserted = false;
+  let currentTable = "";
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("[")) {
+      if (!inserted) {
+        out.push(
+          `project_root_markers = ${formatTomlStringArray(mergeCodexProjectRootMarkers([]))}`,
+          "",
+        );
+        inserted = true;
+      }
+      currentTable = trimmed;
+      out.push(line);
+      continue;
+    }
+
+    if (currentTable === "" && rootProjectRootMarkersRe.test(line)) {
+      out.push(
+        `project_root_markers = ${formatTomlStringArray(
+          mergeCodexProjectRootMarkers(readTomlStringArray(line)),
+        )}`,
+      );
+      inserted = true;
+      continue;
+    }
+
+    out.push(line);
+  }
+
+  if (!inserted) {
+    out.unshift(
+      `project_root_markers = ${formatTomlStringArray(mergeCodexProjectRootMarkers([]))}`,
+      "",
+    );
+  }
+
+  return out.join("\n");
+}
 
 function stripMultiAgentDirectives(content: string) {
   const lines = content.split(/\r?\n/);
@@ -388,7 +550,7 @@ function stripMultiAgentDirectives(content: string) {
 }
 
 function ensureCodexMultiAgentDisabled(content: string) {
-  const stripped = stripMultiAgentDirectives(content);
+  const stripped = stripMultiAgentDirectives(migrateDeprecatedCodexHooksFeature(content));
   const lines = stripped.split(/\r?\n/);
   const featuresIndex = lines.findIndex((line) => rootFeaturesTableHeaderRe.test(line));
   if (featuresIndex >= 0) {
@@ -400,6 +562,29 @@ function ensureCodexMultiAgentDisabled(content: string) {
   const trimmed = stripped.trimStart();
   const block = "features.multi_agent = false\n";
   return trimmed ? `${block}\n${trimmed}` : block;
+}
+
+function isNodeErrorWithCode(error: unknown, code: string) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === code,
+  );
+}
+
+async function ensureCodexProjectRootMarker(cwd: string) {
+  const markerPath = join(cwd, CODEX_PROJECT_ROOT_MARKER);
+  await mkdir(cwd, { recursive: true });
+  try {
+    await writeFile(markerPath, "", { encoding: "utf8", flag: "wx" });
+    return markerPath;
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "EEXIST")) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function materializeCodexHome(params: {
@@ -442,7 +627,7 @@ async function materializeCodexHome(params: {
     });
   await writeFile(
     join(runHome, "config.toml"),
-    ensureCodexMultiAgentDisabled(mergedConfig),
+    ensureCodexProjectRootMarkers(ensureCodexMultiAgentDisabled(mergedConfig)),
     "utf8",
   );
 
@@ -459,6 +644,7 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "codex">["buildLaunchPlan"]>[0],
   ) {
     params = applyManagedAgentInvocationToRunParams("codex", params);
+    const projectRootMarker = await ensureCodexProjectRootMarker(params.cwd);
     const materialized = await materializeSkills(
       params.cwd,
       params.skillManifest ?? [],
@@ -482,6 +668,7 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
       ...materialized
         .map((skill) => skill.materializedPath)
         .filter((path): path is string => Boolean(path)),
+      ...(projectRootMarker ? [projectRootMarker] : []),
       ...(codexHome ? [codexHome] : []),
     ];
     if (cleanupTargets.length > 0) {

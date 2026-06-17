@@ -193,6 +193,22 @@ describe("buildCodexLaunchPlan", () => {
     ]);
   });
 
+  it("propagates the caller timeout to the launch plan and fallback plan", () => {
+    const plan = buildCodexLaunchPlan({
+      runId: "run-1",
+      cwd: "/tmp/project",
+      prompt: "continue",
+      timeoutMs: 1234,
+      resume: {
+        mode: "provider",
+        providerSessionId: "codex-session-1",
+      },
+    });
+
+    expect(plan.timeoutMs).toBe(1234);
+    expect(plan.fallbackPlan?.timeoutMs).toBe(1234);
+  });
+
   it("falls back to fresh Codex exec when resume metadata is empty", () => {
     expect(
       buildCodexLaunchPlan({
@@ -273,6 +289,57 @@ describe("buildCodexLaunchPlan", () => {
       expect(config).toContain('model_provider = "OpenAI"');
       expect(config).toContain('base_url = "https://llm-api.tutti.sh/v1"');
       expect(config).not.toContain('service_tier = "default"');
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("marks the run cwd as the Codex project root", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        [
+          'model_provider = "OpenAI"',
+          'project_root_markers = [".vibe-workspace", ".git"]',
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-project-root-marker",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).toContain(
+        'project_root_markers = [".agent-acp-kit-codex-root", ".vibe-workspace", ".git"]',
+      );
+      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).resolves.toBe("");
+
+      for await (const _event of adapter!.parseEvents((async function* () {})())) {
+        // Drain to trigger run-scoped cleanup.
+      }
+
+      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).rejects.toThrow();
+      runHome = undefined;
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
@@ -519,6 +586,51 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
+  it("migrates deprecated Codex hooks feature flags in generated run config", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
+    let runHome: string | undefined;
+
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        [
+          'model_provider = "OpenAI"',
+          "",
+          "[features]",
+          "codex_hooks = true",
+          "web_search = true",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-migrate-hooks-feature",
+        cwd,
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      const config = await readFile(join(runHome!, "config.toml"), "utf8");
+      expect(config).toContain("[features]\nmulti_agent = false\nhooks = true\nweb_search = true");
+      expect(config).not.toContain("codex_hooks");
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("copies user Codex config and overlays run model and MCP without duplicate tables", async () => {
     const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
@@ -578,6 +690,8 @@ describe("buildCodexLaunchPlan", () => {
             command: "node",
             args: ["server.js"],
             env: { AIMC_TOOL_TOKEN: "tool-token" },
+            startupTimeoutMs: 120_000,
+            toolTimeoutMs: 1_800_000,
           },
         ],
       });
@@ -598,6 +712,8 @@ describe("buildCodexLaunchPlan", () => {
       expect(config).toContain("[mcp_servers.chrome-devtools]");
       expect(config).toContain("[mcp_servers.aimc]");
       expect(config).toContain('command = "node"');
+      expect(config).toContain("startup_timeout_sec = 120");
+      expect(config).toContain("tool_timeout_sec = 1800");
       expect(config).toContain('AIMC_TOOL_TOKEN = "tool-token"');
       expect(config).not.toContain('command = "old-node"');
       expect(config).not.toContain('OLD_TOKEN = "old-token"');

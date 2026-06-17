@@ -18,10 +18,11 @@ import { composePromptWithSkills } from "../../skills/prompt-injection.js";
 import { runJsonlTransport } from "../../transports/jsonl/jsonl-transport.js";
 import { detectClaude } from "./detect.js";
 import { buildClaudeLaunchPlan } from "./launch-plan.js";
-import { parseClaudeStreamEvent } from "./parser.js";
+import { createClaudeEventMapper } from "./parser.js";
 
 async function* parseClaudeRawEvents(stream: RawAgentStream): AsyncGenerator<AgentEvent> {
   let sessionId: string | undefined;
+  const mapClaudeEvent = createClaudeEventMapper();
   for await (const item of stream) {
     const record =
       item && typeof item === "object" && !Array.isArray(item)
@@ -33,26 +34,16 @@ async function* parseClaudeRawEvents(stream: RawAgentStream): AsyncGenerator<Age
         sessionId = candidate;
       }
     }
-    if (item && typeof item === "object" && "type" in item) {
-      const candidate = item as AgentEvent;
-      if (candidate.type === "done" && sessionId && !candidate.sessionId) {
-        yield { ...candidate, sessionId };
-        continue;
-      }
-      if (
-        candidate.type === "done" ||
-        candidate.type === "error" ||
-        candidate.type === "status" ||
-        candidate.type === "text_delta" ||
-        candidate.type === "thinking_delta" ||
-        candidate.type === "tool_call" ||
-        candidate.type === "tool_result"
-      ) {
-        yield candidate;
-        continue;
-      }
+    if (!record) {
+      continue;
     }
-    yield* parseClaudeStreamEvent(item as Record<string, unknown>);
+    for (const event of mapClaudeEvent(record)) {
+      if (event.type === "done" && sessionId && !event.sessionId) {
+        yield { ...event, sessionId };
+        continue;
+      }
+      yield event;
+    }
   }
 }
 
@@ -72,6 +63,7 @@ function buildClaudeMcpConfig(
         type: "http",
         url: server.url,
         ...(server.headers ? { headers: server.headers } : {}),
+        ...(server.toolTimeoutMs ? { timeout: server.toolTimeoutMs } : {}),
         ...(server.env.length > 0 ? { env: envEntriesToObject(server.env) } : {}),
       };
       continue;
@@ -81,6 +73,7 @@ function buildClaudeMcpConfig(
       type: "stdio",
       command: server.command,
       ...(server.args ? { args: server.args } : {}),
+      ...(server.toolTimeoutMs ? { timeout: server.toolTimeoutMs } : {}),
       ...(server.env.length > 0 ? { env: envEntriesToObject(server.env) } : {}),
     };
   }
@@ -251,8 +244,9 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
         runId: params.runId,
         transport: "jsonl" as const,
       };
+      const mapClaudeEvent = createClaudeEventMapper();
       try {
-        yield* runJsonlTransport(plan, parseClaudeStreamEvent, params.signal);
+        yield* runJsonlTransport(plan, mapClaudeEvent, params.signal);
       } finally {
         await cleanupRun(params.runId);
       }

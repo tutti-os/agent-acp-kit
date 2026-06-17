@@ -97,6 +97,17 @@ describe("buildClaudeLaunchPlan", () => {
     ]);
   });
 
+  it("propagates the caller timeout to the launch plan", () => {
+    expect(
+      buildClaudeLaunchPlan({
+        runId: "run-1",
+        cwd: "/tmp/project",
+        prompt: "continue",
+        timeoutMs: 1234,
+      }).timeoutMs,
+    ).toBe(1234);
+  });
+
   it("does not add Claude Code --resume for empty resume metadata", () => {
     expect(
       buildClaudeLaunchPlan({
@@ -126,6 +137,7 @@ describe("buildClaudeLaunchPlan", () => {
             env: {
               HOST_TOOL_TOKEN: "secret-token",
             },
+            toolTimeoutMs: 1_800_000,
           },
         ],
       });
@@ -141,6 +153,7 @@ describe("buildClaudeLaunchPlan", () => {
               type: "stdio",
               command: "node",
               args: ["/tmp/host-tools-mcp.js"],
+              timeout: 1_800_000,
               env: {
                 HOST_TOOL_TOKEN: "secret-token",
               },
@@ -170,6 +183,7 @@ describe("buildClaudeLaunchPlan", () => {
               Authorization: "Bearer token",
             },
             env: [{ key: "EXTRA", value: "value" }],
+            toolTimeoutMs: 120_000,
           },
         ],
       });
@@ -185,6 +199,7 @@ describe("buildClaudeLaunchPlan", () => {
               headers: {
                 Authorization: "Bearer token",
               },
+              timeout: 120_000,
               env: {
                 EXTRA: "value",
               },

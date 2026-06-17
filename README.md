@@ -248,6 +248,11 @@ Common event types:
 | `error` | Runtime or provider error |
 | `done` | Terminal event with `completed`, `failed`, or `canceled` |
 
+For MCP tool events, `name` is the normalized short tool name. Providers that
+surface a server namespace may also include `rawName` and `mcpServerName`, so
+hosts can distinguish same-named tools exposed by different MCP servers while
+keeping backward-compatible short-name routing.
+
 Hosts should persist enough event data for replay and should treat `done` as the terminal source of truth for a run.
 
 ## Models
@@ -343,8 +348,15 @@ const mcpServers = [{
   command: "node",
   args: ["/absolute/path/to/app-tools-mcp.js"],
   env: { APP_TOOL_TOKEN: runScopedToken },
+  toolTimeoutMs: 30 * 60_000,
+  startupTimeoutMs: 2 * 60_000,
 }];
 ```
+
+Timeouts are normalized by provider. Codex writes `startup_timeout_sec` and
+`tool_timeout_sec` into its per-run config. Claude Code writes per-server
+`timeout` for tool calls. Generic ACP providers receive only standard ACP MCP
+server fields because the ACP MCP server schema does not define timeout fields.
 
 Keep tool tokens run-scoped and short-lived. Do not pass broad application secrets or database credentials directly to agent processes.
 

@@ -3,13 +3,18 @@ export type LocalAgentMcpEnvEntry = {
   value: string;
 };
 
+type LocalAgentMcpTimeoutConfig = {
+  startupTimeoutMs?: number;
+  toolTimeoutMs?: number;
+};
+
 export type LocalAgentMcpStdioServerConfig = {
   type?: "stdio";
   name: string;
   command: string;
   args?: string[];
   env?: Record<string, string> | LocalAgentMcpEnvEntry[];
-};
+} & LocalAgentMcpTimeoutConfig;
 
 export type LocalAgentMcpHttpServerConfig = {
   type: "http";
@@ -17,7 +22,7 @@ export type LocalAgentMcpHttpServerConfig = {
   url: string;
   headers?: Record<string, string>;
   env?: Record<string, string> | LocalAgentMcpEnvEntry[];
-};
+} & LocalAgentMcpTimeoutConfig;
 
 export type LocalAgentMcpServerConfig =
   | LocalAgentMcpStdioServerConfig
@@ -63,15 +68,27 @@ export function normalizeMcpEnvEntries(
     .map(([key, value]) => ({ key, value }));
 }
 
+function normalizePositiveInteger(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.trunc(value);
+}
+
 export function normalizeMcpServerConfig(
   server: LocalAgentMcpServerConfig,
 ): NormalizedLocalAgentMcpServerConfig {
+  const startupTimeoutMs = normalizePositiveInteger(server.startupTimeoutMs);
+  const toolTimeoutMs = normalizePositiveInteger(server.toolTimeoutMs);
+
   if (server.type === "http") {
     return {
       type: "http",
       name: server.name,
       url: server.url,
       ...(server.headers ? { headers: { ...server.headers } } : {}),
+      ...(startupTimeoutMs ? { startupTimeoutMs } : {}),
+      ...(toolTimeoutMs ? { toolTimeoutMs } : {}),
       env: normalizeMcpEnvEntries(server.env),
     };
   }
@@ -81,6 +98,8 @@ export function normalizeMcpServerConfig(
     name: server.name,
     command: server.command,
     ...(server.args ? { args: server.args.slice() } : {}),
+    ...(startupTimeoutMs ? { startupTimeoutMs } : {}),
+    ...(toolTimeoutMs ? { toolTimeoutMs } : {}),
     env: normalizeMcpEnvEntries(server.env),
   };
 }
