@@ -5,6 +5,7 @@ import readline from "node:readline";
 import { promisify } from "node:util";
 
 import type { AgentModelOption } from "../../core/provider-plugin.js";
+import { redactManagedAgentInvocationSecrets } from "../../core/managed-invocation.js";
 import { resolveCommandExecutable } from "../../process/command-resolver.js";
 
 const execFileAsync = promisify(execFile);
@@ -125,8 +126,10 @@ function normalizeCodexCatalog(payload: unknown): AgentModelOption[] {
 async function loadCodexAppServerModelCatalog(
   executablePath: string,
   env: NodeJS.ProcessEnv | undefined,
+  cwd: string | undefined,
 ) {
   const child = spawn(executablePath, ["app-server"], {
+    ...(cwd ? { cwd } : {}),
     ...(env ? { env } : {}),
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -240,8 +243,10 @@ async function loadCodexAppServerModelCatalog(
 async function loadCodexDebugModelCatalog(
   executablePath: string,
   env: NodeJS.ProcessEnv | undefined,
+  cwd: string | undefined,
 ) {
   const { stdout } = await execFileAsync(executablePath, ["debug", "models"], {
+    ...(cwd ? { cwd } : {}),
     ...(env ? { env } : {}),
     maxBuffer: CODEX_MODEL_DISCOVERY_MAX_BUFFER,
     timeout: CODEX_MODEL_DISCOVERY_TIMEOUT_MS,
@@ -250,6 +255,7 @@ async function loadCodexDebugModelCatalog(
 }
 
 export async function discoverCodexModels(options: {
+  cwd?: string;
   env?: NodeJS.ProcessEnv;
   executablePath: string;
 }) {
@@ -257,12 +263,14 @@ export async function discoverCodexModels(options: {
     return await loadCodexAppServerModelCatalog(
       options.executablePath,
       options.env,
+      options.cwd,
     );
   } catch {
     try {
       return await loadCodexDebugModelCatalog(
         options.executablePath,
         options.env,
+        options.cwd,
       );
     } catch {
       return CODEX_DEFAULT_MODELS;
@@ -272,6 +280,7 @@ export async function discoverCodexModels(options: {
 
 export async function detectCodex(options?: {
   command?: string;
+  cwd?: string;
   env?: NodeJS.ProcessEnv;
   minimumVersion?: string;
   overridePath?: string;
@@ -295,7 +304,9 @@ export async function detectCodex(options?: {
       skillsDir: path.join(configDir, "skills"),
       supported: false,
       unsupportedReason:
-        error instanceof Error ? error.message : `Executable not found: ${command}`,
+        error instanceof Error
+          ? redactManagedAgentInvocationSecrets(error.message, options?.env)
+          : `Executable not found: ${command}`,
       version: "not-installed",
     };
   }
@@ -303,6 +314,7 @@ export async function detectCodex(options?: {
   let stdout: string;
   try {
     ({ stdout } = await execFileAsync(executablePath, ["--version"], {
+      ...(options?.cwd ? { cwd: options.cwd } : {}),
       env: options?.env,
     }));
   } catch (error) {
@@ -315,7 +327,10 @@ export async function detectCodex(options?: {
       supported: false,
       unsupportedReason:
         error instanceof Error
-          ? `Unable to run ${command} --version: ${error.message}`
+          ? redactManagedAgentInvocationSecrets(
+              `Unable to run ${command} --version: ${error.message}`,
+              options?.env,
+            )
           : `Unable to run ${command} --version`,
       version: "unknown",
     };
@@ -323,6 +338,7 @@ export async function detectCodex(options?: {
   const version = stdout.trim() || "unknown";
   const supported = isVersionAtLeast(version, options?.minimumVersion);
   const models = await discoverCodexModels({
+    ...(options?.cwd ? { cwd: options.cwd } : {}),
     ...(options?.env ? { env: options.env } : {}),
     executablePath,
   });

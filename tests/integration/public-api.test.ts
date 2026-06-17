@@ -12,6 +12,15 @@ describe("public api", () => {
     expect(runtime.claudeProvider.id).toBe("claude");
     expect(runtime.installAgentProvider).toBeTypeOf("function");
     expect(runtime.getAgentProviderInstallStatus).toBeTypeOf("function");
+    expect(runtime.MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV).toBe(
+      "TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL",
+    );
+    expect(runtime.MANAGED_AGENT_INVOCATION_PROVIDER_IDS).toEqual([
+      "codex",
+      "claude",
+      "nexight",
+    ]);
+    expect(runtime.isManagedAgentInvocationProviderId("nextop")).toBe(false);
     expect(runtime.AGENT_PROVIDER_INSTALL_SPECS.codex.cliBinary).toBe("codex");
     expect(runtime.createDefaultLocalAgentProviderPlugins).toBeTypeOf("function");
     expect(runtime.DEFAULT_LOCAL_AGENT_PROVIDER_IDS).toEqual([

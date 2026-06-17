@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
   createFakeProvider,
   createLocalAgentRuntime,
   type AgentEvent,
+  type AgentRunParams,
   type LocalAgentProviderPlugin,
   type RawAgentStream,
   type Transport,
@@ -239,6 +241,403 @@ describe("createLocalAgentRuntime", () => {
     await runtime.detect();
 
     expect(detectOk).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes managed invocation env and cwd to supported provider detection without caching credentials", async () => {
+    const calls: Array<{
+      credential?: string;
+      cwd?: string;
+      home?: string;
+      leaked?: string;
+      path?: string;
+    }> = [];
+    const detect = vi.fn(async (context) => {
+      calls.push({
+        credential: context?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
+        cwd: context?.cwd,
+        home: context?.env?.HOME,
+        leaked: process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
+        path: context?.env?.PATH,
+      });
+      return {
+        authState: "ok" as const,
+        executablePath: "codex",
+        supported: true,
+        version: "1.0.0",
+      };
+    });
+    const provider: LocalAgentProviderPlugin<"local-agent", "codex"> = {
+      id: "codex",
+      displayName: "Codex",
+      kind: "local-agent",
+      detect,
+      capabilities() {
+        return {
+          cancel: true,
+          nativeResume: false,
+          streaming: true,
+          toolGateway: false,
+          maxConcurrentRuns: 1,
+        };
+      },
+      async buildLaunchPlan() {
+        throw new Error("not used");
+      },
+      async *run() {
+        throw new Error("not used");
+      },
+    };
+    const runtime = createLocalAgentRuntime({ providers: [provider] });
+
+    await runtime.detect({
+      managedAgentInvocation: {
+        credential: "managed-detect-secret-1",
+        cwd: "/workspace/project",
+      },
+    });
+    await runtime.detect({
+      managedAgentInvocation: {
+        credential: "managed-detect-secret-2",
+        cwd: "/workspace/project/subdir",
+      },
+    });
+
+    expect(detect).toHaveBeenCalledTimes(2);
+    expect(calls).toEqual([
+      {
+        credential: "managed-detect-secret-1",
+        cwd: "/workspace/project",
+        home: process.env.HOME,
+        leaked: process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
+        path: process.env.PATH,
+      },
+      {
+        credential: "managed-detect-secret-2",
+        cwd: "/workspace/project/subdir",
+        home: process.env.HOME,
+        leaked: process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
+        path: process.env.PATH,
+      },
+    ]);
+    expect(process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).not.toBe(
+      "managed-detect-secret-1",
+    );
+    expect(process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).not.toBe(
+      "managed-detect-secret-2",
+    );
+  });
+
+  it("does not forward managed invocation credentials to unsupported provider detection", async () => {
+    let receivedContext: unknown;
+    const provider: LocalAgentProviderPlugin<"local-agent", "nextop"> = {
+      id: "nextop",
+      displayName: "Nextop",
+      kind: "local-agent",
+      async detect(context) {
+        receivedContext = context;
+        return {
+          authState: "ok",
+          executablePath: "nextop",
+          supported: true,
+          version: "1.0.0",
+        };
+      },
+      capabilities() {
+        return {
+          cancel: true,
+          nativeResume: false,
+          streaming: true,
+          toolGateway: false,
+          maxConcurrentRuns: 1,
+        };
+      },
+      async buildLaunchPlan() {
+        throw new Error("not used");
+      },
+      async *run() {
+        throw new Error("not used");
+      },
+    };
+
+    await createLocalAgentRuntime({ providers: [provider] }).detect({
+      env: {
+        KEEP: "1",
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "should-not-forward",
+      },
+      managedAgentInvocation: {
+        credential: "managed-nextop-secret",
+        cwd: "/workspace/project",
+      },
+    });
+
+    expect(receivedContext).toEqual({
+      env: {
+        KEEP: "1",
+      },
+    });
+  });
+
+  it("fails fast for invalid managed invocation cwd before unsupported provider detection", async () => {
+    const detect = vi.fn(async () => ({
+      authState: "ok" as const,
+      executablePath: "nextop",
+      supported: true,
+      version: "1.0.0",
+    }));
+    const provider: LocalAgentProviderPlugin<"local-agent", "nextop"> = {
+      id: "nextop",
+      displayName: "Nextop",
+      kind: "local-agent",
+      detect,
+      capabilities() {
+        return {
+          cancel: true,
+          nativeResume: false,
+          streaming: true,
+          toolGateway: false,
+          maxConcurrentRuns: 1,
+        };
+      },
+      async buildLaunchPlan() {
+        throw new Error("not used");
+      },
+      async *run() {
+        throw new Error("not used");
+      },
+    };
+
+    await expect(
+      createLocalAgentRuntime({ providers: [provider] }).detect({
+        managedAgentInvocation: {
+          credential: "managed-secret",
+          cwd: "/tmp/not-workspace",
+        },
+      }),
+    ).rejects.toThrow(/cwd must be \/workspace/);
+    expect(detect).not.toHaveBeenCalled();
+  });
+
+  it("injects managed invocation env and cwd into runtime launch plans", async () => {
+    let adapterParams: AgentRunParams<"local-agent", "codex"> | undefined;
+    let transportPlan: Parameters<Transport["run"]>[0] | undefined;
+
+    function providerFactory(): LocalAgentProviderPlugin<"local-agent", "codex"> {
+      const provider: LocalAgentProviderPlugin<"local-agent", "codex"> = {
+        id: "codex",
+        displayName: "Codex",
+        kind: "local-agent",
+        async detect() {
+          return {
+            authState: "ok",
+            executablePath: "codex",
+            supported: true,
+            version: "1.0.0",
+          };
+        },
+        capabilities() {
+          return {
+            cancel: true,
+            nativeResume: false,
+            streaming: true,
+            toolGateway: false,
+            maxConcurrentRuns: 1,
+          };
+        },
+        async buildLaunchPlan() {
+          throw new Error("not used");
+        },
+        createAdapter() {
+          return {
+            async buildLaunchPlan(params) {
+              adapterParams = params;
+              return {
+                args: [],
+                command: "codex",
+                cwd: "/tmp/adapter-ignored-cwd",
+                env: { KEEP: "1" },
+                fallbackPlan: {
+                  args: [],
+                  command: "codex",
+                  cwd: "/tmp/fallback",
+                  prompt: params.prompt,
+                  promptInput: "stdin",
+                },
+                prompt: params.prompt,
+                promptInput: "stdin",
+                redactionSecrets: ["existing-secret"],
+                transport: "plain",
+              };
+            },
+            capabilities: () => provider.capabilities(),
+            parseEvents: async function* (stream: RawAgentStream) {
+              for await (const item of stream) {
+                yield item as AgentEvent;
+              }
+            },
+          };
+        },
+        async *run() {
+          throw new Error("not used");
+        },
+      };
+      return provider;
+    }
+
+    const runtime = createLocalAgentRuntime({
+      providers: [providerFactory()],
+      transports: [
+        {
+          kind: "plain",
+          async *run(plan) {
+            transportPlan = plan;
+            yield { type: "done", status: "completed" };
+          },
+        },
+      ],
+    });
+
+    const events: AgentEvent[] = [];
+    for await (const event of runtime.run({
+      runId: "run_managed",
+      provider: "codex",
+      cwd: "/tmp/input-cwd",
+      prompt: "hello",
+      managedAgentInvocation: {
+        credential: "managed-run-secret",
+        cwd: "/workspace/project",
+      },
+    })) {
+      events.push(event);
+    }
+
+    expect(adapterParams).toMatchObject({
+      cwd: "/workspace/project",
+      env: {
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-run-secret",
+      },
+    });
+    expect(transportPlan).toMatchObject({
+      cwd: "/workspace/project",
+      env: {
+        KEEP: "1",
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-run-secret",
+      },
+      fallbackPlan: {
+        cwd: "/workspace/project",
+        env: {
+          [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-run-secret",
+        },
+      },
+      redactionSecrets: ["existing-secret", "managed-run-secret"],
+    });
+    expect(events).toEqual([
+      { type: "done", status: "completed", reason: "completed" },
+    ]);
+    expect(process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).not.toBe(
+      "managed-run-secret",
+    );
+  });
+
+  it("fails fast when managed invocation cwd is outside /workspace", async () => {
+    const provider: LocalAgentProviderPlugin<"local-agent", "codex"> = {
+      id: "codex",
+      displayName: "Codex",
+      kind: "local-agent",
+      async detect() {
+        return {
+          authState: "ok",
+          executablePath: "codex",
+          supported: true,
+          version: "1.0.0",
+        };
+      },
+      capabilities() {
+        return {
+          cancel: true,
+          nativeResume: false,
+          streaming: true,
+          toolGateway: false,
+          maxConcurrentRuns: 1,
+        };
+      },
+      async buildLaunchPlan() {
+        throw new Error("not used");
+      },
+      async *run() {
+        throw new Error("not used");
+      },
+    };
+    const runtime = createLocalAgentRuntime({
+      providers: [provider],
+    });
+
+    const collect = async () => {
+      for await (const _event of runtime.run({
+        runId: "run_bad_managed_cwd",
+        provider: "codex",
+        cwd: "/tmp/input-cwd",
+        prompt: "hello",
+        managedAgentInvocation: {
+          credential: "managed-secret",
+          cwd: "/tmp/not-workspace",
+        },
+      })) {
+        // drain
+      }
+    };
+
+    await expect(collect()).rejects.toThrow(/cwd must be \/workspace/);
+  });
+
+  it("rejects managed invocation for unsupported run providers", async () => {
+    const provider: LocalAgentProviderPlugin<"local-agent", "nextop"> = {
+      id: "nextop",
+      displayName: "Nextop",
+      kind: "local-agent",
+      async detect() {
+        return {
+          authState: "ok",
+          executablePath: "nextop",
+          supported: true,
+          version: "1.0.0",
+        };
+      },
+      capabilities() {
+        return {
+          cancel: true,
+          nativeResume: false,
+          streaming: true,
+          toolGateway: false,
+          maxConcurrentRuns: 1,
+        };
+      },
+      async buildLaunchPlan() {
+        throw new Error("not used");
+      },
+      async *run() {
+        throw new Error("not used");
+      },
+    };
+    const runtime = createLocalAgentRuntime({
+      providers: [provider],
+    });
+
+    const collect = async () => {
+      for await (const _event of runtime.run({
+        runId: "run_nextop_managed",
+        provider: "nextop",
+        cwd: "/workspace/project",
+        prompt: "hello",
+        managedAgentInvocation: {
+          credential: "managed-secret",
+          cwd: "/workspace/project",
+        },
+      })) {
+        // drain
+      }
+    };
+
+    await expect(collect()).rejects.toThrow(/codex, claude, nexight/);
   });
 
   it("runs provider adapters through the transport pipeline", async () => {

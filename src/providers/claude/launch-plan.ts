@@ -1,4 +1,5 @@
 import type { AgentRunParams, ProviderLaunchPlan } from "../../core/provider-plugin.js";
+import { applyManagedAgentInvocationToLaunchPlan } from "../../core/managed-invocation.js";
 
 function normalizeClaudeModel(model: string | undefined) {
   if (model?.startsWith("claude:")) return model.slice("claude:".length);
@@ -33,7 +34,7 @@ export function buildClaudeLaunchPlan(
     if (dir) args.push("--add-dir", dir);
   }
   args.push("--permission-mode", "bypassPermissions");
-  return {
+  const plan: ProviderLaunchPlan = {
     args,
     command: executablePath,
     cwd: params.cwd,
@@ -42,4 +43,9 @@ export function buildClaudeLaunchPlan(
     promptInput: "stdin",
     ...(params.timeoutMs ? { timeoutMs: params.timeoutMs } : {}),
   };
+  return applyManagedAgentInvocationToLaunchPlan(
+    "claude",
+    plan,
+    params.managedAgentInvocation,
+  );
 }

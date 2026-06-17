@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
 import { createClaudeProvider } from "../../src/providers/claude/index.js";
 import { buildClaudeLaunchPlan } from "../../src/providers/claude/launch-plan.js";
 
@@ -47,6 +48,26 @@ describe("buildClaudeLaunchPlan", () => {
         "--permission-mode",
         "bypassPermissions",
       ],
+    });
+  });
+
+  it("injects managed invocation env and cwd into Claude launch plans", () => {
+    const plan = buildClaudeLaunchPlan({
+      runId: "run-1",
+      cwd: "/tmp/project",
+      prompt: "refine the poster",
+      managedAgentInvocation: {
+        credential: "managed-claude-secret",
+        cwd: "/workspace/project",
+      },
+    });
+
+    expect(plan).toMatchObject({
+      cwd: "/workspace/project",
+      env: {
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-claude-secret",
+      },
+      redactionSecrets: ["managed-claude-secret"],
     });
   });
 

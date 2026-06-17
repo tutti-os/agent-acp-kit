@@ -14,6 +14,10 @@ import { dirname, join } from "node:path";
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
 import type { AgentEvent } from "../../core/events.js";
 import type { RawAgentStream } from "../../core/transport.js";
+import {
+  applyManagedAgentInvocationToRunParams,
+  prepareManagedAgentInvocationDetectContext,
+} from "../../core/managed-invocation.js";
 import { normalizeMcpServerConfigs } from "../../core/mcp.js";
 import { materializeSkills } from "../../skills/materialize.js";
 import { cleanupPaths } from "../../skills/cleanup.js";
@@ -639,6 +643,7 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
   async function prepareLaunchPlan(
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "codex">["buildLaunchPlan"]>[0],
   ) {
+    params = applyManagedAgentInvocationToRunParams("codex", params);
     const projectRootMarker = await ensureCodexProjectRootMarker(params.cwd);
     const materialized = await materializeSkills(
       params.cwd,
@@ -698,8 +703,15 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     id: "codex",
     displayName: "Codex CLI",
     kind: "local-agent",
-    async detect() {
-      return detectCodex();
+    async detect(context) {
+      const detectionContext = prepareManagedAgentInvocationDetectContext(
+        "codex",
+        context,
+      );
+      return detectCodex({
+        ...(detectionContext?.cwd ? { cwd: detectionContext.cwd } : {}),
+        ...(detectionContext?.env ? { env: detectionContext.env } : {}),
+      });
     },
     capabilities() {
       return {

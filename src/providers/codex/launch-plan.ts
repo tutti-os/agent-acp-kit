@@ -1,4 +1,5 @@
 import type { AgentRunParams, ProviderLaunchPlan } from "../../core/provider-plugin.js";
+import { applyManagedAgentInvocationToLaunchPlan } from "../../core/managed-invocation.js";
 import { clampCodexReasoning } from "./reasoning.js";
 
 function resolveProviderResumeId(
@@ -66,5 +67,9 @@ export function buildCodexLaunchPlan(
     );
   }
 
-  return plan;
+  return applyManagedAgentInvocationToLaunchPlan(
+    "codex",
+    plan,
+    params.managedAgentInvocation,
+  );
 }

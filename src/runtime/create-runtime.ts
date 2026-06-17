@@ -13,6 +13,7 @@ import type {
   RuntimeLease,
   RuntimeProvider,
 } from "../core/provider-plugin.js";
+import type { DetectContext } from "../core/detection.js";
 import type { AgentEvent } from "../core/events.js";
 import type { AgentRunInput } from "../core/run-input.js";
 import type { RawAgentEvent, Transport } from "../core/transport.js";
@@ -23,6 +24,12 @@ import { createJsonlParser } from "../transports/jsonl/jsonl-parser.js";
 import { runPlainTransport } from "../transports/plain/plain-transport.js";
 import { spawnSupervisedProcess } from "../process/supervisor.js";
 import { createProviderRegistry } from "./provider-registry.js";
+import {
+  applyManagedAgentInvocationToLaunchPlan,
+  applyManagedAgentInvocationToRunParams,
+  hasManagedAgentInvocation,
+  prepareManagedAgentInvocationDetectContext,
+} from "../core/managed-invocation.js";
 
 type ProviderDetectionResult<
   TKind extends string,
@@ -34,7 +41,7 @@ export type LocalAgentRuntime<
   TProvider extends string = string,
 > = {
   cancel(runId: string): Promise<void>;
-  detect(): Promise<
+  detect(context?: DetectContext): Promise<
     Array<{
       provider: TProvider;
       displayName: string;
@@ -117,12 +124,13 @@ export function createLocalAgentRuntime<
       await activeRun.provider.cancel?.(runId);
     },
 
-    async detect() {
+    async detect(context) {
       return Promise.all(
         options.providers.map(async (provider) => {
           const cacheKey = `${String(provider.kind)}:${String(provider.id)}`;
-          const cached = detectionCache.get(cacheKey);
-          if (cached !== undefined) {
+          const cacheable = !context;
+          const cached = cacheable ? detectionCache.get(cacheKey) : undefined;
+          if (cacheable && cached !== undefined) {
             return {
               provider: provider.id,
               displayName: provider.displayName,
@@ -130,13 +138,19 @@ export function createLocalAgentRuntime<
             };
           }
 
+          const providerContext = prepareManagedAgentInvocationDetectContext(
+            String(provider.id),
+            context,
+          );
           let result: ProviderDetectionResult<TKind, TProvider>;
           try {
-            result = await provider.detect();
+            result = await provider.detect(providerContext);
           } catch {
             result = null as ProviderDetectionResult<TKind, TProvider>;
           }
-          detectionCache.set(cacheKey, result);
+          if (cacheable) {
+            detectionCache.set(cacheKey, result);
+          }
           return {
             provider: provider.id,
             displayName: provider.displayName,
@@ -164,21 +178,27 @@ export function createLocalAgentRuntime<
       const signal = createRuntimeAbortSignal(input.signal, controller);
       activeRuns.set(input.runId, { controller, provider });
 
-      const params: AgentRunParams<TKind, TProvider> = {
-        ...input,
-        runtimeKind: input.runtimeKind ?? provider.kind,
-        runtimeProvider: input.runtimeProvider ?? provider.id,
-        signal,
-      };
-
       try {
+        const params: AgentRunParams<TKind, TProvider> =
+          applyManagedAgentInvocationToRunParams(String(provider.id), {
+            ...input,
+            runtimeKind: input.runtimeKind ?? provider.kind,
+            runtimeProvider: input.runtimeProvider ?? provider.id,
+            signal,
+          });
         const adapter = provider.createAdapter?.();
         if (!adapter) {
           yield* normalizeAgentEvents(provider.run(params));
           return;
         }
 
-        const plan = await adapter.buildLaunchPlan(params);
+        const plan = applyManagedAgentInvocationToLaunchPlan(
+          String(provider.id),
+          await adapter.buildLaunchPlan(params),
+          hasManagedAgentInvocation(params)
+            ? params.managedAgentInvocation
+            : undefined,
+        );
         const rawStream = resolveTransport(plan).run(plan, signal);
         activeRuns.set(input.runId, {
           controller,
