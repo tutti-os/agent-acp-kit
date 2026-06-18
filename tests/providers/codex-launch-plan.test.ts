@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -292,6 +292,55 @@ describe("buildCodexLaunchPlan", () => {
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
+      if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("materializes run Codex home under the run env temp directory", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "codex-custom-temp-root-"));
+    const sourceHome = join(scratch, "source-home");
+    const cwd = join(scratch, "cwd");
+    const tempRoot = join(scratch, "nested", "tmp");
+    let runHome: string | undefined;
+
+    try {
+      await mkdir(sourceHome, { recursive: true });
+      await mkdir(cwd, { recursive: true });
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-custom-temp",
+        cwd,
+        prompt: "draw a poster",
+        env: {
+          CODEX_HOME: sourceHome,
+          TMPDIR: tempRoot,
+        },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      expect(runHome).toBeTruthy();
+      expect(runHome).not.toBe(sourceHome);
+      expect(runHome!.startsWith(join(tempRoot, "agent-acp-kit-codex-home-"))).toBe(true);
+      expect(runHome!.startsWith(join(tmpdir(), "agent-acp-kit-codex-home-"))).toBe(false);
+      await expect(access(tempRoot)).resolves.toBeUndefined();
+      await expect(access(runHome!)).resolves.toBeUndefined();
+
+      for await (const _event of adapter!.parseEvents((async function* () {})())) {
+        // Drain to trigger run-scoped cleanup.
+      }
+
+      await expect(access(runHome!)).rejects.toThrow();
+      runHome = undefined;
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
       if (runHome) {
         await rm(runHome, { recursive: true, force: true });
       }

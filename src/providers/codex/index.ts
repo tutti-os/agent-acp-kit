@@ -8,7 +8,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
@@ -21,6 +21,7 @@ import {
 import { normalizeMcpServerConfigs } from "../../core/mcp.js";
 import { materializeSkills } from "../../skills/materialize.js";
 import { cleanupPaths } from "../../skills/cleanup.js";
+import { resolveTempDir } from "../../process/env.js";
 import { runJsonlTransport } from "../../transports/jsonl/jsonl-transport.js";
 import { detectCodex } from "./detect.js";
 import { buildCodexLaunchPlan } from "./launch-plan.js";
@@ -597,7 +598,9 @@ async function materializeCodexHome(params: {
     params.env?.CODEX_HOME ??
     process.env.CODEX_HOME ??
     join(homedir(), ".codex");
-  const runHome = await mkdtemp(join(tmpdir(), "agent-acp-kit-codex-home-"));
+  const tempRoot = resolveTempDir(params.env);
+  await mkdir(tempRoot, { recursive: true });
+  const runHome = await mkdtemp(join(tempRoot, "agent-acp-kit-codex-home-"));
 
   try {
     await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
