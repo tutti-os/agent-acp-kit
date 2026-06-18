@@ -1,9 +1,23 @@
 import { spawn } from "node:child_process";
 
+import { StderrBuffer } from "../../process/stderr-buffer.js";
 import { createJsonRpcLineParser, sendJsonRpc } from "./acp-jsonrpc.js";
 import { buildAcpSessionNewParams } from "./acp-session.js";
 
 const DEFAULT_MODEL_OPTION = { id: "default", label: "Default (CLI config)" };
+
+export class AcpModelDetectionError extends Error {
+  readonly stderr?: string;
+
+  constructor(message: string, stderr?: string) {
+    const stderrTail = stderr?.trim();
+    super(stderrTail ? `${message}. stderr: ${stderrTail}` : message);
+    this.name = "AcpModelDetectionError";
+    if (stderrTail) {
+      this.stderr = stderrTail;
+    }
+  }
+}
 
 function normalizeAcpModels(
   models: unknown,
@@ -39,11 +53,13 @@ export async function detectAcpModels(input: {
   bin: string;
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  redactionSecrets?: string[];
   timeoutMs?: number;
 }) {
   const timeoutMs = input.timeoutMs ?? 15_000;
   return await new Promise<Array<{ id: string; label: string }>>(
     (resolve, reject) => {
+      const stderr = new StderrBuffer(16_000, input.redactionSecrets ?? []);
       const child = spawn(input.bin, input.args, {
         cwd: input.cwd,
         env: input.env,
@@ -51,6 +67,7 @@ export async function detectAcpModels(input: {
       });
 
       child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
       let settled = false;
       let expectedId = 1;
 
@@ -65,9 +82,17 @@ export async function detectAcpModels(input: {
         child.kill("SIGTERM");
       }
 
+      function createDetectionError(message: string) {
+        return new AcpModelDetectionError(message, stderr.tail());
+      }
+
       const parser = createJsonRpcLineParser((message) => {
         if (message.error) {
-          fail(new Error(message.error.message ?? "ACP detection failed"));
+          fail(
+            createDetectionError(
+              message.error.message ?? "ACP detection failed",
+            ),
+          );
           return;
         }
         if (message.id !== expectedId) return;
@@ -88,16 +113,25 @@ export async function detectAcpModels(input: {
       });
 
       child.stdout.on("data", (chunk: string) => parser.feed(chunk));
+      child.stderr.on("data", (chunk: string) => stderr.append(chunk));
       child.on("error", (error) => fail(error));
       child.on("close", (code) => {
         if (settled) return;
-        if (code !== 0) {
-          fail(new Error(`ACP model detection exited with code ${code}`));
-        }
+        fail(
+          createDetectionError(
+            code === 0
+              ? "ACP model detection exited before completing session/new"
+              : `ACP model detection exited with code ${code}`,
+          ),
+        );
       });
 
       const timer = setTimeout(() => {
-        fail(new Error(`ACP model detection timed out after ${timeoutMs}ms`));
+        fail(
+          createDetectionError(
+            `ACP model detection timed out after ${timeoutMs}ms`,
+          ),
+        );
       }, timeoutMs);
 
       sendJsonRpc(child.stdin, {

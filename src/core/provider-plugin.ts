@@ -50,10 +50,16 @@ export type AgentModelOption = {
   description?: string;
 };
 
+export type AgentDetectionDiagnostic = {
+  message: string;
+  source?: string;
+};
+
 export type AgentDetection<TModel extends AgentModelOption = AgentModelOption> = {
   authState: "ok" | "missing" | "expired" | "unknown";
   executablePath: string;
   configDir?: string;
+  diagnostics?: AgentDetectionDiagnostic[];
   minimumVersion?: string;
   models?: TModel[];
   skillsDir?: string;

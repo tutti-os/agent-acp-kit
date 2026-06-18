@@ -8,6 +8,7 @@ export type {
 export type { AgentEvent } from "./events.js";
 export type {
   AgentDetection,
+  AgentDetectionDiagnostic,
   AgentModelOption,
   AgentRunMessage,
   AgentRunParams,

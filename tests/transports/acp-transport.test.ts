@@ -28,6 +28,24 @@ describe("runAcpTransport", () => {
     ]);
   });
 
+  it("includes redacted stderr when ACP model discovery exits early", async () => {
+    const secret = "acp-model-secret";
+
+    await expect(
+      detectAcpModels({
+        args: [
+          "-e",
+          `process.stderr.write("model probe failed: ${secret}"); setTimeout(() => process.exit(7), 10);`,
+        ],
+        bin: process.execPath,
+        cwd: process.cwd(),
+        redactionSecrets: [secret],
+      }),
+    ).rejects.toThrow(
+      "ACP model detection exited with code 7. stderr: model probe failed: [REDACTED]",
+    );
+  });
+
   it("maps ACP session updates into normalized agent events", async () => {
     const events = [];
     const script = createFakeAcpPeerScript({

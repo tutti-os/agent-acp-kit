@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -342,6 +342,73 @@ describe("buildCodexLaunchPlan", () => {
     } finally {
       await rm(scratch, { recursive: true, force: true });
       if (runHome) {
+        await rm(runHome, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("keeps managed Codex homes under the managed workspace cwd", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const workspaceCwd = join(
+      "/workspace",
+      `agent-acp-kit-managed-codex-${process.pid}-${Date.now()}`,
+    );
+    let workspaceCreated = false;
+    let runHome: string | undefined;
+
+    try {
+      try {
+        await mkdir(workspaceCwd, { recursive: true });
+        workspaceCreated = true;
+      } catch {
+        return;
+      }
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        'model_provider = "OpenAI"\n',
+        "utf8",
+      );
+
+      const adapter = createCodexProvider().createAdapter();
+      const plan = await adapter!.buildLaunchPlan({
+        runId: "run-managed-codex-home",
+        cwd: "/tmp/ignored-by-managed-invocation",
+        prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
+        managedAgentInvocation: {
+          credential: "managed-codex-secret",
+          cwd: workspaceCwd,
+        },
+      });
+      runHome = plan.env?.CODEX_HOME;
+
+      expect(runHome).toBe(join(workspaceCwd, ".agent-acp-kit", "codex-home"));
+      expect(plan.cwd).toBe(workspaceCwd);
+      expect(plan.env).toMatchObject({
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
+        CODEX_HOME: runHome,
+      });
+      await expect(readFile(join(runHome!, "auth.json"), "utf8")).resolves.toContain(
+        "test-key",
+      );
+      await expect(readFile(join(runHome!, "config.toml"), "utf8")).resolves.toContain(
+        'model_provider = "OpenAI"',
+      );
+      await expect(lstat(join(runHome!, "sessions"))).resolves.toMatchObject({
+        isDirectory: expect.any(Function),
+      });
+      expect((await lstat(join(runHome!, "sessions"))).isDirectory()).toBe(true);
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      if (workspaceCreated) {
+        await rm(workspaceCwd, { recursive: true, force: true });
+      }
+      if (runHome && !workspaceCreated) {
         await rm(runHome, { recursive: true, force: true });
       }
     }

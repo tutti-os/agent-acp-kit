@@ -72,6 +72,7 @@ export {
 
 export type {
   AgentDetection,
+  AgentDetectionDiagnostic,
   AgentEvent,
   AgentModelOption,
   AgentRunInput,

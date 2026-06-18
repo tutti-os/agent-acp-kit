@@ -137,6 +137,10 @@ export function prepareManagedAgentInvocationDetectContext(
     cwd: normalized.cwd,
     env: mergeDetectEnv(context.env, normalized),
     managedAgentInvocation: normalized,
+    redactionSecrets: mergeRedactionSecrets(
+      context.redactionSecrets,
+      normalized.credential,
+    ),
   };
 }
 

@@ -271,6 +271,11 @@ Provider behavior differs:
 - Claude Code: returns fallback hints such as `sonnet`, `opus`, `haiku`, and known full ids, then adds configured custom ids from the Claude settings file when present. Custom model ids can be passed through.
 - ACP providers: attempt model discovery through ACP session lifecycle when the peer supports it.
 
+Detection results may include `diagnostics` with redacted provider details when
+non-fatal discovery work fails. For example, ACP providers keep returning an
+empty `models` array when model discovery fails, but include the redacted stderr
+tail in diagnostics so hosts can log or surface the actual probe failure.
+
 Hosts should not hardcode Codex or Claude model lists above this package. If a UI needs additional custom models, keep that UI behavior in the host and pass the chosen id into `AgentRunInput.model`.
 
 ## Managed Agent Invocation
@@ -312,7 +317,9 @@ shims to be available on `PATH` and does not hardcode shim paths.
 Managed credentials are not written to `process.env`, detection cache keys,
 provider config files, or global skill directories. They are added to
 run-scoped process env and redaction secrets so stderr tails and transport
-errors do not expose the credential.
+errors do not expose the credential. Detection contexts may also include
+`redactionSecrets`; managed invocation credentials are added to that list before
+provider detection runs.
 
 ## Installing Local Providers
 

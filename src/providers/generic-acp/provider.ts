@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../../core/events.js";
+import type { AgentDetectionDiagnostic } from "../../core/provider-plugin.js";
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
 import type { RawAgentStream } from "../../core/transport.js";
 import {
@@ -23,6 +24,16 @@ export function createGenericAcpProvider(input: {
     for await (const item of stream) {
       yield item as AgentEvent;
     }
+  }
+
+  function toModelDiscoveryDiagnostic(error: unknown): AgentDetectionDiagnostic {
+    return {
+      message:
+        error instanceof Error
+          ? error.message
+          : "ACP model discovery failed.",
+      source: "acp-model-discovery",
+    };
   }
 
   const plugin: LocalAgentProviderPlugin<"local-agent", string> = {
@@ -53,15 +64,25 @@ export function createGenericAcpProvider(input: {
           version: "not-installed",
         };
       }
-      const models = await detectAcpModels({
-        args: input.args,
-        bin: executablePath,
-        cwd: detectionContext?.cwd ?? process.cwd(),
-        ...(detectionContext?.env ? { env: detectionContext.env } : {}),
-      }).catch(() => []);
+      let diagnostics: AgentDetectionDiagnostic[] | undefined;
+      let models: Array<{ id: string; label: string }> = [];
+      try {
+        models = await detectAcpModels({
+          args: input.args,
+          bin: executablePath,
+          cwd: detectionContext?.cwd ?? process.cwd(),
+          ...(detectionContext?.env ? { env: detectionContext.env } : {}),
+          ...(detectionContext?.redactionSecrets
+            ? { redactionSecrets: detectionContext.redactionSecrets }
+            : {}),
+        });
+      } catch (error) {
+        diagnostics = [toModelDiscoveryDiagnostic(error)];
+      }
       return {
         authState: "unknown",
         executablePath,
+        ...(diagnostics ? { diagnostics } : {}),
         models,
         supported: true,
         version: "unknown",

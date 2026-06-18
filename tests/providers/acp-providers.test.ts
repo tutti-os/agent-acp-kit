@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   ACP_PROVIDER_SPECS,
@@ -10,6 +14,14 @@ import {
 } from "../../src/index.js";
 
 describe("ACP provider wrappers", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      rmSync(tempDirs.pop()!, { recursive: true, force: true });
+    }
+  });
+
   it("reports unsupported when an ACP provider command is not installed", async () => {
     const provider = createGenericAcpProvider({
       args: ["acp"],
@@ -25,6 +37,48 @@ describe("ACP provider wrappers", () => {
       unsupportedReason: expect.stringContaining("Executable not found"),
       version: "not-installed",
     });
+  });
+
+  it("keeps a redacted diagnostic when ACP model discovery fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-acp-diagnostic-"));
+    tempDirs.push(dir);
+    const command = join(dir, "broken-acp");
+    const secret = "acp-diagnostic-secret";
+    writeFileSync(
+      command,
+      `#!${process.execPath}
+process.stderr.write("registry probe failed with ${secret}");
+setTimeout(() => process.exit(42), 10);
+`,
+    );
+    chmodSync(command, 0o755);
+    const provider = createGenericAcpProvider({
+      args: [],
+      command: "broken-acp",
+      displayName: "Broken ACP",
+      providerId: "broken-acp",
+    });
+
+    const detection = await provider.detect({
+      env: { PATH: dir },
+      redactionSecrets: [secret],
+    });
+
+    expect(detection).toMatchObject({
+      executablePath: command,
+      models: [],
+      supported: true,
+      diagnostics: [
+        {
+          message: expect.stringContaining(
+            "ACP model detection exited with code 42",
+          ),
+          source: "acp-model-discovery",
+        },
+      ],
+    });
+    expect(detection?.diagnostics?.[0]?.message).toContain("[REDACTED]");
+    expect(detection?.diagnostics?.[0]?.message).not.toContain(secret);
   });
 
   it("exposes concrete provider plugins backed by the shared ACP transport", async () => {

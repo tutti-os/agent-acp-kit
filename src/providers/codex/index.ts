@@ -176,6 +176,12 @@ async function linkFile(source: string, target: string) {
   }
 }
 
+async function copyRequiredFile(source: string, target: string) {
+  await ensureParentDirectory(target);
+  await rm(target, { force: true });
+  await copyFile(source, target);
+}
+
 function buildMcpConfigBlock(servers: ReturnType<typeof normalizeMcpServerConfigs>) {
   const lines: string[] = [];
 
@@ -589,6 +595,8 @@ async function ensureCodexProjectRootMarker(cwd: string) {
 }
 
 async function materializeCodexHome(params: {
+  cwd: string;
+  managed: boolean;
   mcpServers?: Parameters<typeof normalizeMcpServerConfigs>[0];
   env?: Record<string, string>;
   model?: string;
@@ -598,24 +606,39 @@ async function materializeCodexHome(params: {
     params.env?.CODEX_HOME ??
     process.env.CODEX_HOME ??
     join(homedir(), ".codex");
-  const tempRoot = resolveTempDir(params.env);
-  await mkdir(tempRoot, { recursive: true });
-  const runHome = await mkdtemp(join(tempRoot, "agent-acp-kit-codex-home-"));
+  let runHome: string;
+  if (params.managed) {
+    runHome = join(params.cwd, ".agent-acp-kit", "codex-home");
+    await rm(runHome, { recursive: true, force: true });
+    await mkdir(runHome, { recursive: true });
+  } else {
+    const tempRoot = resolveTempDir(params.env);
+    await mkdir(tempRoot, { recursive: true });
+    runHome = await mkdtemp(join(tempRoot, "agent-acp-kit-codex-home-"));
+  }
 
   try {
-    await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
+    if (params.managed) {
+      await copyRequiredFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
+    } else {
+      await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
+    }
   } catch {
     throw new Error(
       `Codex auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
     );
   }
 
-  await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
-  try {
-    await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
-  } catch {
-    // Plugin cache is an optimization for bundled/plugin-backed assets.
-    // Codex can still run without it, so keep this best-effort like Multica.
+  if (params.managed) {
+    await mkdir(join(runHome, "sessions"), { recursive: true });
+  } else {
+    await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
+    try {
+      await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
+    } catch {
+      // Plugin cache is an optimization for bundled/plugin-backed assets.
+      // Codex can still run without it, so keep this best-effort like Multica.
+    }
   }
   await copyOptionalFile(join(sourceHome, "config.json"), join(runHome, "config.json"));
   await copyOptionalFile(join(sourceHome, "instructions.md"), join(runHome, "instructions.md"));
@@ -647,7 +670,10 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "codex">["buildLaunchPlan"]>[0],
   ) {
     params = applyManagedAgentInvocationToRunParams("codex", params);
-    const projectRootMarker = await ensureCodexProjectRootMarker(params.cwd);
+    const managed = Boolean(params.managedAgentInvocation);
+    const projectRootMarker = managed
+      ? undefined
+      : await ensureCodexProjectRootMarker(params.cwd);
     const materialized = await materializeSkills(
       params.cwd,
       params.skillManifest ?? [],
@@ -663,6 +689,8 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
       normalizeMcpServerConfigs(params.mcpServers ?? []),
     );
     const codexHome = await materializeCodexHome({
+      cwd: params.cwd,
+      managed,
       ...(params.env ? { env: params.env } : {}),
       ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
       ...(normalizedModel ? { model: normalizedModel } : {}),

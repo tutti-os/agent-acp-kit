@@ -6,6 +6,7 @@ import {
   applyManagedAgentInvocationToLaunchPlan,
   isManagedAgentInvocationCwd,
   isManagedAgentInvocationProviderId,
+  prepareManagedAgentInvocationDetectContext,
 } from "../../src/core/managed-invocation.js";
 
 describe("managed agent invocation", () => {
@@ -84,6 +85,24 @@ describe("managed agent invocation", () => {
     expect(plan.env).toEqual({ KEEP: "1" });
     expect(process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).not.toBe(
       "managed-secret",
+    );
+  });
+
+  it("adds managed credentials to detection redaction secrets", () => {
+    const context = prepareManagedAgentInvocationDetectContext("nexight", {
+      managedAgentInvocation: {
+        credential: "managed-detect-secret",
+        cwd: "/workspace/project",
+      },
+      redactionSecrets: ["existing-secret"],
+    });
+
+    expect(context).toMatchObject({
+      cwd: "/workspace/project",
+      redactionSecrets: ["existing-secret", "managed-detect-secret"],
+    });
+    expect(context?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe(
+      "managed-detect-secret",
     );
   });
 });
