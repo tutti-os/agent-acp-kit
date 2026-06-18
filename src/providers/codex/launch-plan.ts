@@ -14,6 +14,7 @@ export function buildCodexLaunchPlan(
   executablePath = "codex",
 ): ProviderLaunchPlan {
   const resumeId = resolveProviderResumeId(params.resume);
+  const managed = Boolean(params.managedAgentInvocation);
   const args = resumeId ? ["exec", "resume", "--json"] : ["exec", "--json"];
   args.push(
     "--skip-git-repo-check",
@@ -22,7 +23,7 @@ export function buildCodexLaunchPlan(
     "--ignore-rules",
     "--dangerously-bypass-approvals-and-sandbox",
   );
-  if (!resumeId) {
+  if (!resumeId && !managed) {
     args.push("-C", params.cwd);
   }
 

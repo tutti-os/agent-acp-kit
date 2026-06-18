@@ -1,3 +1,4 @@
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { access, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,26 @@ import { describe, expect, it } from "vitest";
 import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
 import { createCodexProvider } from "../../src/providers/codex/index.js";
 import { buildCodexLaunchPlan } from "../../src/providers/codex/launch-plan.js";
+
+const workspaceRoot = "/workspace";
+const workspaceRootExistedBefore = existsSync(workspaceRoot);
+const canCreateWorkspaceCwd = (() => {
+  const probe = join(
+    workspaceRoot,
+    `agent-acp-kit-managed-codex-probe-${process.pid}-${Date.now()}`,
+  );
+  try {
+    mkdirSync(probe, { recursive: true });
+    rmSync(probe, { recursive: true, force: true });
+    if (!workspaceRootExistedBefore) {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+})();
+const managedWorkspaceIt = canCreateWorkspaceCwd ? it : it.skip;
 
 describe("buildCodexLaunchPlan", () => {
   it("advertises same-provider native resume support", () => {
@@ -79,6 +100,25 @@ describe("buildCodexLaunchPlan", () => {
       },
       redactionSecrets: ["managed-codex-secret"],
     });
+    expect(plan.fallbackPlan?.args).not.toContain("-C");
+    expect(plan.fallbackPlan?.args).not.toContain("/workspace/project");
+  });
+
+  it("does not pass managed workspace cwd through -C for fresh Codex runs", () => {
+    const plan = buildCodexLaunchPlan({
+      runId: "run-managed-fresh",
+      cwd: "/tmp/app-runner-physical-cwd",
+      prompt: "draw a poster",
+      managedAgentInvocation: {
+        credential: "managed-codex-secret",
+        cwd: "/workspace/workspace-1/.aimc-agent-runs/codex-1",
+      },
+    });
+
+    expect(plan.cwd).toBe("/workspace/workspace-1/.aimc-agent-runs/codex-1");
+    expect(plan.args).not.toContain("-C");
+    expect(plan.args).not.toContain("/workspace/workspace-1/.aimc-agent-runs/codex-1");
+    expect(plan.args).not.toContain("/tmp/app-runner-physical-cwd");
   });
 
   it("clamps reasoning for GPT-5.4+", () => {
@@ -347,22 +387,16 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
-  it("keeps managed Codex homes under the managed workspace cwd", async () => {
+  managedWorkspaceIt("keeps managed Codex homes under the managed workspace cwd", async () => {
     const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const workspaceCwd = join(
-      "/workspace",
+      workspaceRoot,
       `agent-acp-kit-managed-codex-${process.pid}-${Date.now()}`,
     );
-    let workspaceCreated = false;
     let runHome: string | undefined;
 
     try {
-      try {
-        await mkdir(workspaceCwd, { recursive: true });
-        workspaceCreated = true;
-      } catch {
-        return;
-      }
+      await mkdir(workspaceCwd, { recursive: true });
       await writeFile(
         join(sourceHome, "auth.json"),
         JSON.stringify({ OPENAI_API_KEY: "test-key" }),
@@ -399,17 +433,22 @@ describe("buildCodexLaunchPlan", () => {
       await expect(readFile(join(runHome!, "config.toml"), "utf8")).resolves.toContain(
         'model_provider = "OpenAI"',
       );
-      await expect(lstat(join(runHome!, "sessions"))).resolves.toMatchObject({
-        isDirectory: expect.any(Function),
-      });
-      expect((await lstat(join(runHome!, "sessions"))).isDirectory()).toBe(true);
+      const authStat = await lstat(join(runHome!, "auth.json"));
+      const configStat = await lstat(join(runHome!, "config.toml"));
+      const sessionsStat = await lstat(join(runHome!, "sessions"));
+      expect(authStat.isFile()).toBe(true);
+      expect(authStat.isSymbolicLink()).toBe(false);
+      expect(configStat.isFile()).toBe(true);
+      expect(configStat.isSymbolicLink()).toBe(false);
+      expect(sessionsStat.isDirectory()).toBe(true);
+      expect(sessionsStat.isSymbolicLink()).toBe(false);
+      expect(plan.args).not.toContain("-C");
+      expect(plan.args).not.toContain(workspaceCwd);
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
-      if (workspaceCreated) {
-        await rm(workspaceCwd, { recursive: true, force: true });
-      }
-      if (runHome && !workspaceCreated) {
-        await rm(runHome, { recursive: true, force: true });
+      await rm(workspaceCwd, { recursive: true, force: true });
+      if (!workspaceRootExistedBefore) {
+        await rm(workspaceRoot, { recursive: true, force: true });
       }
     }
   });
