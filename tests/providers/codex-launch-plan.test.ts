@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { access, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,26 +6,6 @@ import { describe, expect, it } from "vitest";
 import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
 import { createCodexProvider } from "../../src/providers/codex/index.js";
 import { buildCodexLaunchPlan } from "../../src/providers/codex/launch-plan.js";
-
-const workspaceRoot = "/workspace";
-const workspaceRootExistedBefore = existsSync(workspaceRoot);
-const canCreateWorkspaceCwd = (() => {
-  const probe = join(
-    workspaceRoot,
-    `agent-acp-kit-managed-codex-probe-${process.pid}-${Date.now()}`,
-  );
-  try {
-    mkdirSync(probe, { recursive: true });
-    rmSync(probe, { recursive: true, force: true });
-    if (!workspaceRootExistedBefore) {
-      rmSync(workspaceRoot, { recursive: true, force: true });
-    }
-    return true;
-  } catch {
-    return false;
-  }
-})();
-const managedWorkspaceIt = canCreateWorkspaceCwd ? it : it.skip;
 
 describe("buildCodexLaunchPlan", () => {
   it("advertises same-provider native resume support", () => {
@@ -387,70 +366,33 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
-  managedWorkspaceIt("keeps managed Codex homes under the managed workspace cwd", async () => {
-    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+  it("does not materialize sandbox Codex homes for managed runs", async () => {
     const workspaceCwd = join(
-      workspaceRoot,
+      "/workspace",
       `agent-acp-kit-managed-codex-${process.pid}-${Date.now()}`,
     );
-    let runHome: string | undefined;
+    const sandboxCodexHome = join(tmpdir(), "missing-sandbox-codex-home");
 
-    try {
-      await mkdir(workspaceCwd, { recursive: true });
-      await writeFile(
-        join(sourceHome, "auth.json"),
-        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
-        "utf8",
-      );
-      await writeFile(
-        join(sourceHome, "config.toml"),
-        'model_provider = "OpenAI"\n',
-        "utf8",
-      );
+    const adapter = createCodexProvider().createAdapter();
+    const plan = await adapter!.buildLaunchPlan({
+      runId: "run-managed-codex-home",
+      cwd: "/tmp/ignored-by-managed-invocation",
+      prompt: "draw a poster",
+      env: { CODEX_HOME: sandboxCodexHome },
+      managedAgentInvocation: {
+        credential: "managed-codex-secret",
+        cwd: workspaceCwd,
+      },
+    });
 
-      const adapter = createCodexProvider().createAdapter();
-      const plan = await adapter!.buildLaunchPlan({
-        runId: "run-managed-codex-home",
-        cwd: "/tmp/ignored-by-managed-invocation",
-        prompt: "draw a poster",
-        env: { CODEX_HOME: sourceHome },
-        managedAgentInvocation: {
-          credential: "managed-codex-secret",
-          cwd: workspaceCwd,
-        },
-      });
-      runHome = plan.env?.CODEX_HOME;
-
-      expect(runHome).toBe(join(workspaceCwd, ".agent-acp-kit", "codex-home"));
-      expect(plan.cwd).toBe(workspaceCwd);
-      expect(plan.env).toMatchObject({
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
-        CODEX_HOME: runHome,
-      });
-      await expect(readFile(join(runHome!, "auth.json"), "utf8")).resolves.toContain(
-        "test-key",
-      );
-      await expect(readFile(join(runHome!, "config.toml"), "utf8")).resolves.toContain(
-        'model_provider = "OpenAI"',
-      );
-      const authStat = await lstat(join(runHome!, "auth.json"));
-      const configStat = await lstat(join(runHome!, "config.toml"));
-      const sessionsStat = await lstat(join(runHome!, "sessions"));
-      expect(authStat.isFile()).toBe(true);
-      expect(authStat.isSymbolicLink()).toBe(false);
-      expect(configStat.isFile()).toBe(true);
-      expect(configStat.isSymbolicLink()).toBe(false);
-      expect(sessionsStat.isDirectory()).toBe(true);
-      expect(sessionsStat.isSymbolicLink()).toBe(false);
-      expect(plan.args).not.toContain("-C");
-      expect(plan.args).not.toContain(workspaceCwd);
-    } finally {
-      await rm(sourceHome, { recursive: true, force: true });
-      await rm(workspaceCwd, { recursive: true, force: true });
-      if (!workspaceRootExistedBefore) {
-        await rm(workspaceRoot, { recursive: true, force: true });
-      }
-    }
+    expect(plan.cwd).toBe(workspaceCwd);
+    expect(plan.env).toMatchObject({
+      [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
+    });
+    expect(plan.env?.CODEX_HOME).toBeUndefined();
+    expect(plan.args).not.toContain("-C");
+    expect(plan.args).not.toContain(workspaceCwd);
+    await expect(access(join(workspaceCwd, ".agent-acp-kit", "codex-home"))).rejects.toThrow();
   });
 
   it("marks the run cwd as the Codex project root", async () => {
