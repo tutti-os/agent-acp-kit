@@ -187,7 +187,7 @@ describe("buildClaudeLaunchPlan", () => {
             type: "stdio",
             command: process.execPath,
             args: ["/tmp/aimc-mcp.js"],
-            executionSide: "sandbox",
+            executionSide: "vm",
             env: {
               AIMC_TOOL_TOKEN: "secret-token",
             },
@@ -210,7 +210,7 @@ describe("buildClaudeLaunchPlan", () => {
         mcpServers: {
           aimc: {
             type: "stdio",
-            executionSide: "sandbox",
+            executionSide: "vm",
             command: "node",
             env: { AIMC_TOOL_TOKEN: "secret-token" },
             timeouts: {

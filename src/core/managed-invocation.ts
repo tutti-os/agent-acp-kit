@@ -32,7 +32,7 @@ export type ManagedAgentInvocation = {
 
 export type ManagedAgentMcpStdioAttachment = {
   type: "stdio";
-  executionSide: "sandbox";
+  executionSide: "vm";
   command: string;
   args: string[];
   env: Record<string, string>;
@@ -196,9 +196,9 @@ function envEntriesToObject(entries: LocalAgentMcpEnvEntry[]) {
 function buildManagedMcpStdioAttachment(
   server: NormalizedLocalAgentMcpStdioServerConfig,
 ): ManagedAgentMcpStdioAttachment {
-  if (server.executionSide !== "sandbox") {
+  if (server.executionSide !== "vm") {
     throw new Error(
-      `Managed MCP handoff v1 requires stdio MCP server "${server.name}" to set executionSide: "sandbox".`,
+      `Managed MCP handoff v1 requires stdio MCP server "${server.name}" to set executionSide: "vm".`,
     );
   }
 
@@ -211,7 +211,7 @@ function buildManagedMcpStdioAttachment(
 
   return {
     type: "stdio",
-    executionSide: "sandbox",
+    executionSide: "vm",
     command: normalizeManagedMcpStdioCommand(server.name, server.command),
     args: server.args ?? [],
     env: envEntriesToObject(server.env),
@@ -232,7 +232,7 @@ export function buildManagedAgentMcpAttachmentEnv(
       normalizedServers.map((server) => {
         if (server.type !== "stdio") {
           throw new Error(
-            `Managed MCP handoff v1 supports only sandbox-side stdio MCP servers; "${server.name}" is ${server.type}.`,
+            `Managed MCP handoff v1 supports only VM-local stdio MCP servers; "${server.name}" is ${server.type}.`,
           );
         }
         return [server.name, buildManagedMcpStdioAttachment(server)];

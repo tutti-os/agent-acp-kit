@@ -415,7 +415,7 @@ describe("buildCodexLaunchPlan", () => {
           name: "aimc",
           command: process.execPath,
           args: ["/tmp/aimc-mcp.js"],
-          executionSide: "sandbox",
+          executionSide: "vm",
           env: { AIMC_TOOL_TOKEN: "tool-token" },
           startupTimeoutMs: 120_000,
           toolTimeoutMs: 1_800_000,
@@ -440,7 +440,7 @@ describe("buildCodexLaunchPlan", () => {
       mcpServers: {
         aimc: {
           type: "stdio",
-          executionSide: "sandbox",
+          executionSide: "vm",
           command: "node",
           args: ["/tmp/aimc-mcp.js"],
           env: { AIMC_TOOL_TOKEN: "tool-token" },

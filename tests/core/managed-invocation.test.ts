@@ -94,12 +94,12 @@ describe("managed agent invocation", () => {
     );
   });
 
-  it("builds managed MCP attachment env for sandbox-side stdio servers", () => {
+  it("builds managed MCP attachment env for VM-local stdio servers", () => {
     const attachment = buildManagedAgentMcpAttachmentEnv([
       {
         name: "aimc",
         type: "stdio",
-        executionSide: "sandbox",
+        executionSide: "vm",
         command: process.execPath,
         args: ["/tmp/aimc-mcp.js"],
         env: { AIMC_TOOL_TOKEN: "aimc-token" },
@@ -113,7 +113,7 @@ describe("managed agent invocation", () => {
       mcpServers: {
         aimc: {
           type: "stdio",
-          executionSide: "sandbox",
+          executionSide: "vm",
           command: "node",
           args: ["/tmp/aimc-mcp.js"],
           env: { AIMC_TOOL_TOKEN: "aimc-token" },
@@ -134,7 +134,7 @@ describe("managed agent invocation", () => {
     ]);
   });
 
-  it("rejects managed MCP handoff configs outside v1 sandbox stdio scope", () => {
+  it("rejects managed MCP handoff configs outside v1 VM-local stdio scope", () => {
     expect(() =>
       buildManagedAgentMcpAttachmentEnv([
         {
@@ -142,17 +142,17 @@ describe("managed agent invocation", () => {
           command: "node",
         },
       ]),
-    ).toThrow(/executionSide: "sandbox"/);
+    ).toThrow(/executionSide: "vm"/);
 
     expect(() =>
       buildManagedAgentMcpAttachmentEnv([
         {
-          name: "vm-side",
+          name: "sandbox-side",
           command: "node",
-          executionSide: "vm",
+          executionSide: "sandbox",
         },
       ]),
-    ).toThrow(/executionSide: "sandbox"/);
+    ).toThrow(/executionSide: "vm"/);
 
     expect(() =>
       buildManagedAgentMcpAttachmentEnv([
@@ -162,14 +162,14 @@ describe("managed agent invocation", () => {
           url: "https://example.com/mcp",
         },
       ]),
-    ).toThrow(/supports only sandbox-side stdio/);
+    ).toThrow(/supports only VM-local stdio/);
 
     expect(() =>
       buildManagedAgentMcpAttachmentEnv([
         {
           name: "unknown-node-path",
           command: "/tmp/node",
-          executionSide: "sandbox",
+          executionSide: "vm",
         },
       ]),
     ).toThrow(/bare command name or a known absolute node path/);
@@ -192,7 +192,7 @@ describe("managed agent invocation", () => {
               name: "aimc",
               command: "/usr/local/bin/node",
               args: ["/tmp/aimc-mcp.js"],
-              executionSide: "sandbox",
+              executionSide: "vm",
               env: { AIMC_TOOL_TOKEN: "fallback-token" },
             },
           ],
@@ -204,7 +204,7 @@ describe("managed agent invocation", () => {
             name: "aimc",
             command: process.execPath,
             args: ["/tmp/aimc-mcp.js"],
-            executionSide: "sandbox",
+            executionSide: "vm",
             env: { AIMC_TOOL_TOKEN: "tool-token" },
           },
         ],
@@ -221,7 +221,7 @@ describe("managed agent invocation", () => {
       mcpServers: {
         aimc: {
           type: "stdio",
-          executionSide: "sandbox",
+          executionSide: "vm",
           command: "node",
           env: { AIMC_TOOL_TOKEN: "tool-token" },
         },

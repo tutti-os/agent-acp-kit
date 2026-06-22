@@ -325,9 +325,11 @@ When a managed Codex or Claude run includes `mcpServers`, the SDK does not ask
 the provider to materialize provider-native MCP config. Instead it serializes a
 normalized MCP attachment into
 `TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64` for the tsh shim. Managed MCP handoff v1
-supports only sandbox-side stdio MCP servers, so callers must set
-`executionSide: "sandbox"` on those servers. MCP env/header values and the
-handoff payload are added to run redaction secrets.
+supports only VM-local stdio MCP servers, so callers must set
+`executionSide: "vm"` on those servers. If that MCP server calls back into a
+host or app tool gateway, the injected gateway URL must be reachable from the VM
+process. MCP env/header values and the handoff payload are added to run
+redaction secrets.
 
 ## Installing Local Providers
 
@@ -364,7 +366,7 @@ const mcpServers = [{
   type: "stdio" as const,
   command: "node",
   args: ["/absolute/path/to/app-tools-mcp.js"],
-  executionSide: "sandbox" as const,
+  executionSide: "vm" as const,
   env: { APP_TOOL_TOKEN: runScopedToken },
   toolTimeoutMs: 30 * 60_000,
   startupTimeoutMs: 2 * 60_000,
