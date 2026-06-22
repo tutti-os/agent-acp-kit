@@ -71,12 +71,19 @@ async function* parseCodexRawEvents(stream: RawAgentStream): AsyncGenerator<Agen
       }
       if (
         candidate.type === "done" ||
-        candidate.type === "error" ||
         candidate.type === "status" ||
         candidate.type === "text_delta" ||
         candidate.type === "thinking_delta" ||
         candidate.type === "tool_call" ||
         candidate.type === "tool_result"
+      ) {
+        yield candidate;
+        continue;
+      }
+      if (
+        candidate.type === "error" &&
+        typeof candidate.code === "string" &&
+        typeof candidate.message === "string"
       ) {
         yield candidate;
         continue;

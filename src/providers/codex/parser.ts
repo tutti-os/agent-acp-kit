@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../../core/events.js";
 
 type CodexEnvelope = {
+  error?: { data?: Record<string, unknown>; message?: string } | null;
   item?: CodexItem;
   message?: string;
   type?: string;
@@ -35,6 +36,19 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
     return undefined;
   }
   return value as Record<string, unknown>;
+}
+
+function isReconnectMessage(message: string) {
+  return /^Reconnecting\.\.\.\s+\d+\/\d+(?:\s+\([^)]+\))?$/.test(message);
+}
+
+function statusWarning(message: string): AgentEvent {
+  return {
+    type: "status",
+    status: "warning",
+    stage: "warning",
+    message,
+  };
 }
 
 function extractToolPayload(item: CodexItem): Record<string, unknown> | undefined {
@@ -224,11 +238,16 @@ export function parseCodexItem(item: CodexEnvelope | CodexItem): AgentEvent[] {
     const envelope = item as CodexEnvelope;
 
     if (envelope.type === "turn.failed" || envelope.type === "error") {
+      const message =
+        envelope.error?.message ?? envelope.message ?? "Codex turn failed";
+      if (envelope.type === "error" && isReconnectMessage(message)) {
+        return [statusWarning(message)];
+      }
       return [
         {
           type: "error",
           code: "codex_error",
-          message: envelope.message ?? "Codex turn failed",
+          message,
         },
       ];
     }

@@ -123,13 +123,58 @@ describe("parseCodexItem", () => {
     expect(
       parseCodexItem({
         type: "turn.failed",
-        message: "boom",
+        error: { message: "boom" },
       }),
     ).toEqual([
       {
         type: "error",
         code: "codex_error",
         message: "boom",
+      },
+    ]);
+  });
+
+  it("maps reconnect errors into transient warning statuses", () => {
+    expect(
+      parseCodexItem({
+        type: "error",
+        message: "Reconnecting... 2/5 (request timed out)",
+      }),
+    ).toEqual([
+      {
+        type: "status",
+        status: "warning",
+        stage: "warning",
+        message: "Reconnecting... 2/5 (request timed out)",
+      },
+    ]);
+
+    expect(
+      parseCodexItem({
+        type: "error",
+        message: "Reconnecting... 5/5",
+      }),
+    ).toEqual([
+      {
+        type: "status",
+        status: "warning",
+        stage: "warning",
+        message: "Reconnecting... 5/5",
+      },
+    ]);
+  });
+
+  it("maps ordinary top-level errors into error events", () => {
+    expect(
+      parseCodexItem({
+        type: "error",
+        message: "fatal provider error",
+      }),
+    ).toEqual([
+      {
+        type: "error",
+        code: "codex_error",
+        message: "fatal provider error",
       },
     ]);
   });

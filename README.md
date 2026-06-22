@@ -255,7 +255,9 @@ surface a server namespace may also include `rawName` and `mcpServerName`, so
 hosts can distinguish same-named tools exposed by different MCP servers while
 keeping backward-compatible short-name routing.
 
-Hosts should persist enough event data for replay and should treat `done` as the terminal source of truth for a run.
+Hosts should persist enough event data for replay and should treat `done` as the terminal source of truth for a run. Individual `error` events are diagnostics, not terminal status by themselves.
+
+Codex reconnect progress such as `Reconnecting... 2/5 (request timed out)` is a transient provider retry state. The Codex provider maps those JSONL messages to `status` events with `status: "warning"` so hosts can show progress without ending the run.
 
 ## Models
 
