@@ -910,4 +910,44 @@ describe("buildCodexLaunchPlan", () => {
       sessionId: "codex-thread-1",
     });
   });
+
+  it("keeps parsing Codex raw events after reconnect warnings", async () => {
+    const adapter = createCodexProvider().createAdapter();
+    expect(adapter).toBeDefined();
+
+    async function* stream() {
+      yield { type: "error", message: "Reconnecting... 2/5 (request timed out)" };
+      yield {
+        type: "item.completed",
+        item: {
+          id: "msg-1",
+          type: "agent_message",
+          text: "continued after reconnect",
+        },
+      };
+      yield { type: "done", status: "completed" };
+    }
+
+    const events = [];
+    for await (const event of adapter!.parseEvents(stream())) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "status",
+        status: "warning",
+        stage: "warning",
+        message: "Reconnecting... 2/5 (request timed out)",
+      },
+      { type: "text_delta", text: "continued after reconnect" },
+      { type: "done", status: "completed" },
+    ]);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: "Reconnecting... 2/5 (request timed out)",
+      }),
+    );
+  });
 });
