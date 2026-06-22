@@ -491,6 +491,24 @@ pnpm build
 pnpm pack:check
 ```
 
+## Release Workflow
+
+Use `.github/workflows/npm-package-release.yml` for package releases.
+
+Stable `latest` releases:
+
+- Open and merge a PR that bumps `package.json` to the target stable version.
+- Run the workflow from `main` with `version_bump=current`, `dist_tag=latest`, and `dry_run=true` first.
+- Re-run with `dry_run=false` to publish the current `package.json` version and push tag `v<version>`.
+
+Beta and other prerelease packages:
+
+- Run the workflow from a feature or release branch.
+- Use `dist_tag=beta` and either a prerelease bump such as `prepatch`, `preminor`, `premajor`, or `prerelease`, or `version_bump=custom` with a prerelease version such as `0.3.0-beta.0`.
+- The workflow commits the prerelease version bump back to the triggering branch, publishes the package, and pushes tag `v<version>`.
+
+The workflow never commits directly to `main`. Non-`latest` releases must use prerelease semver versions, and `latest` releases must use stable semver versions.
+
 ## Security
 
 Local agents execute user-trusted CLIs on the local machine. Only enable this package in trusted local mode.
