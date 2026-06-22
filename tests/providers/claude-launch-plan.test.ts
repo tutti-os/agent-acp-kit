@@ -1,9 +1,12 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
+import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  MANAGED_AGENT_MCP_ATTACHMENT_ENV,
+} from "../../src/core/managed-invocation.js";
 import { createClaudeProvider } from "../../src/providers/claude/index.js";
 import { buildClaudeLaunchPlan } from "../../src/providers/claude/launch-plan.js";
 
@@ -162,6 +165,61 @@ describe("buildClaudeLaunchPlan", () => {
         }),
       );
       expect(plan.redactionSecrets).toEqual(["secret-token"]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("hands managed Claude MCP servers to tsh instead of --mcp-config", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "claude-managed-mcp-plan-"));
+    try {
+      const plan = await createClaudeProvider().buildLaunchPlan({
+        runId: "run-managed-claude-mcp",
+        cwd,
+        prompt: "generate a poster",
+        managedAgentInvocation: {
+          credential: "managed-claude-secret",
+          cwd: "/workspace/project",
+        },
+        mcpServers: [
+          {
+            name: "aimc",
+            type: "stdio",
+            command: process.execPath,
+            args: ["/tmp/aimc-mcp.js"],
+            executionSide: "sandbox",
+            env: {
+              AIMC_TOOL_TOKEN: "secret-token",
+            },
+            toolTimeoutMs: 1_800_000,
+          },
+        ],
+      });
+
+      const encoded = plan.env?.[MANAGED_AGENT_MCP_ATTACHMENT_ENV];
+      expect(encoded).toBeTruthy();
+      expect(plan.args).not.toContain("--mcp-config");
+      expect(plan.args).not.toContain("--strict-mcp-config");
+      expect(plan.mcpServers).toBeUndefined();
+      expect(plan.redactionSecrets).toContain("managed-claude-secret");
+      expect(plan.redactionSecrets).toContain("secret-token");
+      expect(plan.redactionSecrets).toContain(encoded);
+      expect(
+        JSON.parse(Buffer.from(encoded!, "base64").toString("utf8")),
+      ).toMatchObject({
+        mcpServers: {
+          aimc: {
+            type: "stdio",
+            executionSide: "sandbox",
+            command: "node",
+            env: { AIMC_TOOL_TOKEN: "secret-token" },
+            timeouts: {
+              toolTimeoutMs: 1_800_000,
+            },
+          },
+        },
+      });
+      await expect(access(join(cwd, ".local-agent", "claude"))).rejects.toThrow();
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

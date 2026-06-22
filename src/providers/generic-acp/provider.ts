@@ -128,8 +128,11 @@ export function createGenericAcpProvider(input: {
     async *run(params) {
       params = applyManagedAgentInvocationToRunParams(input.providerId, params);
       const plan = await plugin.buildLaunchPlan(params);
+      const { mcpServers: _paramsMcpServers, ...paramsWithoutMcpServers } =
+        params;
       yield* runAcpTransport(plan, {
-        ...params,
+        ...paramsWithoutMcpServers,
+        ...(plan.mcpServers ? { mcpServers: plan.mcpServers } : {}),
         cwd: plan.cwd,
         prompt: plan.prompt,
       });

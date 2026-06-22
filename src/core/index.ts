@@ -36,6 +36,7 @@ export type {
 export type { AgentRunInput } from "./run-input.js";
 export type {
   LocalAgentMcpEnvEntry,
+  LocalAgentMcpExecutionSide,
   LocalAgentMcpHttpServerConfig,
   LocalAgentMcpServerConfig,
   LocalAgentMcpStdioServerConfig,
@@ -54,6 +55,7 @@ export { LocalAgentRuntimeError } from "./errors.js";
 export { getRuntimeTarget, getRuntimeTargetKey } from "./registry.js";
 export {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  MANAGED_AGENT_MCP_ATTACHMENT_ENV,
   MANAGED_AGENT_INVOCATION_PROVIDER_IDS,
   isManagedAgentInvocationCwd,
   isManagedAgentInvocationProviderId,

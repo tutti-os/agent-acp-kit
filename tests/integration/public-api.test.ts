@@ -15,6 +15,9 @@ describe("public api", () => {
     expect(runtime.MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV).toBe(
       "TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL",
     );
+    expect(runtime.MANAGED_AGENT_MCP_ATTACHMENT_ENV).toBe(
+      "TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64",
+    );
     expect(runtime.MANAGED_AGENT_INVOCATION_PROVIDER_IDS).toEqual([
       "codex",
       "claude",

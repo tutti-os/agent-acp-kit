@@ -134,6 +134,7 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "claude">["buildLaunchPlan"]>[0],
   ) {
     params = applyManagedAgentInvocationToRunParams("claude", params);
+    const managed = Boolean(params.managedAgentInvocation);
     const materialized = await materializeSkills(
       params.cwd,
       params.skillManifest ?? [],
@@ -147,11 +148,16 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
     const cleanupTargets = materialized
       .map((skill) => skill.materializedPath)
       .filter((path): path is string => Boolean(path));
-    const mcpConfig = await materializeClaudeMcpConfig({
-      cwd: params.cwd,
-      ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
-      runId: params.runId,
-    });
+    const mcpConfig = managed
+      ? {
+          cleanupTargets: [] as string[],
+          redactionSecrets: [] as string[],
+        }
+      : await materializeClaudeMcpConfig({
+          cwd: params.cwd,
+          ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
+          runId: params.runId,
+        });
     const allCleanupTargets = [
       ...cleanupTargets,
       ...mcpConfig.cleanupTargets,
@@ -159,20 +165,26 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
     if (allCleanupTargets.length > 0) {
       cleanupByRunId.set(params.runId, allCleanupTargets);
     }
+    const plan = buildClaudeLaunchPlan(
+      {
+        ...params,
+        prompt,
+      },
+      "claude",
+      mcpConfig.mcpConfigPath
+        ? { mcpConfigPath: mcpConfig.mcpConfigPath }
+        : undefined,
+    );
+
+    if (mcpConfig.redactionSecrets.length === 0) {
+      return plan;
+    }
+
     return {
-      ...buildClaudeLaunchPlan(
-        {
-          ...params,
-          prompt,
-        },
-        "claude",
-        mcpConfig.mcpConfigPath
-          ? { mcpConfigPath: mcpConfig.mcpConfigPath }
-          : undefined,
+      ...plan,
+      redactionSecrets: Array.from(
+        new Set([...(plan.redactionSecrets ?? []), ...mcpConfig.redactionSecrets]),
       ),
-      ...(mcpConfig.redactionSecrets.length > 0
-        ? { redactionSecrets: mcpConfig.redactionSecrets }
-        : {}),
     };
   }
 

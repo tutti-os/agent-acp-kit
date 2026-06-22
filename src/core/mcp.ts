@@ -8,12 +8,15 @@ type LocalAgentMcpTimeoutConfig = {
   toolTimeoutMs?: number;
 };
 
+export type LocalAgentMcpExecutionSide = "vm" | "sandbox";
+
 export type LocalAgentMcpStdioServerConfig = {
   type?: "stdio";
   name: string;
   command: string;
   args?: string[];
   env?: Record<string, string> | LocalAgentMcpEnvEntry[];
+  executionSide?: LocalAgentMcpExecutionSide;
 } & LocalAgentMcpTimeoutConfig;
 
 export type LocalAgentMcpHttpServerConfig = {
@@ -98,6 +101,7 @@ export function normalizeMcpServerConfig(
     name: server.name,
     command: server.command,
     ...(server.args ? { args: server.args.slice() } : {}),
+    ...(server.executionSide ? { executionSide: server.executionSide } : {}),
     ...(startupTimeoutMs ? { startupTimeoutMs } : {}),
     ...(toolTimeoutMs ? { toolTimeoutMs } : {}),
     env: normalizeMcpEnvEntries(server.env),

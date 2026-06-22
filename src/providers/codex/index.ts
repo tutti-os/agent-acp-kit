@@ -679,9 +679,11 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
       ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
     });
     const normalizedModel = normalizeCodexModel(params.model);
-    const redactionSecrets = collectMcpRedactionSecrets(
-      normalizeMcpServerConfigs(params.mcpServers ?? []),
-    );
+    const redactionSecrets = managed
+      ? []
+      : collectMcpRedactionSecrets(
+          normalizeMcpServerConfigs(params.mcpServers ?? []),
+        );
     const codexHome = await materializeCodexHome({
       cwd: params.cwd,
       managed,
@@ -701,22 +703,30 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     }
 
     const { env: _env, ...paramsWithoutEnv } = params;
+    const plan = buildCodexLaunchPlan({
+      ...paramsWithoutEnv,
+      ...(codexEnv ? { env: codexEnv } : {}),
+      ...(codexHome
+        ? {
+            env: {
+              ...(codexEnv ?? {}),
+              CODEX_HOME: codexHome,
+            },
+          }
+        : {}),
+      ...(normalizedModel ? { model: normalizedModel } : {}),
+      prompt,
+    });
+
+    if (redactionSecrets.length === 0) {
+      return plan;
+    }
+
     return {
-      ...buildCodexLaunchPlan({
-        ...paramsWithoutEnv,
-        ...(codexEnv ? { env: codexEnv } : {}),
-        ...(codexHome
-          ? {
-              env: {
-                ...(codexEnv ?? {}),
-                CODEX_HOME: codexHome,
-              },
-            }
-          : {}),
-        ...(normalizedModel ? { model: normalizedModel } : {}),
-        prompt,
-      }),
-      ...(redactionSecrets.length > 0 ? { redactionSecrets } : {}),
+      ...plan,
+      redactionSecrets: Array.from(
+        new Set([...(plan.redactionSecrets ?? []), ...redactionSecrets]),
+      ),
     };
   }
 
@@ -752,7 +762,6 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     async buildLaunchPlan(params) {
       return {
         ...(await prepareLaunchPlan(params)),
-        ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
         ...(params.model ? { model: params.model } : {}),
         runId: params.runId,
         transport: "jsonl",
@@ -765,7 +774,6 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
           adapterRunId = params.runId;
           return {
             ...(await prepareLaunchPlan(params)),
-            ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
             runId: params.runId,
             transport: "jsonl",
           };
@@ -787,7 +795,6 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     async *run(params) {
       const plan = {
         ...(await prepareLaunchPlan(params)),
-        ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
         runId: params.runId,
         transport: "jsonl" as const,
       };

@@ -60,6 +60,7 @@ export type {
 export {
   LocalAgentRuntimeError,
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  MANAGED_AGENT_MCP_ATTACHMENT_ENV,
   MANAGED_AGENT_INVOCATION_PROVIDER_IDS,
   getRuntimeTarget,
   getRuntimeTargetKey,
@@ -86,6 +87,7 @@ export type {
   DetectionResult,
   LaunchPlan,
   LocalAgentMcpEnvEntry,
+  LocalAgentMcpExecutionSide,
   LocalAgentMcpHttpServerConfig,
   LocalAgentMcpServerConfig,
   LocalAgentMcpStdioServerConfig,

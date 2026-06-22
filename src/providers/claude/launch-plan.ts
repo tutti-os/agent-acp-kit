@@ -41,6 +41,7 @@ export function buildClaudeLaunchPlan(
     ...(params.env ? { env: params.env } : {}),
     prompt: params.prompt,
     promptInput: "stdin",
+    ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
     ...(params.timeoutMs ? { timeoutMs: params.timeoutMs } : {}),
   };
   return applyManagedAgentInvocationToLaunchPlan(

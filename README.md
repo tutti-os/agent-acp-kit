@@ -321,6 +321,14 @@ errors do not expose the credential. Detection contexts may also include
 `redactionSecrets`; managed invocation credentials are added to that list before
 provider detection runs.
 
+When a managed Codex or Claude run includes `mcpServers`, the SDK does not ask
+the provider to materialize provider-native MCP config. Instead it serializes a
+normalized MCP attachment into
+`TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64` for the tsh shim. Managed MCP handoff v1
+supports only sandbox-side stdio MCP servers, so callers must set
+`executionSide: "sandbox"` on those servers. MCP env/header values and the
+handoff payload are added to run redaction secrets.
+
 ## Installing Local Providers
 
 Hosts can expose an install action for supported local providers through one
@@ -356,6 +364,7 @@ const mcpServers = [{
   type: "stdio" as const,
   command: "node",
   args: ["/absolute/path/to/app-tools-mcp.js"],
+  executionSide: "sandbox" as const,
   env: { APP_TOOL_TOKEN: runScopedToken },
   toolTimeoutMs: 30 * 60_000,
   startupTimeoutMs: 2 * 60_000,
@@ -366,6 +375,9 @@ Timeouts are normalized by provider. Codex writes `startup_timeout_sec` and
 `tool_timeout_sec` into its per-run config. Claude Code writes per-server
 `timeout` for tool calls. Generic ACP providers receive only standard ACP MCP
 server fields because the ACP MCP server schema does not define timeout fields.
+For non-managed Codex and Claude runs, MCP delivery continues to use those
+provider-native config paths. For managed Codex and Claude runs, MCP delivery
+uses the tsh handoff env described above.
 
 Keep tool tokens run-scoped and short-lived. Do not pass broad application secrets or database credentials directly to agent processes.
 

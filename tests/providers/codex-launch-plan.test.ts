@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
+import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  MANAGED_AGENT_MCP_ATTACHMENT_ENV,
+} from "../../src/core/managed-invocation.js";
 import { createCodexProvider } from "../../src/providers/codex/index.js";
 import { buildCodexLaunchPlan } from "../../src/providers/codex/launch-plan.js";
 
@@ -393,6 +396,61 @@ describe("buildCodexLaunchPlan", () => {
     expect(plan.args).not.toContain("-C");
     expect(plan.args).not.toContain(workspaceCwd);
     await expect(access(join(workspaceCwd, ".agent-acp-kit", "codex-home"))).rejects.toThrow();
+  });
+
+  it("hands managed Codex MCP servers to tsh instead of Codex home config", async () => {
+    const workspaceCwd = join(
+      "/workspace",
+      `agent-acp-kit-managed-codex-mcp-${process.pid}-${Date.now()}`,
+    );
+
+    const adapter = createCodexProvider().createAdapter();
+    const plan = await adapter!.buildLaunchPlan({
+      runId: "run-managed-codex-mcp",
+      cwd: "/tmp/ignored-by-managed-invocation",
+      prompt: "draw a poster",
+      mcpServers: [
+        {
+          type: "stdio",
+          name: "aimc",
+          command: process.execPath,
+          args: ["/tmp/aimc-mcp.js"],
+          executionSide: "sandbox",
+          env: { AIMC_TOOL_TOKEN: "tool-token" },
+          startupTimeoutMs: 120_000,
+          toolTimeoutMs: 1_800_000,
+        },
+      ],
+      managedAgentInvocation: {
+        credential: "managed-codex-secret",
+        cwd: workspaceCwd,
+      },
+    });
+
+    const encoded = plan.env?.[MANAGED_AGENT_MCP_ATTACHMENT_ENV];
+    expect(encoded).toBeTruthy();
+    expect(plan.env?.CODEX_HOME).toBeUndefined();
+    expect(plan.mcpServers).toBeUndefined();
+    expect(plan.redactionSecrets).toContain("managed-codex-secret");
+    expect(plan.redactionSecrets).toContain("tool-token");
+    expect(plan.redactionSecrets).toContain(encoded);
+    expect(
+      JSON.parse(Buffer.from(encoded!, "base64").toString("utf8")),
+    ).toEqual({
+      mcpServers: {
+        aimc: {
+          type: "stdio",
+          executionSide: "sandbox",
+          command: "node",
+          args: ["/tmp/aimc-mcp.js"],
+          env: { AIMC_TOOL_TOKEN: "tool-token" },
+          timeouts: {
+            startupTimeoutMs: 120_000,
+            toolTimeoutMs: 1_800_000,
+          },
+        },
+      },
+    });
   });
 
   it("marks the run cwd as the Codex project root", async () => {
