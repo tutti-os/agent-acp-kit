@@ -154,12 +154,14 @@ Normal package releases should use `.github/workflows/npm-package-release.yml`.
 
 Release requirements:
 
-- Run from the `main` branch.
-- Choose `version_bump`: `patch`, `minor`, `major`, or `custom`.
+- Stable `latest` releases must run from the `main` branch with `version_bump=current` after a PR has already bumped `package.json` to the target stable version.
+- Beta and other prerelease packages may run from a feature or release branch with `dist_tag=beta` and `version_bump=prepatch`, `preminor`, `premajor`, `prerelease`, or `custom`.
 - Use `custom_version` only when `version_bump=custom`.
+- Use `preid` for prerelease bump identifiers, normally `beta`.
 - Keep the repository secret `NPM_TOKEN` configured with npm publish permission.
 - Use `dry_run: true` first when changing release behavior.
-- Let the workflow publish, commit the version bump, and push tag `v<version>`.
+- Do not make the workflow commit directly to `main`; stable version bumps must go through PRs.
+- Let the workflow publish and push tag `v<version>`. For prerelease branch runs, the workflow may also commit the prerelease version bump back to the triggering branch before publishing.
 
 Do not publish ad hoc from a local machine unless GitHub Actions is unavailable. If local publishing is necessary, run typecheck, tests, build, and `pnpm pack:check` before `npm publish`.
 

@@ -6,16 +6,26 @@ on:
       version_bump:
         description: "How to compute the next package version"
         required: true
-        default: "patch"
+        default: "current"
         type: choice
         options:
+          - current
           - patch
           - minor
           - major
+          - prepatch
+          - preminor
+          - premajor
+          - prerelease
           - custom
       custom_version:
         description: "Required only when version_bump is custom, for example 0.2.0-beta.1"
         required: false
+        type: string
+      preid:
+        description: "Prerelease identifier used by prepatch, preminor, premajor, and prerelease"
+        required: false
+        default: "beta"
         type: string
       dist_tag:
         description: "npm dist-tag"
@@ -33,7 +43,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: npm-package-release-main
+  group: npm-package-release
   cancel-in-progress: false
 
 jobs:
@@ -45,6 +55,7 @@ jobs:
       PACKAGE_NAME: "@tutti-os/agent-acp-kit"
       VERSION_BUMP: ${{ inputs.version_bump }}
       CUSTOM_VERSION: ${{ inputs.custom_version }}
+      PREID: ${{ inputs.preid }}
       DIST_TAG: ${{ inputs.dist_tag }}
       DRY_RUN: ${{ inputs.dry_run }}
 
@@ -55,10 +66,15 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Ensure main branch release
+      - name: Validate release channel
         run: |
-          if [ "${GITHUB_REF_NAME}" != "main" ]; then
-            echo "Releases must run from main, got ${GITHUB_REF_NAME}."
+          if [ "${DIST_TAG}" = "latest" ] && [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "latest releases must run from main, got ${GITHUB_REF_NAME}."
+            exit 1
+          fi
+
+          if [ "${DIST_TAG}" = "latest" ] && [ "${VERSION_BUMP}" != "current" ]; then
+            echo "latest releases must use version_bump=current. Open a version bump PR first, merge it to main, then publish."
             exit 1
           fi
 
@@ -81,12 +97,20 @@ jobs:
       - name: Resolve release version
         id: version
         run: |
-          if [ "${VERSION_BUMP}" = "custom" ]; then
+          if [ "${VERSION_BUMP}" = "current" ]; then
+            echo "Using package.json version."
+          elif [ "${VERSION_BUMP}" = "custom" ]; then
             if [ -z "${CUSTOM_VERSION}" ]; then
               echo "custom_version is required when version_bump=custom."
               exit 1
             fi
             npm version "${CUSTOM_VERSION}" --no-git-tag-version --allow-same-version
+          elif [[ "${VERSION_BUMP}" == pre* ]]; then
+            if [ -z "${PREID}" ]; then
+              echo "preid is required when version_bump=${VERSION_BUMP}."
+              exit 1
+            fi
+            npm version "${VERSION_BUMP}" --no-git-tag-version --preid "${PREID}"
           else
             npm version "${VERSION_BUMP}" --no-git-tag-version
           fi
@@ -94,7 +118,17 @@ jobs:
           release_version="$(node -p "require('./package.json').version")"
           node -e 'const version = process.argv[1]; if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) { console.error(`Invalid semver version: ${version}`); process.exit(1); }' "${release_version}"
 
-          if npm view "${PACKAGE_NAME}@${release_version}" version >/dev/null 2>&1; then
+          if [ "${DIST_TAG}" = "latest" ] && [[ "${release_version}" == *-* ]]; then
+            echo "latest releases must publish a stable semver version, got ${release_version}."
+            exit 1
+          fi
+
+          if [ "${DIST_TAG}" != "latest" ] && [[ "${release_version}" != *-* ]]; then
+            echo "non-latest releases must publish a prerelease semver version, got ${release_version}."
+            exit 1
+          fi
+
+          if [ "${DRY_RUN}" != "true" ] && npm view "${PACKAGE_NAME}@${release_version}" version >/dev/null 2>&1; then
             echo "${PACKAGE_NAME}@${release_version} is already published."
             exit 1
           fi
@@ -114,6 +148,32 @@ jobs:
       - name: Validate package tarball
         run: npm pack --dry-run
 
+      - name: Prepare release ref
+        if: ${{ inputs.dry_run != true }}
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+        run: |
+          git fetch origin --tags
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${RELEASE_VERSION} already exists."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet -- package.json; then
+            if [ "${GITHUB_REF_NAME}" = "main" ]; then
+              echo "Refusing to commit version changes directly to main. Open a version bump PR first."
+              exit 1
+            fi
+
+            git add package.json
+            git commit -m "Release ${PACKAGE_NAME} v${RELEASE_VERSION}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -124,14 +184,10 @@ jobs:
             npm publish --access public --tag "${DIST_TAG}"
           fi
 
-      - name: Commit release version and tag
+      - name: Push release tag
         if: ${{ inputs.dry_run != true }}
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          git commit -m "Release ${PACKAGE_NAME} v${RELEASE_VERSION}"
           git tag "v${RELEASE_VERSION}"
-          git push origin "HEAD:main" "v${RELEASE_VERSION}"
+          git push origin "v${RELEASE_VERSION}"
