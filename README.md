@@ -304,6 +304,38 @@ for await (const event of runtime.run({
 }
 ```
 
+In SSR or server-side handlers behind TSH desktop runtime preview, hosts can use
+the header helper and then pass the normal managed invocation context:
+
+```ts
+import { getManagedAgentInvocationCredentialFromHeaders } from "@tutti-os/agent-acp-kit";
+
+const credential = getManagedAgentInvocationCredentialFromHeaders(request.headers);
+const managedAgentInvocation = credential
+  ? { credential, cwd: "/workspace/project" }
+  : undefined;
+
+await runtime.detect({
+  cwd: "/workspace/project",
+  managedAgentInvocation,
+});
+
+for await (const event of runtime.run({
+  runId,
+  provider: "codex",
+  cwd: "/workspace/project",
+  prompt,
+  managedAgentInvocation,
+})) {
+  // Project AgentEvent into the host protocol.
+}
+```
+
+`getManagedAgentInvocationCredentialFromHeaders` reads
+`X-TSH-Managed-Agent-Credential` case-insensitively from headers-like inputs. If
+the header is absent, pass no `managedAgentInvocation` and the existing
+non-managed behavior is unchanged.
+
 When this context is present, the SDK injects
 `TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL` only into the current provider
 operation and sets the provider process cwd from `managedAgentInvocation.cwd`.
