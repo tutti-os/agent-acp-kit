@@ -13,6 +13,8 @@ import { redactSecrets } from "./redaction.js";
 
 export const MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV =
   "TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL";
+export const MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER =
+  "X-TSH-Managed-Agent-Credential";
 export const MANAGED_AGENT_MCP_ATTACHMENT_ENV =
   "TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64";
 
@@ -29,6 +31,21 @@ export type ManagedAgentInvocation = {
   credential: string;
   cwd: string;
 };
+
+export type ManagedAgentInvocationCredentialHeaderValue =
+  | string
+  | readonly string[]
+  | null
+  | undefined;
+
+export type ManagedAgentInvocationCredentialHeaders =
+  | Record<string, ManagedAgentInvocationCredentialHeaderValue>
+  | Iterable<readonly [string, ManagedAgentInvocationCredentialHeaderValue]>
+  | {
+      get(
+        name: string,
+      ): ManagedAgentInvocationCredentialHeaderValue;
+    };
 
 export type ManagedAgentMcpStdioAttachment = {
   type: "stdio";
@@ -64,6 +81,95 @@ export function isManagedAgentInvocationProviderId(
 export function isManagedAgentInvocationCwd(cwd: string) {
   const normalized = path.posix.normalize(cwd);
   return normalized === "/workspace" || normalized.startsWith("/workspace/");
+}
+
+function normalizeCredentialValue(
+  value: ManagedAgentInvocationCredentialHeaderValue,
+): string | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const credential: string | undefined = normalizeCredentialValue(item);
+      if (credential) {
+        return credential;
+      }
+    }
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function firstCredential(
+  ...values: ManagedAgentInvocationCredentialHeaderValue[]
+) {
+  for (const value of values) {
+    const credential = normalizeCredentialValue(value);
+    if (credential) {
+      return credential;
+    }
+  }
+  return undefined;
+}
+
+function hasHeaderGetter(
+  headers: ManagedAgentInvocationCredentialHeaders,
+): headers is {
+  get(name: string): ManagedAgentInvocationCredentialHeaderValue;
+} {
+  return typeof (headers as { get?: unknown }).get === "function";
+}
+
+function isIterableHeaders(
+  headers: ManagedAgentInvocationCredentialHeaders,
+): headers is Iterable<readonly [string, ManagedAgentInvocationCredentialHeaderValue]> {
+  return typeof (headers as { [Symbol.iterator]?: unknown })[Symbol.iterator] ===
+    "function";
+}
+
+export function getManagedAgentInvocationCredentialFromHeaders(
+  headers: ManagedAgentInvocationCredentialHeaders | undefined,
+) {
+  if (!headers) {
+    return undefined;
+  }
+
+  const targetHeader = MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER.toLowerCase();
+
+  if (hasHeaderGetter(headers)) {
+    const credential = firstCredential(
+      headers.get(MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER),
+      headers.get(targetHeader),
+    );
+    if (credential) {
+      return credential;
+    }
+  }
+
+  if (isIterableHeaders(headers)) {
+    for (const [key, value] of headers) {
+      if (key.toLowerCase() === targetHeader) {
+        const credential = normalizeCredentialValue(value);
+        if (credential) {
+          return credential;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  const headerRecord =
+    headers as Record<string, ManagedAgentInvocationCredentialHeaderValue>;
+  return firstCredential(
+    headerRecord[MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER],
+    ...Object.entries(headerRecord)
+      .filter(([key]) => key.toLowerCase() === targetHeader)
+      .map(([, value]) => value),
+  );
 }
 
 function normalizeManagedAgentInvocation(

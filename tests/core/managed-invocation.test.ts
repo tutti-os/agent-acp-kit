@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER,
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
   MANAGED_AGENT_MCP_ATTACHMENT_ENV,
   MANAGED_AGENT_INVOCATION_PROVIDER_IDS,
   applyManagedAgentInvocationToLaunchPlan,
   buildManagedAgentMcpAttachmentEnv,
+  getManagedAgentInvocationCredentialFromHeaders,
   isManagedAgentInvocationCwd,
   isManagedAgentInvocationProviderId,
   prepareManagedAgentInvocationDetectContext,
@@ -47,6 +49,38 @@ describe("managed agent invocation", () => {
         { credential: "secret", cwd: "/tmp/project" },
       ),
     ).toThrow(/cwd must be \/workspace/);
+  });
+
+  it("reads managed credentials from request headers without case sensitivity", () => {
+    expect(
+      getManagedAgentInvocationCredentialFromHeaders({
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: " header-secret ",
+      }),
+    ).toBe("header-secret");
+    expect(
+      getManagedAgentInvocationCredentialFromHeaders({
+        "x-tsh-managed-agent-credential": "lowercase-secret",
+      }),
+    ).toBe("lowercase-secret");
+    expect(
+      getManagedAgentInvocationCredentialFromHeaders({
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER.toUpperCase()]: [
+          "",
+          "array-secret",
+        ],
+      }),
+    ).toBe("array-secret");
+    expect(
+      getManagedAgentInvocationCredentialFromHeaders(
+        new Map([["x-tsh-managed-agent-credential", "iterable-secret"]]),
+      ),
+    ).toBe("iterable-secret");
+    expect(
+      getManagedAgentInvocationCredentialFromHeaders(
+        new Map([["X-TSH-MANAGED-AGENT-CREDENTIAL", "iterable-secret"]]),
+      ),
+    ).toBe("iterable-secret");
+    expect(getManagedAgentInvocationCredentialFromHeaders({})).toBeUndefined();
   });
 
   it("injects credential, cwd, redaction, and fallback plans without mutation", () => {
