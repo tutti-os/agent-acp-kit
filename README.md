@@ -283,64 +283,46 @@ Hosts should not hardcode Codex or Claude model lists above this package. If a U
 ## Managed Agent Invocation
 
 Hosts that run inside a managed reverse-exec environment can pass a per-operation
-managed invocation context to both detection and runs:
+managed invocation context to both detection and runs. In SSR or server-side
+handlers behind TSH desktop runtime preview, use the header helpers so app code
+does not need to parse credentials or define managed cwd rules:
 
 ```ts
-const managedAgentInvocation = {
-  credential,
-  cwd: "/workspace/project",
-};
+import {
+  createManagedAgentDetectContextFromHeaders,
+  createManagedAgentRunContextFromHeaders,
+} from "@tutti-os/agent-acp-kit";
 
-await runtime.detect({ managedAgentInvocation });
+const detectContext = createManagedAgentDetectContextFromHeaders(request.headers);
+await runtime.detect(detectContext);
 
-for await (const event of runtime.run({
+const runContext = await createManagedAgentRunContextFromHeaders(request.headers, {
+  providerId: "codex",
   runId,
-  provider: "codex",
-  cwd: "/workspace/project",
-  prompt,
-  managedAgentInvocation,
-})) {
-  // Project AgentEvent into the host protocol.
-}
-```
-
-In SSR or server-side handlers behind TSH desktop runtime preview, hosts can use
-the header helper and then pass the normal managed invocation context:
-
-```ts
-import { getManagedAgentInvocationCredentialFromHeaders } from "@tutti-os/agent-acp-kit";
-
-const credential = getManagedAgentInvocationCredentialFromHeaders(request.headers);
-const managedAgentInvocation = credential
-  ? { credential, cwd: "/workspace/project" }
-  : undefined;
-
-await runtime.detect({
-  cwd: "/workspace/project",
-  managedAgentInvocation,
 });
 
 for await (const event of runtime.run({
   runId,
   provider: "codex",
-  cwd: "/workspace/project",
+  cwd: runContext?.cwd ?? fallbackLocalCwd,
   prompt,
-  managedAgentInvocation,
+  managedAgentInvocation: runContext?.managedAgentInvocation,
 })) {
   // Project AgentEvent into the host protocol.
 }
 ```
 
-`getManagedAgentInvocationCredentialFromHeaders` reads
-`X-TSH-Managed-Agent-Credential` case-insensitively from headers-like inputs. If
-the header is absent, pass no `managedAgentInvocation` and the existing
-non-managed behavior is unchanged.
+The helpers read `X-TSH-Managed-Agent-Credential` case-insensitively from
+headers-like inputs. If the header is absent, they return `undefined` and the
+existing non-managed behavior is unchanged. When the header is present, they use
+`TUTTI_APP_DATA_DIR` as the app-isolated base directory. Run contexts create a
+scoped cwd under `TUTTI_APP_DATA_DIR/.agent-runs/<provider>-<runId>`.
 
 When this context is present, the SDK injects
 `TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL` only into the current provider
 operation and sets the provider process cwd from `managedAgentInvocation.cwd`.
-The managed cwd must be `/workspace` or a path below `/workspace`; invalid cwd
-values fail fast.
+Managed cwd values are not remapped to `/workspace`; the host runtime-provided
+app data directory is used directly.
 
 Managed invocation is intentionally limited to provider ids `codex`, `claude`,
 and `nexight`. There is no `nextop` alias. Codex and Claude are built-in
