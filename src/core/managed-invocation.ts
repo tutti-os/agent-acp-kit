@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import type { DetectContext } from "./detection.js";
@@ -17,6 +19,8 @@ export const MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER =
   "X-TSH-Managed-Agent-Credential";
 export const MANAGED_AGENT_MCP_ATTACHMENT_ENV =
   "TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64";
+export const DEFAULT_MANAGED_AGENT_RUNS_DIR_NAME = ".agent-runs";
+export const TUTTI_APP_DATA_DIR_ENV = "TUTTI_APP_DATA_DIR";
 
 export const MANAGED_AGENT_INVOCATION_PROVIDER_IDS = [
   "codex",
@@ -30,6 +34,23 @@ export type ManagedAgentInvocationProviderId =
 export type ManagedAgentInvocation = {
   credential: string;
   cwd: string;
+};
+
+export type ManagedAgentContextOptions = {
+  appDataDir?: string;
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+};
+
+export type ManagedAgentRunContextOptions = ManagedAgentContextOptions & {
+  providerId: string;
+  runId: string;
+  runsDirName?: string;
+};
+
+export type ManagedAgentRunContext = {
+  cwd: string;
+  managedAgentInvocation: ManagedAgentInvocation;
 };
 
 export type ManagedAgentInvocationCredentialHeaderValue =
@@ -79,8 +100,24 @@ export function isManagedAgentInvocationProviderId(
 }
 
 export function isManagedAgentInvocationCwd(cwd: string) {
-  const normalized = path.posix.normalize(cwd);
-  return normalized === "/workspace" || normalized.startsWith("/workspace/");
+  return normalizeManagedAgentInvocationCwd(cwd) !== undefined;
+}
+
+function normalizeManagedAgentInvocationCwd(cwd: string | undefined) {
+  if (typeof cwd !== "string") {
+    return undefined;
+  }
+
+  const trimmed = cwd.trim();
+  if (
+    !trimmed ||
+    trimmed.includes("\0") ||
+    !path.isAbsolute(trimmed)
+  ) {
+    return undefined;
+  }
+
+  return path.normalize(trimmed);
 }
 
 function normalizeCredentialValue(
@@ -172,6 +209,113 @@ export function getManagedAgentInvocationCredentialFromHeaders(
   );
 }
 
+function resolveManagedAgentBaseCwd(options?: ManagedAgentContextOptions) {
+  return normalizeManagedAgentInvocationCwd(
+    options?.cwd ??
+      options?.appDataDir ??
+      options?.env?.[TUTTI_APP_DATA_DIR_ENV] ??
+      process.env[TUTTI_APP_DATA_DIR_ENV],
+  );
+}
+
+function createManagedAgentInvocationFromHeaders(
+  headers: ManagedAgentInvocationCredentialHeaders | undefined,
+  options?: ManagedAgentContextOptions,
+) {
+  const credential = getManagedAgentInvocationCredentialFromHeaders(headers);
+  if (!credential) {
+    return undefined;
+  }
+
+  const cwd = resolveManagedAgentBaseCwd(options);
+  if (!cwd) {
+    throw new Error(
+      `${TUTTI_APP_DATA_DIR_ENV} is required to create managed agent invocation context.`,
+    );
+  }
+
+  return normalizeManagedAgentInvocation({
+    credential,
+    cwd,
+  });
+}
+
+export function createManagedAgentDetectContextFromHeaders(
+  headers: ManagedAgentInvocationCredentialHeaders | undefined,
+  options?: ManagedAgentContextOptions,
+): DetectContext | undefined {
+  const managedAgentInvocation = createManagedAgentInvocationFromHeaders(
+    headers,
+    options,
+  );
+  if (!managedAgentInvocation) {
+    return undefined;
+  }
+
+  return {
+    cwd: managedAgentInvocation.cwd,
+    env: {
+      ...(options?.env ?? {}),
+      [TUTTI_APP_DATA_DIR_ENV]: managedAgentInvocation.cwd,
+    },
+    managedAgentInvocation,
+    redactionSecrets: [managedAgentInvocation.credential],
+  };
+}
+
+function managedRunPathSegment(value: string, label: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`Managed agent ${label} is required.`);
+  }
+
+  const readable = trimmed
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^[-_.]+|[-_.]+$/g, "")
+    .slice(0, 48);
+  const hash = createHash("sha256")
+    .update(trimmed)
+    .digest("base64url")
+    .slice(0, 16);
+  return readable ? `${readable}-${hash}` : hash;
+}
+
+export async function createManagedAgentRunContextFromHeaders(
+  headers: ManagedAgentInvocationCredentialHeaders | undefined,
+  options: ManagedAgentRunContextOptions,
+): Promise<ManagedAgentRunContext | undefined> {
+  const credential = getManagedAgentInvocationCredentialFromHeaders(headers);
+  if (!credential) {
+    return undefined;
+  }
+
+  assertManagedAgentInvocationProviderId(options.providerId);
+  const appDataDir = resolveManagedAgentBaseCwd(options);
+  if (!appDataDir) {
+    throw new Error(
+      `${TUTTI_APP_DATA_DIR_ENV} is required to create managed agent run context.`,
+    );
+  }
+
+  const cwd = path.join(
+    appDataDir,
+    options.runsDirName ?? DEFAULT_MANAGED_AGENT_RUNS_DIR_NAME,
+    `${managedRunPathSegment(
+      options.providerId,
+      "provider id",
+    )}-${managedRunPathSegment(options.runId, "run id")}`,
+  );
+  await mkdir(cwd, { recursive: true });
+
+  return {
+    cwd,
+    managedAgentInvocation: normalizeManagedAgentInvocation({
+      credential,
+      cwd,
+    }),
+  };
+}
+
 function normalizeManagedAgentInvocation(
   invocation: ManagedAgentInvocation,
 ): ManagedAgentInvocation {
@@ -179,11 +323,9 @@ function normalizeManagedAgentInvocation(
     throw new Error("Managed agent invocation credential is required.");
   }
 
-  const cwd = path.posix.normalize(invocation.cwd);
-  if (!isManagedAgentInvocationCwd(cwd)) {
-    throw new Error(
-      "Managed agent invocation cwd must be /workspace or a path under /workspace.",
-    );
+  const cwd = normalizeManagedAgentInvocationCwd(invocation.cwd);
+  if (!cwd) {
+    throw new Error("Managed agent invocation cwd is required.");
   }
 
   return {
@@ -380,13 +522,16 @@ export function prepareManagedAgentInvocationDetectContext(
 
   if (!isManagedAgentInvocationProviderId(providerId)) {
     const {
+      cwd: _managedCwd,
       managedAgentInvocation: _managedAgentInvocation,
+      redactionSecrets: _managedRedactionSecrets,
       env,
       ...rest
     } = context;
     const sanitizedEnv = env ? { ...env } : undefined;
     if (sanitizedEnv) {
       delete sanitizedEnv[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV];
+      delete sanitizedEnv[TUTTI_APP_DATA_DIR_ENV];
     }
     if (sanitizedEnv && Object.keys(sanitizedEnv).length > 0) {
       return {

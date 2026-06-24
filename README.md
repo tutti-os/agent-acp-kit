@@ -80,7 +80,10 @@ Requirements:
 - ESM runtime.
 - Installed provider CLIs for the providers you want to use.
 
-## Quick Start
+## Local Quick Start
+
+For a regular local host, the application owns the workspace directory and
+passes that path directly as `cwd`.
 
 ```ts
 import {
@@ -160,18 +163,23 @@ for await (const event of runtime.run({
 
 Built-in real local providers do not impose a provider-level concurrency cap. Hosts can still enforce stricter queueing, cancellation, or watchdog policies around `runtime.run()` when a product surface needs serialized execution.
 
-Codex runs always use a run-scoped temporary `CODEX_HOME`. The temporary root
-comes from run env `TMPDIR`, `TEMP`, or `TMP`, then process env, then the OS
-default. The provider shares `auth.json`, `sessions/`, and `plugins/cache/`
+Local Codex runs always use a run-scoped temporary `CODEX_HOME`. The temporary
+root comes from run env `TMPDIR`, `TEMP`, or `TMP`, then process env, then the
+OS default. The provider shares `auth.json`, `sessions/`, and `plugins/cache/`
 with the requested `CODEX_HOME` or the user's default `~/.codex` so token
 refreshes, native resume, and plugin assets stay durable across runs; plugin
 cache exposure is best-effort and does not block a run. It copies isolated
-config files such as
-`config.json`, `config.toml`, and `instructions.md`, preserves compatible
-`config.toml` settings such as custom model providers and `base_url`, removes
-Codex config values known to break current CLI parsing, disables Codex native
-multi-agent for single-process run lifecycle safety, and overlays any run-scoped
-MCP server config.
+config files such as `config.json`, `config.toml`, and `instructions.md`,
+preserves compatible `config.toml` settings such as custom model providers and
+`base_url`, removes Codex config values known to break current CLI parsing,
+disables Codex native multi-agent for single-process run lifecycle safety, and
+overlays any run-scoped MCP server config.
+
+Managed Codex runs use a caller-supplied `CODEX_HOME` when one is provided;
+otherwise they materialize a run-scoped `CODEX_HOME` at
+`<managed-run-cwd>/.codex`. This managed home is for run-local Codex config
+only; auth, user sessions, and MCP attachments stay on the managed execution
+path instead of being copied from the app server.
 
 ## Host Integration Pattern
 
@@ -283,70 +291,71 @@ Hosts should not hardcode Codex or Claude model lists above this package. If a U
 ## Managed Agent Invocation
 
 Hosts that run inside a managed reverse-exec environment can pass a per-operation
-managed invocation context to both detection and runs:
+managed invocation context to both detection and runs. In SSR or server-side
+handlers behind TSH desktop runtime preview, use the header helpers so app code
+does not need to parse credentials or define managed cwd rules:
 
 ```ts
-const managedAgentInvocation = {
-  credential,
-  cwd: "/workspace/project",
-};
+import {
+  createManagedAgentDetectContextFromHeaders,
+  createManagedAgentRunContextFromHeaders,
+} from "@tutti-os/agent-acp-kit";
 
-await runtime.detect({ managedAgentInvocation });
+const detectContext = createManagedAgentDetectContextFromHeaders(request.headers);
+await runtime.detect(detectContext);
 
-for await (const event of runtime.run({
+const runContext = await createManagedAgentRunContextFromHeaders(request.headers, {
+  providerId: "codex",
   runId,
-  provider: "codex",
-  cwd: "/workspace/project",
-  prompt,
-  managedAgentInvocation,
-})) {
-  // Project AgentEvent into the host protocol.
-}
-```
-
-In SSR or server-side handlers behind TSH desktop runtime preview, hosts can use
-the header helper and then pass the normal managed invocation context:
-
-```ts
-import { getManagedAgentInvocationCredentialFromHeaders } from "@tutti-os/agent-acp-kit";
-
-const credential = getManagedAgentInvocationCredentialFromHeaders(request.headers);
-const managedAgentInvocation = credential
-  ? { credential, cwd: "/workspace/project" }
-  : undefined;
-
-await runtime.detect({
-  cwd: "/workspace/project",
-  managedAgentInvocation,
 });
+const cwd = runContext?.cwd ?? localWorkspaceDir;
 
 for await (const event of runtime.run({
   runId,
   provider: "codex",
-  cwd: "/workspace/project",
+  cwd,
   prompt,
-  managedAgentInvocation,
+  managedAgentInvocation: runContext?.managedAgentInvocation,
 })) {
   // Project AgentEvent into the host protocol.
 }
 ```
 
-`getManagedAgentInvocationCredentialFromHeaders` reads
-`X-TSH-Managed-Agent-Credential` case-insensitively from headers-like inputs. If
-the header is absent, pass no `managedAgentInvocation` and the existing
-non-managed behavior is unchanged.
+The helpers read `X-TSH-Managed-Agent-Credential` case-insensitively from
+headers-like inputs. If the header is absent, they return `undefined` and the
+existing non-managed behavior is unchanged. The `localWorkspaceDir` fallback
+above is only for that non-managed path. When `runContext` is present, use
+`runContext.cwd` as the provider process cwd and pass
+`runContext.managedAgentInvocation` through to `runtime.run()`.
+
+When the header is present, the helpers use `TUTTI_APP_DATA_DIR` as the
+app-isolated base directory. Run contexts create a scoped cwd under
+`TUTTI_APP_DATA_DIR/.agent-runs/`; the final directory name is generated by the
+SDK and should not be parsed or recreated by host applications.
 
 When this context is present, the SDK injects
 `TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL` only into the current provider
 operation and sets the provider process cwd from `managedAgentInvocation.cwd`.
-The managed cwd must be `/workspace` or a path below `/workspace`; invalid cwd
-values fail fast.
+Managed cwd values are not remapped to `/workspace`; the host runtime-provided
+app data directory is used directly.
+
+For Codex managed runs, the SDK also prepares a run-scoped `CODEX_HOME`. If the
+host passes `env.CODEX_HOME`, that directory is used; otherwise the SDK creates
+one under the managed cwd. Hosts that do not need a custom Codex home can use
+the run context returned by `createManagedAgentRunContextFromHeaders()` without
+passing any Codex-home path.
 
 Managed invocation is intentionally limited to provider ids `codex`, `claude`,
 and `nexight`. There is no `nextop` alias. Codex and Claude are built-in
 providers; `nexight` can be supplied by a host-owned provider plugin when the
 host has a defined Nexight transport contract. The SDK expects managed CLI
 shims to be available on `PATH` and does not hardcode shim paths.
+
+In managed hosts, avoid alternate credential paths. Do not read a browser JSB
+credential and forward it in the request body, do not store managed credentials
+in run records or messages, and do not build `.agent-runs` paths in application
+code. Treat the request header as the server-side trust boundary and let these
+helpers produce the context consumed by `runtime.detect()` and `runtime.run()`.
 
 Managed credentials are not written to `process.env`, detection cache keys,
 provider config files, or global skill directories. They are added to

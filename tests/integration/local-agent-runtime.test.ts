@@ -377,7 +377,8 @@ describe("createLocalAgentRuntime", () => {
     });
   });
 
-  it("fails fast for invalid managed invocation cwd before unsupported provider detection", async () => {
+  it("does not forward managed invocation credentials to unsupported provider detection regardless of cwd", async () => {
+    let receivedContext: unknown;
     const detect = vi.fn(async () => ({
       authState: "ok" as const,
       executablePath: "nextop",
@@ -388,7 +389,10 @@ describe("createLocalAgentRuntime", () => {
       id: "nextop",
       displayName: "Nextop",
       kind: "local-agent",
-      detect,
+      detect(context) {
+        receivedContext = context;
+        return detect(context);
+      },
       capabilities() {
         return {
           cancel: true,
@@ -406,15 +410,15 @@ describe("createLocalAgentRuntime", () => {
       },
     };
 
-    await expect(
-      createLocalAgentRuntime({ providers: [provider] }).detect({
-        managedAgentInvocation: {
-          credential: "managed-secret",
-          cwd: "/tmp/not-workspace",
-        },
-      }),
-    ).rejects.toThrow(/cwd must be \/workspace/);
-    expect(detect).not.toHaveBeenCalled();
+    await createLocalAgentRuntime({ providers: [provider] }).detect({
+      managedAgentInvocation: {
+        credential: "managed-secret",
+        cwd: "/tmp/not-workspace",
+      },
+    });
+
+    expect(detect).toHaveBeenCalledTimes(1);
+    expect(receivedContext).toBeUndefined();
   });
 
   it("injects managed invocation env and cwd into runtime launch plans", async () => {
@@ -538,7 +542,8 @@ describe("createLocalAgentRuntime", () => {
     );
   });
 
-  it("fails fast when managed invocation cwd is outside /workspace", async () => {
+  it("runs managed invocations from cwd outside /workspace", async () => {
+    let receivedParams: AgentRunParams<"local-agent", "codex"> | undefined;
     const provider: LocalAgentProviderPlugin<"local-agent", "codex"> = {
       id: "codex",
       displayName: "Codex",
@@ -563,8 +568,9 @@ describe("createLocalAgentRuntime", () => {
       async buildLaunchPlan() {
         throw new Error("not used");
       },
-      async *run() {
-        throw new Error("not used");
+      async *run(params) {
+        receivedParams = params;
+        yield { type: "done", status: "completed" as const };
       },
     };
     const runtime = createLocalAgentRuntime({
@@ -586,7 +592,17 @@ describe("createLocalAgentRuntime", () => {
       }
     };
 
-    await expect(collect()).rejects.toThrow(/cwd must be \/workspace/);
+    await expect(collect()).resolves.toBeUndefined();
+    expect(receivedParams).toMatchObject({
+      cwd: "/tmp/not-workspace",
+      env: {
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-secret",
+      },
+      managedAgentInvocation: {
+        credential: "managed-secret",
+        cwd: "/tmp/not-workspace",
+      },
+    });
   });
 
   it("rejects managed invocation for unsupported run providers", async () => {
