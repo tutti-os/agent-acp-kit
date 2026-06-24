@@ -603,7 +603,18 @@ async function materializeCodexHome(params: {
   model?: string;
 }) {
   if (params.managed) {
-    return undefined;
+    const runHome = params.env?.CODEX_HOME?.trim() || join(params.cwd, ".codex");
+    await mkdir(runHome, { recursive: true });
+    const mergedConfig = mergeCodexConfigToml({
+      ...(params.model ? { model: params.model } : {}),
+      mcpServers: normalizeMcpServerConfigs([]),
+    });
+    await writeFile(
+      join(runHome, "config.toml"),
+      ensureCodexProjectRootMarkers(ensureCodexMultiAgentDisabled(mergedConfig)),
+      "utf8",
+    );
+    return runHome;
   }
 
   const normalizedServers = normalizeMcpServerConfigs(params.mcpServers ?? []);
@@ -651,15 +662,6 @@ async function materializeCodexHome(params: {
   return runHome;
 }
 
-function stripManagedCodexHomeEnv(env: Record<string, string> | undefined) {
-  if (!env || !Object.prototype.hasOwnProperty.call(env, "CODEX_HOME")) {
-    return env;
-  }
-
-  const { CODEX_HOME: _codexHome, ...rest } = env;
-  return Object.keys(rest).length > 0 ? rest : undefined;
-}
-
 export function createCodexProvider(): LocalAgentProviderPlugin<
   "local-agent",
   "codex"
@@ -671,7 +673,7 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
   ) {
     params = applyManagedAgentInvocationToRunParams("codex", params);
     const managed = Boolean(params.managedAgentInvocation);
-    const codexEnv = managed ? stripManagedCodexHomeEnv(params.env) : params.env;
+    const codexEnv = params.env;
     const projectRootMarker = managed
       ? undefined
       : await ensureCodexProjectRootMarker(params.cwd);
