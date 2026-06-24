@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -108,7 +109,11 @@ function normalizeManagedAgentInvocationCwd(cwd: string | undefined) {
   }
 
   const trimmed = cwd.trim();
-  if (!trimmed || trimmed.includes("\0")) {
+  if (
+    !trimmed ||
+    trimmed.includes("\0") ||
+    !path.isAbsolute(trimmed)
+  ) {
     return undefined;
   }
 
@@ -258,9 +263,21 @@ export function createManagedAgentDetectContextFromHeaders(
   };
 }
 
-function safeManagedRunPathSegment(value: string) {
-  const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, "_");
-  return normalized.length > 0 ? normalized : "_";
+function managedRunPathSegment(value: string, label: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`Managed agent ${label} is required.`);
+  }
+
+  const readable = trimmed
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^[-_.]+|[-_.]+$/g, "")
+    .slice(0, 48);
+  const hash = createHash("sha256")
+    .update(trimmed)
+    .digest("base64url")
+    .slice(0, 16);
+  return readable ? `${readable}-${hash}` : hash;
 }
 
 export async function createManagedAgentRunContextFromHeaders(
@@ -283,9 +300,10 @@ export async function createManagedAgentRunContextFromHeaders(
   const cwd = path.join(
     appDataDir,
     options.runsDirName ?? DEFAULT_MANAGED_AGENT_RUNS_DIR_NAME,
-    `${safeManagedRunPathSegment(options.providerId)}-${safeManagedRunPathSegment(
-      options.runId,
-    )}`,
+    `${managedRunPathSegment(
+      options.providerId,
+      "provider id",
+    )}-${managedRunPathSegment(options.runId, "run id")}`,
   );
   await mkdir(cwd, { recursive: true });
 
@@ -504,13 +522,16 @@ export function prepareManagedAgentInvocationDetectContext(
 
   if (!isManagedAgentInvocationProviderId(providerId)) {
     const {
+      cwd: _managedCwd,
       managedAgentInvocation: _managedAgentInvocation,
+      redactionSecrets: _managedRedactionSecrets,
       env,
       ...rest
     } = context;
     const sanitizedEnv = env ? { ...env } : undefined;
     if (sanitizedEnv) {
       delete sanitizedEnv[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV];
+      delete sanitizedEnv[TUTTI_APP_DATA_DIR_ENV];
     }
     if (sanitizedEnv && Object.keys(sanitizedEnv).length > 0) {
       return {

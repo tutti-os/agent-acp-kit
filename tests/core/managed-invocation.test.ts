@@ -36,12 +36,14 @@ describe("managed agent invocation", () => {
     expect(isManagedAgentInvocationProviderId("nextop")).toBe(false);
   });
 
-  it("accepts any non-empty managed cwd without /workspace remapping", () => {
+  it("accepts any absolute non-empty managed cwd without /workspace remapping", () => {
     expect(isManagedAgentInvocationCwd("/workspace")).toBe(true);
     expect(isManagedAgentInvocationCwd("/workspace/project")).toBe(true);
     expect(isManagedAgentInvocationCwd("/workspace/../tmp")).toBe(true);
     expect(isManagedAgentInvocationCwd("/workspace-other")).toBe(true);
     expect(isManagedAgentInvocationCwd("/tmp/project")).toBe(true);
+    expect(isManagedAgentInvocationCwd("tmp/project")).toBe(false);
+    expect(isManagedAgentInvocationCwd("../project")).toBe(false);
     expect(isManagedAgentInvocationCwd("")).toBe(false);
 
     const managed = applyManagedAgentInvocationToLaunchPlan(
@@ -134,21 +136,77 @@ describe("managed agent invocation", () => {
         },
       );
 
-      const expectedCwd = join(
-        appDataDir,
-        DEFAULT_MANAGED_AGENT_RUNS_DIR_NAME,
-        "codex-run_1_2",
+      const expectedCwdPattern = new RegExp(
+        `${DEFAULT_MANAGED_AGENT_RUNS_DIR_NAME.replace(
+          ".",
+          "\\.",
+        )}/codex-[A-Za-z0-9_-]{16}-run_1_2-[A-Za-z0-9_-]{16}$`,
       );
+      expect(context?.cwd).toMatch(expectedCwdPattern);
       expect(context).toEqual({
-        cwd: expectedCwd,
+        cwd: context?.cwd,
         managedAgentInvocation: {
           credential: "run-secret",
-          cwd: expectedCwd,
+          cwd: context?.cwd,
         },
       });
     } finally {
       await rm(appDataDir, { recursive: true, force: true });
     }
+  });
+
+  it("keeps managed run cwd unique for lossy-looking run ids", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "agent-acp-kit-"));
+    try {
+      const headers = new Headers({
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: "run-secret",
+      });
+      const [slash, colon, underscore] = await Promise.all([
+        createManagedAgentRunContextFromHeaders(headers, {
+          providerId: "codex",
+          runId: "a/b",
+          appDataDir,
+        }),
+        createManagedAgentRunContextFromHeaders(headers, {
+          providerId: "codex",
+          runId: "a:b",
+          appDataDir,
+        }),
+        createManagedAgentRunContextFromHeaders(headers, {
+          providerId: "codex",
+          runId: "a_b",
+          appDataDir,
+        }),
+      ]);
+
+      expect(new Set([slash?.cwd, colon?.cwd, underscore?.cwd]).size).toBe(3);
+    } finally {
+      await rm(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects relative managed app data dirs", async () => {
+    expect(() =>
+      createManagedAgentDetectContextFromHeaders(
+        {
+          [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: "managed-secret",
+        },
+        { appDataDir: "tmp/tutti-app-data" },
+      ),
+    ).toThrow(/TUTTI_APP_DATA_DIR is required/);
+
+    await expect(
+      createManagedAgentRunContextFromHeaders(
+        new Headers({
+          [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: "run-secret",
+        }),
+        {
+          providerId: "codex",
+          runId: "run-1",
+          appDataDir: "../tutti-app-data",
+        },
+      ),
+    ).rejects.toThrow(/TUTTI_APP_DATA_DIR is required/);
   });
 
   it("injects credential, cwd, redaction, and fallback plans without mutation", () => {
