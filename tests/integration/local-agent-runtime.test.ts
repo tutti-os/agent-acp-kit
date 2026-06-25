@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
@@ -12,6 +12,10 @@ import {
 } from "../../src/index.js";
 
 describe("createLocalAgentRuntime", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("detects registered providers and streams normalized agent events", async () => {
     const runtime = createLocalAgentRuntime({
       providers: [
@@ -241,10 +245,16 @@ describe("createLocalAgentRuntime", () => {
     await runtime.detect();
 
     expect(detectOk).toHaveBeenCalledTimes(1);
+    await runtime.detect({ refresh: true });
+    expect(detectOk).toHaveBeenCalledTimes(2);
   });
 
   it("passes managed invocation env and cwd to supported provider detection without caching credentials", async () => {
+    vi.stubEnv("CODEX_HOME", "/tmp/user-codex-home");
+    vi.stubEnv("CLAUDE_CONFIG_DIR", "/tmp/user-claude-config");
     const calls: Array<{
+      claudeConfigDir?: string;
+      codexHome?: string;
       credential?: string;
       cwd?: string;
       home?: string;
@@ -253,6 +263,8 @@ describe("createLocalAgentRuntime", () => {
     }> = [];
     const detect = vi.fn(async (context) => {
       calls.push({
+        claudeConfigDir: context?.env?.CLAUDE_CONFIG_DIR,
+        codexHome: context?.env?.CODEX_HOME,
         credential: context?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
         cwd: context?.cwd,
         home: context?.env?.HOME,
@@ -305,18 +317,22 @@ describe("createLocalAgentRuntime", () => {
     expect(detect).toHaveBeenCalledTimes(2);
     expect(calls).toEqual([
       {
+        claudeConfigDir: "/tmp/user-claude-config",
+        codexHome: "/tmp/user-codex-home",
         credential: "managed-detect-secret-1",
         cwd: "/workspace/project",
         home: process.env.HOME,
         leaked: process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
-        path: process.env.PATH,
+        path: expect.stringContaining("/opt/homebrew/bin"),
       },
       {
+        claudeConfigDir: "/tmp/user-claude-config",
+        codexHome: "/tmp/user-codex-home",
         credential: "managed-detect-secret-2",
         cwd: "/workspace/project/subdir",
         home: process.env.HOME,
         leaked: process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
-        path: process.env.PATH,
+        path: expect.stringContaining("/opt/homebrew/bin"),
       },
     ]);
     expect(process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).not.toBe(

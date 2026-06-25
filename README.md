@@ -275,6 +275,11 @@ Use `runtime.detect()` to get provider installation status, support status, and 
 const modelOptions = await runtime.detect();
 ```
 
+No-argument detection is cached for the lifetime of the runtime. After a host
+installs a provider or otherwise changes the local CLI environment, call
+`runtime.detect({ refresh: true })` to clear that cache and probe the current
+machine state.
+
 Provider behavior differs:
 
 - Codex: attempts dynamic discovery with `codex debug models`, then falls back to bundled or package model hints.
@@ -385,19 +390,26 @@ import { installAgentProvider } from "@tutti-os/agent-acp-kit";
 const result = await installAgentProvider("codex");
 ```
 
-Supported install targets are `codex` and `claude`. The function probes the
-provider CLI and ACP adapter first, then chooses the right npm command:
+Supported install targets are `codex` and `claude`. The function installs and
+checks the official provider CLIs only:
 
-- Codex full install: `npm install -g @openai/codex @zed-industries/codex-acp`
-- Codex adapter-only install: `npm install -g @zed-industries/codex-acp`
-- Claude Code full install: `npm install -g @anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp`
-- Claude Code adapter-only install: `npm install -g @agentclientprotocol/claude-agent-acp`
+- Codex install: `npm install -g @openai/codex`
+- Claude Code install: `npm install -g @anthropic-ai/claude-code`
+
+ACP adapter packages such as `codex-acp` and `claude-agent-acp` are not required
+for these built-in providers. The install status still reports whether legacy
+adapter binaries are present as compatibility metadata, but adapter presence no
+longer affects `availability`, command selection, or post-install success.
 
 The result is structured instead of throwing raw shell output. Failed installs
 include a `failureReason` such as `install_command_failed`,
 `install_timed_out`, or `post_install_probe_failed`. A successful install can
 still return `auth_required` in `after.availability`; hosts should then prompt
 the user to log in with the provider CLI.
+
+Install, detection, and runtime launch envs include common local binary
+directories such as `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, npm
+configured prefix bins, and npm's global prefix bin when it can be resolved.
 
 ## MCP Tools
 

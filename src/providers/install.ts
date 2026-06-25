@@ -4,6 +4,7 @@ import { homedir, platform } from "node:os";
 import path from "node:path";
 
 import { resolveCommandExecutable } from "../process/command-resolver.js";
+import { buildLocalAgentProcessEnv } from "../process/env.js";
 
 export type InstallableAgentProviderId = "codex" | "claude";
 
@@ -80,6 +81,10 @@ export type AgentProviderInstallOptions = {
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   timeoutMs?: number;
+  commandResolver?: (
+    binary: string,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<string | undefined>;
   commandRunner?: (
     command: string,
     options: {
@@ -100,24 +105,27 @@ export const AGENT_PROVIDER_INSTALL_SPECS = {
     displayName: "Codex",
     cliBinary: "codex",
     adapterBinary: "codex-acp",
-    installCommand: "npm install -g @openai/codex @zed-industries/codex-acp",
-    adapterInstallCommand: "npm install -g @zed-industries/codex-acp",
+    installCommand: "npm install -g @openai/codex",
+    adapterInstallCommand: "",
   },
   claude: {
     provider: "claude",
     displayName: "Claude Code",
     cliBinary: "claude",
     adapterBinary: "claude-agent-acp",
-    installCommand:
-      "npm install -g @anthropic-ai/claude-code @agentclientprotocol/claude-agent-acp",
-    adapterInstallCommand: "npm install -g @agentclientprotocol/claude-agent-acp",
+    installCommand: "npm install -g @anthropic-ai/claude-code",
+    adapterInstallCommand: "",
   },
 } as const satisfies Record<InstallableAgentProviderId, AgentProviderInstallSpec>;
 
 async function findCommand(
   binary: string,
   env: NodeJS.ProcessEnv,
+  commandResolver?: AgentProviderInstallOptions["commandResolver"],
 ): Promise<string | undefined> {
+  if (commandResolver) {
+    return commandResolver(binary, env);
+  }
   try {
     return await resolveCommandExecutable({ command: binary, env });
   } catch {
@@ -182,12 +190,19 @@ async function providerAuthOk(
 
 export async function getAgentProviderInstallStatus(
   provider: InstallableAgentProviderId,
-  options: Pick<AgentProviderInstallOptions, "env"> = {},
+  options: Pick<AgentProviderInstallOptions, "commandResolver" | "env"> = {},
 ): Promise<AgentProviderInstallStatus> {
   const spec = AGENT_PROVIDER_INSTALL_SPECS[provider];
-  const env = { ...process.env, ...(options.env ?? {}) };
-  const cliPath = await findCommand(spec.cliBinary, env);
-  const adapterPath = await findCommand(spec.adapterBinary, env);
+  const env = await buildLocalAgentProcessEnv({
+    ...process.env,
+    ...(options.env ?? {}),
+  });
+  const cliPath = await findCommand(spec.cliBinary, env, options.commandResolver);
+  const adapterPath = await findCommand(
+    spec.adapterBinary,
+    env,
+    options.commandResolver,
+  );
   const authOk = await providerAuthOk(provider, cliPath, env);
 
   if (!cliPath) {
@@ -204,22 +219,16 @@ export async function getAgentProviderInstallStatus(
     };
   }
 
-  if (!adapterPath) {
-    return {
-      availability: "not_installed",
-      reason: "acp_adapter_not_found",
-      cli: { binary: spec.cliBinary, installed: true, path: cliPath },
-      adapter: { binary: spec.adapterBinary, installed: false },
-      auth: { ok: authOk, required: !authOk },
-    };
-  }
-
   if (!authOk) {
     return {
       availability: "auth_required",
       reason: "auth_required",
       cli: { binary: spec.cliBinary, installed: true, path: cliPath },
-      adapter: { binary: spec.adapterBinary, installed: true, path: adapterPath },
+      adapter: {
+        binary: spec.adapterBinary,
+        installed: Boolean(adapterPath),
+        ...(adapterPath ? { path: adapterPath } : {}),
+      },
       auth: { ok: false, required: true },
     };
   }
@@ -228,7 +237,11 @@ export async function getAgentProviderInstallStatus(
     availability: "ready",
     reason: "ready",
     cli: { binary: spec.cliBinary, installed: true, path: cliPath },
-    adapter: { binary: spec.adapterBinary, installed: true, path: adapterPath },
+    adapter: {
+      binary: spec.adapterBinary,
+      installed: Boolean(adapterPath),
+      ...(adapterPath ? { path: adapterPath } : {}),
+    },
     auth: { ok: true, required: false },
   };
 }
@@ -317,7 +330,6 @@ function commandForStatus(
   status: AgentProviderInstallStatus,
 ) {
   if (!status.cli.installed) return spec.installCommand;
-  if (!status.adapter.installed) return spec.adapterInstallCommand || spec.installCommand;
   return null;
 }
 
@@ -326,10 +338,16 @@ export async function installAgentProvider(
   options: AgentProviderInstallOptions = {},
 ): Promise<AgentProviderInstallResult> {
   const spec = AGENT_PROVIDER_INSTALL_SPECS[provider];
-  const env = { ...process.env, ...(options.env ?? {}) };
+  const env = await buildLocalAgentProcessEnv({
+    ...process.env,
+    ...(options.env ?? {}),
+  });
   const cwd = options.cwd ?? process.cwd();
   const timeoutMs = options.timeoutMs ?? DEFAULT_INSTALL_TIMEOUT_MS;
-  const before = await getAgentProviderInstallStatus(provider, { env });
+  const before = await getAgentProviderInstallStatus(provider, {
+    commandResolver: options.commandResolver,
+    env,
+  });
   const command = commandForStatus(spec, before);
 
   if (!command) {
@@ -354,7 +372,10 @@ export async function installAgentProvider(
       },
     );
   } catch {
-    const after = await getAgentProviderInstallStatus(provider, { env });
+    const after = await getAgentProviderInstallStatus(provider, {
+      commandResolver: options.commandResolver,
+      env,
+    });
     return {
       provider,
       status: "failed",
@@ -365,7 +386,10 @@ export async function installAgentProvider(
     };
   }
 
-  const after = await getAgentProviderInstallStatus(provider, { env });
+  const after = await getAgentProviderInstallStatus(provider, {
+    commandResolver: options.commandResolver,
+    env,
+  });
   if (commandResult.canceled) {
     return {
       provider,
@@ -399,7 +423,7 @@ export async function installAgentProvider(
       commandResult,
     };
   }
-  if (!after.cli.installed || !after.adapter.installed) {
+  if (!after.cli.installed) {
     return {
       provider,
       status: "failed",

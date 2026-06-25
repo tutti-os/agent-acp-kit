@@ -23,6 +23,7 @@ import { runAcpTransport } from "../transports/acp/acp-client.js";
 import { createJsonlParser } from "../transports/jsonl/jsonl-parser.js";
 import { runPlainTransport } from "../transports/plain/plain-transport.js";
 import { spawnSupervisedProcess } from "../process/supervisor.js";
+import { buildLocalAgentProcessEnv } from "../process/env.js";
 import { createProviderRegistry } from "./provider-registry.js";
 import {
   applyManagedAgentInvocationToLaunchPlan,
@@ -75,6 +76,13 @@ function createRuntimeAbortSignal(
   return controller.signal;
 }
 
+function hasDetectCacheKeyOverrides(context: DetectContext | undefined) {
+  if (!context) {
+    return false;
+  }
+  return Object.keys(context).some((key) => key !== "refresh");
+}
+
 export function createLocalAgentRuntime<
   TKind extends string = string,
   TProvider extends string = string,
@@ -125,10 +133,14 @@ export function createLocalAgentRuntime<
     },
 
     async detect(context) {
+      if (context?.refresh) {
+        detectionCache.clear();
+      }
+      const contextHasCacheKeyOverrides = hasDetectCacheKeyOverrides(context);
       return Promise.all(
         options.providers.map(async (provider) => {
           const cacheKey = `${String(provider.kind)}:${String(provider.id)}`;
-          const cacheable = !context;
+          const cacheable = !contextHasCacheKeyOverrides;
           const cached = cacheable ? detectionCache.get(cacheKey) : undefined;
           if (cacheable && cached !== undefined) {
             return {
@@ -142,9 +154,25 @@ export function createLocalAgentRuntime<
             String(provider.id),
             context,
           );
+          const shouldAugmentEnv = !(
+            context?.managedAgentInvocation && !providerContext?.managedAgentInvocation
+          );
+          const detectionInput = shouldAugmentEnv
+            ? {
+                ...(providerContext ?? {}),
+                env: await buildLocalAgentProcessEnv(
+                  providerContext?.managedAgentInvocation
+                    ? (providerContext.env ?? {})
+                    : {
+                        ...process.env,
+                        ...(providerContext?.env ?? {}),
+                      },
+                ),
+              }
+            : providerContext;
           let result: ProviderDetectionResult<TKind, TProvider>;
           try {
-            result = await provider.detect(providerContext);
+            result = await provider.detect(detectionInput);
           } catch {
             result = null as ProviderDetectionResult<TKind, TProvider>;
           }
@@ -179,9 +207,23 @@ export function createLocalAgentRuntime<
       activeRuns.set(input.runId, { controller, provider });
 
       try {
+        const env = await buildLocalAgentProcessEnv(
+          {
+            ...process.env,
+            ...(input.env ?? {}),
+          },
+          {
+            stripLocalAgentHomeEnv: Boolean(input.managedAgentInvocation),
+          },
+        );
+        if (signal.aborted) {
+          yield { type: "done", status: "canceled", reason: "cancelled" };
+          return;
+        }
         const params: AgentRunParams<TKind, TProvider> =
           applyManagedAgentInvocationToRunParams(String(provider.id), {
             ...input,
+            env,
             runtimeKind: input.runtimeKind ?? provider.kind,
             runtimeProvider: input.runtimeProvider ?? provider.id,
             signal,
