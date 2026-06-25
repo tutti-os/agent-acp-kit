@@ -1,7 +1,10 @@
+import path from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 
 import {
+  appendUniquePathDirs,
+  buildLocalAgentProcessEnv,
   injectSystemProxyEnv,
   mergeProcessEnv,
   parseScutilProxy,
@@ -167,5 +170,70 @@ describe("injectSystemProxyEnv", () => {
     );
     expect(env.FOO).toBe("bar");
     expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7890");
+  });
+});
+
+describe("buildLocalAgentProcessEnv", () => {
+  it("adds common local agent binary directories without duplicating existing PATH entries", async () => {
+    const env = await buildLocalAgentProcessEnv({
+      PATH: "/usr/bin:/opt/homebrew/bin",
+      npm_config_prefix: "/tmp/npm-prefix",
+    });
+
+    expect(env.PATH?.split(path.delimiter)).toEqual(
+      expect.arrayContaining([
+        "/usr/bin",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/tmp/npm-prefix/bin",
+      ]),
+    );
+    expect(
+      env.PATH
+        ?.split(path.delimiter)
+        .filter((dir) => dir === "/opt/homebrew/bin"),
+    ).toHaveLength(1);
+  });
+
+  it("preserves the existing PATH key casing when extending local agent paths", async () => {
+    const env = await buildLocalAgentProcessEnv({
+      Path: "/usr/bin",
+    });
+
+    expect(env.Path?.split(path.delimiter)).toEqual(
+      expect.arrayContaining([
+        "/usr/bin",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+      ]),
+    );
+    expect(env.PATH).toBeUndefined();
+  });
+
+  it("strips local agent home env when requested", async () => {
+    const env = await buildLocalAgentProcessEnv(
+      {
+        PATH: "/usr/bin",
+        CLAUDE_CONFIG_DIR: "/tmp/claude-config",
+        CODEX_HOME: "/tmp/codex-home",
+        Claude_Config_Dir: "/tmp/mixed-claude-config",
+        Codex_Home: "/tmp/mixed-codex-home",
+      },
+      { stripLocalAgentHomeEnv: true },
+    );
+
+    expect(env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+    expect(env).not.toHaveProperty("CODEX_HOME");
+    expect(env).not.toHaveProperty("Claude_Config_Dir");
+    expect(env).not.toHaveProperty("Codex_Home");
+  });
+
+  it("appends unique PATH entries in order", () => {
+    expect(
+      appendUniquePathDirs(
+        ["/a", "/b"].join(path.delimiter),
+        ["/b", "/c"],
+      ),
+    ).toBe(["/a", "/b", "/c"].join(path.delimiter));
   });
 });

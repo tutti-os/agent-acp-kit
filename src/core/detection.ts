@@ -6,6 +6,7 @@ export type DetectContext = {
   env?: Record<string, string | undefined>;
   managedAgentInvocation?: ManagedAgentInvocation;
   now?: () => number;
+  refresh?: boolean;
   redactionSecrets?: string[];
 };
 

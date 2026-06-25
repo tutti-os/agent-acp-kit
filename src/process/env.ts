@@ -1,5 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { platform, tmpdir } from "node:os";
+import { execFileSync, spawn } from "node:child_process";
+import { homedir, platform, tmpdir } from "node:os";
+import path from "node:path";
 
 // System proxy injection.
 //
@@ -17,6 +18,12 @@ import { platform, tmpdir } from "node:os";
 // same default NO_PROXY, and never override a proxy the user/session already set.
 
 const PROXY_KEYS = ["HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"] as const;
+const NPM_PREFIX_TIMEOUT_MS = 2_000;
+const LOCAL_AGENT_HOME_ENV_KEYS = ["CLAUDE_CONFIG_DIR", "CODEX_HOME"] as const;
+
+export type LocalAgentProcessEnvOptions = {
+  stripLocalAgentHomeEnv?: boolean;
+};
 
 // noProxyDefault matches the value the Claude desktop app injects.
 const noProxyDefault = "localhost,127.0.0.1,::1,.local";
@@ -36,7 +43,131 @@ export function mergeProcessEnv(
     ...baseEnv,
     ...(overrides ?? {}),
   };
+  setPathEnv(
+    env,
+    appendUniquePathDirs(getPathEnv(env), localAgentPathCandidates(env)),
+  );
   return injectSystemProxyEnv(env, readScutilProxy);
+}
+
+function getPathEnvKey(env: NodeJS.ProcessEnv) {
+  if (Object.prototype.hasOwnProperty.call(env, "PATH")) {
+    return "PATH";
+  }
+  return (
+    Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH"
+  );
+}
+
+function getPathEnv(env: NodeJS.ProcessEnv) {
+  return env[getPathEnvKey(env)];
+}
+
+function setPathEnv(env: NodeJS.ProcessEnv, value: string) {
+  const pathKey = getPathEnvKey(env);
+  for (const key of Object.keys(env)) {
+    if (key !== pathKey && key.toUpperCase() === "PATH") {
+      delete env[key];
+    }
+  }
+  env[pathKey] = value;
+}
+
+function deleteEnvKeysCaseInsensitive(env: NodeJS.ProcessEnv, keys: readonly string[]) {
+  const targets = new Set(keys.map((key) => key.toUpperCase()));
+  for (const key of Object.keys(env)) {
+    if (targets.has(key.toUpperCase())) {
+      delete env[key];
+    }
+  }
+}
+
+function localAgentPathCandidates(env: NodeJS.ProcessEnv) {
+  return [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    path.join(homedir(), ".local", "bin"),
+    env.npm_config_prefix ? path.join(env.npm_config_prefix, "bin") : "",
+    env.NPM_CONFIG_PREFIX ? path.join(env.NPM_CONFIG_PREFIX, "bin") : "",
+  ].filter(Boolean);
+}
+
+export function appendUniquePathDirs(
+  currentPath: string | undefined,
+  dirs: string[],
+): string {
+  const seen = new Set<string>();
+  const nextDirs: string[] = [];
+  for (const dir of [...(currentPath ?? "").split(path.delimiter), ...dirs]) {
+    const normalized = dir.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    nextDirs.push(normalized);
+  }
+  return nextDirs.join(path.delimiter);
+}
+
+function npmGlobalBinFromPrefix(prefix: string) {
+  return platform() === "win32" ? prefix : path.join(prefix, "bin");
+}
+
+async function resolveNpmGlobalPrefix(
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const child = spawn("npm", ["prefix", "-g"], {
+      env,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let stdout = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (!child.killed) child.kill("SIGTERM");
+      finish(undefined);
+    }, NPM_PREFIX_TIMEOUT_MS);
+
+    function finish(prefix: string | undefined) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(prefix);
+    }
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.once("error", () => finish(undefined));
+    child.once("close", (code) => {
+      const prefix = stdout.trim().split("\n")[0]?.trim();
+      finish(code === 0 && prefix ? prefix : undefined);
+    });
+  });
+}
+
+export async function buildLocalAgentProcessEnv(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+  options: LocalAgentProcessEnvOptions = {},
+): Promise<Record<string, string>> {
+  const env = mergeProcessEnv(baseEnv);
+  if (options.stripLocalAgentHomeEnv) {
+    deleteEnvKeysCaseInsensitive(env, LOCAL_AGENT_HOME_ENV_KEYS);
+  }
+
+  const npmPrefix = await resolveNpmGlobalPrefix(env);
+  if (npmPrefix) {
+    setPathEnv(
+      env,
+      appendUniquePathDirs(getPathEnv(env), [npmGlobalBinFromPrefix(npmPrefix)]),
+    );
+  }
+
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 
 // injectSystemProxyEnv adds HTTPS_PROXY/HTTP_PROXY/NO_PROXY derived from the

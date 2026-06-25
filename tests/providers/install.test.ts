@@ -1,4 +1,11 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,6 +39,11 @@ describe("agent provider install", () => {
     return filePath;
   }
 
+  const commandResolver = (dir: string) => async (binary: string) => {
+    const filePath = join(dir, binary);
+    return existsSync(filePath) ? filePath : undefined;
+  };
+
   function successfulRunner(
     onCommand?: (command: string) => void,
   ): Parameters<typeof installAgentProvider>[1]["commandRunner"] {
@@ -55,16 +67,16 @@ describe("agent provider install", () => {
 
     const result = await installAgentProvider("codex", {
       env: { PATH: dir, CODEX_HOME: join(dir, ".codex") },
+      commandResolver: commandResolver(dir),
       commandRunner: successfulRunner((command) => {
         commands.push(command);
         writeExecutable(dir, "codex", "if [ \"$1\" = \"auth\" ]; then exit 0; fi\nexit 0");
-        writeExecutable(dir, "codex-acp");
+        mkdirSync(join(dir, ".codex"), { recursive: true });
+        writeFileSync(join(dir, ".codex", "auth.json"), "{}");
       }),
     });
 
-    expect(commands).toEqual([
-      "npm install -g @openai/codex @zed-industries/codex-acp",
-    ]);
+    expect(commands).toEqual(["npm install -g @openai/codex"]);
     expect(result).toMatchObject({
       provider: "codex",
       status: "succeeded",
@@ -74,47 +86,22 @@ describe("agent provider install", () => {
       },
       after: {
         cli: { installed: true },
-        adapter: { installed: true },
+        adapter: { installed: false },
       },
     });
   });
 
-  it("selects the adapter-only Claude command when the CLI is already installed", async () => {
-    const dir = tempPath("agent-acp-kit-install-claude-adapter-");
+  it("treats an authenticated Claude CLI as ready without claude-agent-acp", async () => {
+    const dir = tempPath("agent-acp-kit-install-claude-ready-");
     writeExecutable(
       dir,
       "claude",
       "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then exit 0; fi\nexit 0",
     );
-    const commands: string[] = [];
 
     const result = await installAgentProvider("claude", {
       env: { PATH: dir },
-      commandRunner: successfulRunner((command) => {
-        commands.push(command);
-        writeExecutable(dir, "claude-agent-acp");
-      }),
-    });
-
-    expect(commands).toEqual([
-      "npm install -g @agentclientprotocol/claude-agent-acp",
-    ]);
-    expect(result.status).toBe("succeeded");
-    expect(result.before.reason).toBe("acp_adapter_not_found");
-    expect(result.after.availability).toBe("ready");
-  });
-
-  it("skips installation when the provider binaries are already installed", async () => {
-    const dir = tempPath("agent-acp-kit-install-ready-");
-    writeExecutable(
-      dir,
-      "claude",
-      "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then exit 0; fi\nexit 0",
-    );
-    writeExecutable(dir, "claude-agent-acp");
-
-    const result = await installAgentProvider("claude", {
-      env: { PATH: dir },
+      commandResolver: commandResolver(dir),
       commandRunner: async () => {
         throw new Error("should not run");
       },
@@ -123,22 +110,46 @@ describe("agent provider install", () => {
     expect(result.status).toBe("skipped");
     expect(result.command).toBeNull();
     expect(result.before.availability).toBe("ready");
+    expect(result.before.adapter.installed).toBe(false);
+  });
+
+  it("selects the Claude Code install command when the CLI is missing", async () => {
+    const dir = tempPath("agent-acp-kit-install-claude-missing-");
+    const commands: string[] = [];
+
+    const result = await installAgentProvider("claude", {
+      env: { PATH: dir },
+      commandResolver: commandResolver(dir),
+      commandRunner: successfulRunner((command) => {
+        commands.push(command);
+        writeExecutable(
+          dir,
+          "claude",
+          "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then exit 0; fi\nexit 0",
+        );
+      }),
+    });
+
+    expect(commands).toEqual(["npm install -g @anthropic-ai/claude-code"]);
+    expect(result.status).toBe("succeeded");
+    expect(result.after.availability).toBe("ready");
+    expect(result.after.adapter.installed).toBe(false);
   });
 
   it("reports auth_required when both binaries exist but auth is missing", async () => {
     const dir = tempPath("agent-acp-kit-install-auth-required-");
     writeExecutable(dir, "codex");
-    writeExecutable(dir, "codex-acp");
 
     await expect(
       getAgentProviderInstallStatus("codex", {
         env: { PATH: dir, CODEX_HOME: join(dir, ".codex") },
+        commandResolver: commandResolver(dir),
       }),
     ).resolves.toMatchObject({
       availability: "auth_required",
       reason: "auth_required",
       cli: { installed: true },
-      adapter: { installed: true },
+      adapter: { installed: false },
     });
   });
 });
