@@ -138,6 +138,7 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
     const materialized = await materializeSkills(
       params.cwd,
       params.skillManifest ?? [],
+      params.runId,
     );
     const prompt = composePromptWithSkills({
       prompt: params.prompt,
@@ -146,6 +147,7 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
       ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
     });
     const cleanupTargets = materialized
+      .filter((skill) => skill.deliveryMode === "materialized-files")
       .map((skill) => skill.materializedPath)
       .filter((path): path is string => Boolean(path));
     const mcpConfig = managed
