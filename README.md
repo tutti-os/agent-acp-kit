@@ -175,11 +175,11 @@ preserves compatible `config.toml` settings such as custom model providers and
 disables Codex native multi-agent for single-process run lifecycle safety, and
 overlays any run-scoped MCP server config.
 
-Managed Codex runs use a caller-supplied `CODEX_HOME` when one is provided;
-otherwise they materialize a run-scoped `CODEX_HOME` at
-`<managed-run-cwd>/.codex`. This managed home is for run-local Codex config
-only; auth, user sessions, and MCP attachments stay on the managed execution
-path instead of being copied from the app server.
+Managed Codex runs materialize a run-scoped `CODEX_HOME` at
+`<managed-run-cwd>/.codex`. A caller-supplied `env.CODEX_HOME` is treated as
+the source Codex home, not the run home: the provider shares `auth.json`,
+`sessions/`, and `plugins/cache/` with that source home or the default
+`~/.codex`, then writes run-local Codex config under `<managed-run-cwd>/.codex`.
 
 ## Host Integration Pattern
 
@@ -344,11 +344,13 @@ operation and sets the provider process cwd from `managedAgentInvocation.cwd`.
 Managed cwd values are not remapped to `/workspace`; the host runtime-provided
 app data directory is used directly.
 
-For Codex managed runs, the SDK also prepares a run-scoped `CODEX_HOME`. If the
-host passes `env.CODEX_HOME`, that directory is used; otherwise the SDK creates
-one under the managed cwd. Hosts that do not need a custom Codex home can use
-the run context returned by `createManagedAgentRunContextFromHeaders()` without
-passing any Codex-home path.
+For Codex managed runs, the SDK also prepares a run-scoped `CODEX_HOME` under
+the managed cwd. If the host passes `env.CODEX_HOME`, that directory is used as
+the source for Codex auth, sessions, plugin cache, and inherited config. Hosts
+that do not need a custom source home can use the run context returned by
+`createManagedAgentRunContextFromHeaders()` without passing any Codex-home
+path; the SDK then reads the source home from process `CODEX_HOME` or
+`~/.codex`.
 
 Managed invocation is intentionally limited to provider ids `codex`, `claude`,
 and `nexight`. There is no `nextop` alias. Codex and Claude are built-in

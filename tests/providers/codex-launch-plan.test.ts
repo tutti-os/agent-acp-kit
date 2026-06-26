@@ -1,7 +1,7 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
@@ -418,42 +418,82 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
-  it("uses the caller-provided Codex home for managed runs", async () => {
+  it("uses the caller-provided Codex home as the managed run source home", async () => {
     const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-"));
     const workspaceCwd = join(scratch, "run-cwd");
-    const callerCodexHome = join(scratch, "caller-codex-home");
+    const sourceHome = join(scratch, "caller-codex-home");
     try {
+      await mkdir(join(sourceHome, "sessions"), { recursive: true });
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ refresh_token: "v1" }),
+        "utf8",
+      );
+      await writeFile(
+        join(sourceHome, "config.toml"),
+        'model_provider = "OpenAI"\n',
+        "utf8",
+      );
+
       const adapter = createCodexProvider().createAdapter();
       const plan = await adapter!.buildLaunchPlan({
         runId: "run-managed-codex-home",
         cwd: "/tmp/ignored-by-managed-invocation",
         prompt: "draw a poster",
-        env: { CODEX_HOME: callerCodexHome },
+        env: { CODEX_HOME: sourceHome },
         managedAgentInvocation: {
           credential: "managed-codex-secret",
           cwd: workspaceCwd,
         },
       });
+      const runHome = join(workspaceCwd, ".codex");
 
       expect(plan.cwd).toBe(workspaceCwd);
       expect(plan.env).toMatchObject({
         [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
-        CODEX_HOME: callerCodexHome,
+        CODEX_HOME: runHome,
       });
-      expect(await readFile(join(callerCodexHome, "config.toml"), "utf8")).toContain(
-        "features.multi_agent = false",
-      );
       expect(plan.args).not.toContain("-C");
       expect(plan.args).not.toContain(workspaceCwd);
+      await expect(readFile(join(runHome, "auth.json"), "utf8")).resolves.toBe(
+        JSON.stringify({ refresh_token: "v1" }),
+      );
+      await writeFile(
+        join(runHome, "auth.json"),
+        JSON.stringify({ refresh_token: "v2" }),
+        "utf8",
+      );
+      await expect(readFile(join(sourceHome, "auth.json"), "utf8")).resolves.toBe(
+        JSON.stringify({ refresh_token: "v2" }),
+      );
+      await writeFile(join(runHome, "sessions", "probe.jsonl"), "session-log", "utf8");
+      await expect(readFile(join(sourceHome, "sessions", "probe.jsonl"), "utf8")).resolves.toBe(
+        "session-log",
+      );
+      expect(await readFile(join(runHome, "config.toml"), "utf8")).toContain(
+        "features.multi_agent = false",
+      );
+      expect(await readFile(join(runHome, "config.toml"), "utf8")).toContain(
+        'model_provider = "OpenAI"',
+      );
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
   });
 
-  it("materializes a run-scoped Codex home for managed runs when none is provided", async () => {
+  it("materializes a run-scoped Codex home for managed runs from process CODEX_HOME", async () => {
     const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-"));
+    const sourceHome = join(scratch, "source-codex-home");
     const workspaceCwd = join(scratch, "run-cwd");
     try {
+      await mkdir(sourceHome, { recursive: true });
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ refresh_token: "v1" }),
+        "utf8",
+      );
+      vi.stubEnv("CODEX_HOME", sourceHome);
+
       const adapter = createCodexProvider().createAdapter();
       const plan = await adapter!.buildLaunchPlan({
         runId: "run-managed-codex-auto-home",
@@ -473,6 +513,33 @@ describe("buildCodexLaunchPlan", () => {
       expect(await readFile(join(managedCodexHome, "config.toml"), "utf8")).toContain(
         "features.multi_agent = false",
       );
+      await expect(readFile(join(managedCodexHome, "auth.json"), "utf8")).resolves.toBe(
+        JSON.stringify({ refresh_token: "v1" }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects managed Codex runs when source auth is unavailable", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-"));
+    const workspaceCwd = join(scratch, "run-cwd");
+    const sourceHome = join(scratch, "missing-auth-home");
+    try {
+      const adapter = createCodexProvider().createAdapter();
+      await expect(
+        adapter!.buildLaunchPlan({
+          runId: "run-managed-codex-missing-auth",
+          cwd: "/tmp/ignored-by-managed-invocation",
+          prompt: "draw a poster",
+          env: { CODEX_HOME: sourceHome },
+          managedAgentInvocation: {
+            credential: "managed-codex-secret",
+            cwd: workspaceCwd,
+          },
+        }),
+      ).rejects.toThrow(`Expected auth.json under ${sourceHome}`);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
@@ -480,13 +547,22 @@ describe("buildCodexLaunchPlan", () => {
 
   it("hands managed Codex MCP servers to tsh instead of Codex home config", async () => {
     const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-mcp-"));
+    const sourceHome = join(scratch, "source-codex-home");
     const workspaceCwd = join(scratch, "run-cwd");
     try {
+      await mkdir(sourceHome, { recursive: true });
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ refresh_token: "v1" }),
+        "utf8",
+      );
+
       const adapter = createCodexProvider().createAdapter();
       const plan = await adapter!.buildLaunchPlan({
         runId: "run-managed-codex-mcp",
         cwd: "/tmp/ignored-by-managed-invocation",
         prompt: "draw a poster",
+        env: { CODEX_HOME: sourceHome },
         mcpServers: [
           {
             type: "stdio",

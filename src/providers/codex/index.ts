@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
 import type { AgentEvent } from "../../core/events.js";
@@ -181,6 +181,10 @@ async function linkFile(source: string, target: string) {
     // A hard link still lets token refresh writes update the shared auth file.
     await link(source, target);
   }
+}
+
+function samePath(left: string, right: string) {
+  return resolve(left) === resolve(right);
 }
 
 function buildMcpConfigBlock(servers: ReturnType<typeof normalizeMcpServerConfigs>) {
@@ -602,48 +606,52 @@ async function materializeCodexHome(params: {
   env?: Record<string, string>;
   model?: string;
 }) {
-  if (params.managed) {
-    const runHome = params.env?.CODEX_HOME?.trim() || join(params.cwd, ".codex");
-    await mkdir(runHome, { recursive: true });
-    const mergedConfig = mergeCodexConfigToml({
-      ...(params.model ? { model: params.model } : {}),
-      mcpServers: normalizeMcpServerConfigs([]),
-    });
-    await writeFile(
-      join(runHome, "config.toml"),
-      ensureCodexProjectRootMarkers(ensureCodexMultiAgentDisabled(mergedConfig)),
-      "utf8",
-    );
-    return runHome;
-  }
-
-  const normalizedServers = normalizeMcpServerConfigs(params.mcpServers ?? []);
+  const normalizedServers = params.managed
+    ? normalizeMcpServerConfigs([])
+    : normalizeMcpServerConfigs(params.mcpServers ?? []);
   const sourceHome =
     params.env?.CODEX_HOME ??
     process.env.CODEX_HOME ??
     join(homedir(), ".codex");
   let runHome: string;
-  const tempRoot = resolveTempDir(params.env);
-  await mkdir(tempRoot, { recursive: true });
-  runHome = await mkdtemp(join(tempRoot, "agent-acp-kit-codex-home-"));
+  if (params.managed) {
+    runHome = join(params.cwd, ".codex");
+    await mkdir(runHome, { recursive: true });
+  } else {
+    const tempRoot = resolveTempDir(params.env);
+    await mkdir(tempRoot, { recursive: true });
+    runHome = await mkdtemp(join(tempRoot, "agent-acp-kit-codex-home-"));
+  }
 
-  try {
-    await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
-  } catch {
-    throw new Error(
+  const sourceIsRunHome = samePath(sourceHome, runHome);
+  const sourceAuthPath = join(sourceHome, "auth.json");
+  const authUnavailableError = () =>
+    new Error(
       `Codex auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
     );
+  if ((await readOptionalFile(sourceAuthPath)) === undefined) {
+    throw authUnavailableError();
   }
 
-  await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
-  try {
-    await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
-  } catch {
-    // Plugin cache is an optimization for bundled/plugin-backed assets.
-    // Codex can still run without it, so keep this best-effort like Multica.
+  if (sourceIsRunHome) {
+    await mkdir(join(runHome, "sessions"), { recursive: true });
+  } else {
+    try {
+      await linkFile(sourceAuthPath, join(runHome, "auth.json"));
+    } catch {
+      throw authUnavailableError();
+    }
+
+    await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
+    try {
+      await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
+    } catch {
+      // Plugin cache is an optimization for bundled/plugin-backed assets.
+      // Codex can still run without it, so keep this best-effort like Multica.
+    }
+    await copyOptionalFile(join(sourceHome, "config.json"), join(runHome, "config.json"));
+    await copyOptionalFile(join(sourceHome, "instructions.md"), join(runHome, "instructions.md"));
   }
-  await copyOptionalFile(join(sourceHome, "config.json"), join(runHome, "config.json"));
-  await copyOptionalFile(join(sourceHome, "instructions.md"), join(runHome, "instructions.md"));
 
   const sourceConfig = stripSkillsConfigEntries(
     (await readOptionalFile(join(sourceHome, "config.toml"))) ?? "",
