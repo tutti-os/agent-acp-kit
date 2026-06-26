@@ -558,63 +558,6 @@ describe("createLocalAgentRuntime", () => {
     );
   });
 
-  it("preserves explicit local agent home env for managed runs", async () => {
-    vi.stubEnv("CODEX_HOME", "/tmp/process-codex-home");
-    let receivedParams: AgentRunParams<"local-agent", "codex"> | undefined;
-    const provider: LocalAgentProviderPlugin<"local-agent", "codex"> = {
-      id: "codex",
-      displayName: "Codex",
-      kind: "local-agent",
-      async detect() {
-        return {
-          authState: "ok",
-          executablePath: "codex",
-          supported: true,
-          version: "1.0.0",
-        };
-      },
-      capabilities() {
-        return {
-          cancel: true,
-          nativeResume: false,
-          streaming: true,
-          toolGateway: false,
-          maxConcurrentRuns: 1,
-        };
-      },
-      async buildLaunchPlan() {
-        throw new Error("not used");
-      },
-      async *run(params) {
-        receivedParams = params;
-        yield { type: "done", status: "completed" as const };
-      },
-    };
-    const runtime = createLocalAgentRuntime({ providers: [provider] });
-
-    for await (const _event of runtime.run({
-      runId: "run_managed_explicit_home",
-      provider: "codex",
-      cwd: "/tmp/input-cwd",
-      prompt: "hello",
-      env: { CODEX_HOME: "/tmp/explicit-codex-home" },
-      managedAgentInvocation: {
-        credential: "managed-secret",
-        cwd: "/tmp/managed-cwd",
-      },
-    })) {
-      // drain
-    }
-
-    expect(receivedParams?.env?.CODEX_HOME).toBe("/tmp/explicit-codex-home");
-    expect(receivedParams?.env).toMatchObject({
-      [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-secret",
-    });
-    expect(JSON.stringify(receivedParams?.env ?? {})).not.toContain(
-      "/tmp/process-codex-home",
-    );
-  });
-
   it("runs managed invocations from cwd outside /workspace", async () => {
     let receivedParams: AgentRunParams<"local-agent", "codex"> | undefined;
     const provider: LocalAgentProviderPlugin<"local-agent", "codex"> = {

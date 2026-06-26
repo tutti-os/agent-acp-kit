@@ -175,11 +175,11 @@ preserves compatible `config.toml` settings such as custom model providers and
 disables Codex native multi-agent for single-process run lifecycle safety, and
 overlays any run-scoped MCP server config.
 
-Managed Codex runs materialize a run-scoped `CODEX_HOME` at
-`<managed-run-cwd>/.codex`. A caller-supplied `env.CODEX_HOME` is treated as
-the source Codex home, not the run home: the provider shares `auth.json`,
-`sessions/`, and `plugins/cache/` with that source home or the default
-`~/.codex`, then writes run-local Codex config under `<managed-run-cwd>/.codex`.
+Managed Codex runs use a caller-supplied `CODEX_HOME` when one is provided;
+otherwise they materialize a run-scoped `CODEX_HOME` at
+`<managed-run-cwd>/.codex`. This managed home is for run-local Codex config
+only; auth, user sessions, and MCP attachments stay on the managed execution
+path instead of being copied from the app server.
 
 ## Host Integration Pattern
 
@@ -344,13 +344,11 @@ operation and sets the provider process cwd from `managedAgentInvocation.cwd`.
 Managed cwd values are not remapped to `/workspace`; the host runtime-provided
 app data directory is used directly.
 
-For Codex managed runs, the SDK also prepares a run-scoped `CODEX_HOME` under
-the managed cwd. If the host passes `env.CODEX_HOME`, that directory is used as
-the source for Codex auth, sessions, plugin cache, and inherited config. Hosts
-that do not need a custom source home can use the run context returned by
-`createManagedAgentRunContextFromHeaders()` without passing any Codex-home
-path; the SDK then reads the source home from process `CODEX_HOME` or
-`~/.codex`.
+For Codex managed runs, the SDK also prepares a run-scoped `CODEX_HOME`. If the
+host passes `env.CODEX_HOME`, that directory is used; otherwise the SDK creates
+one under the managed cwd. Hosts that do not need a custom Codex home can use
+the run context returned by `createManagedAgentRunContextFromHeaders()` without
+passing any Codex-home path.
 
 Managed invocation is intentionally limited to provider ids `codex`, `claude`,
 and `nexight`. There is no `nextop` alias. Codex and Claude are built-in
@@ -449,42 +447,6 @@ Keep tool tokens run-scoped and short-lived. Do not pass broad application secre
 - `project-instructions`: injects instruction-style skill content.
 
 The package handles delivery and cleanup. The host remains the source of truth for skill selection, permission, and storage.
-
-Hosts may also obtain a skill manifest from an external command and pass the
-returned records directly into `runtime.run()`. Pass the Tutti AgentGUI session
-id as `--agent-session-id`; when the host maps one agent-acp-kit run to one
-Tutti session, that value can be the run id.
-
-```ts
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import type { SkillMaterializationRecord } from "@tutti-os/agent-acp-kit";
-
-const execFileAsync = promisify(execFile);
-const agentSessionId = runId;
-
-const bundle = JSON.parse(
-  await execFileAsync("tutti", [
-    "agent",
-    "skill-bundle",
-    "--provider",
-    selectedProvider,
-    "--agent-session-id",
-    agentSessionId,
-    "--json",
-  ], { maxBuffer: 1024 * 1024 }).then(({ stdout }) => stdout),
-) as { skills: SkillMaterializationRecord[] };
-
-for await (const event of runtime.run({
-  runId,
-  provider: selectedProvider,
-  cwd,
-  prompt,
-  skillManifest: bundle.skills,
-})) {
-  await projectAgentEventToHostStream(event);
-}
-```
 
 ## Cancellation And Resume
 

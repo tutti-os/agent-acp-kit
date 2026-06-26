@@ -170,42 +170,6 @@ describe("buildClaudeLaunchPlan", () => {
     }
   });
 
-  it("includes materialized skill paths in the stdin prompt", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "claude-skill-prompt-plan-"));
-    try {
-      const plan = await createClaudeProvider().buildLaunchPlan({
-        runId: "run-1",
-        cwd,
-        prompt: "use the host skill",
-        skillManifest: [
-          {
-            slug: "tutti-cli",
-            skillId: "tutti/tutti-cli",
-            deliveryMode: "materialized-files",
-            content: "# Tutti CLI",
-          },
-        ],
-      });
-      const skillRoot = join(
-        cwd,
-        ".local-agent",
-        "runs",
-        "run-1",
-        "skills",
-        "tutti-cli",
-      );
-
-      expect(plan.prompt).toContain(
-        `- tutti-cli: ${skillRoot}/SKILL.md`,
-      );
-      await expect(readFile(join(skillRoot, "SKILL.md"), "utf8")).resolves.toBe(
-        "# Tutti CLI",
-      );
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
   it("hands managed Claude MCP servers to tsh instead of --mcp-config", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-managed-mcp-plan-"));
     try {

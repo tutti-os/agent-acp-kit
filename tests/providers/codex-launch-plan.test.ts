@@ -1,7 +1,7 @@
-import { access, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
@@ -269,55 +269,6 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
-  it("includes materialized skill paths in the stdin prompt", async () => {
-    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "codex-skill-prompt-plan-"));
-    let runHome: string | undefined;
-    try {
-      await writeFile(
-        join(sourceHome, "auth.json"),
-        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
-        "utf8",
-      );
-      const plan = await createCodexProvider().buildLaunchPlan({
-        runId: "run-1",
-        cwd,
-        prompt: "use the host skill",
-        env: { CODEX_HOME: sourceHome },
-        skillManifest: [
-          {
-            slug: "tutti-cli",
-            skillId: "tutti/tutti-cli",
-            deliveryMode: "materialized-files",
-            content: "# Tutti CLI",
-          },
-        ],
-      });
-      runHome = plan.env?.CODEX_HOME;
-      const skillRoot = join(
-        cwd,
-        ".local-agent",
-        "runs",
-        "run-1",
-        "skills",
-        "tutti-cli",
-      );
-
-      expect(plan.prompt).toContain(
-        `- tutti-cli: ${skillRoot}/SKILL.md`,
-      );
-      await expect(readFile(join(skillRoot, "SKILL.md"), "utf8")).resolves.toBe(
-        "# Tutti CLI",
-      );
-    } finally {
-      await rm(sourceHome, { recursive: true, force: true });
-      await rm(cwd, { recursive: true, force: true });
-      if (runHome) {
-        await rm(runHome, { recursive: true, force: true });
-      }
-    }
-  });
-
   it("copies and sanitizes user Codex config even when no MCP servers are provided", async () => {
     const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
@@ -418,85 +369,42 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
-  it("uses the caller-provided Codex home as the managed run source home", async () => {
+  it("uses the caller-provided Codex home for managed runs", async () => {
     const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-"));
     const workspaceCwd = join(scratch, "run-cwd");
-    const sourceHome = join(scratch, "caller-codex-home");
+    const callerCodexHome = join(scratch, "caller-codex-home");
     try {
-      await mkdir(join(sourceHome, "sessions"), { recursive: true });
-      await writeFile(
-        join(sourceHome, "auth.json"),
-        JSON.stringify({ refresh_token: "v1" }),
-        "utf8",
-      );
-      await writeFile(
-        join(sourceHome, "config.toml"),
-        'model_provider = "OpenAI"\n',
-        "utf8",
-      );
-
       const adapter = createCodexProvider().createAdapter();
       const plan = await adapter!.buildLaunchPlan({
         runId: "run-managed-codex-home",
         cwd: "/tmp/ignored-by-managed-invocation",
         prompt: "draw a poster",
-        env: { CODEX_HOME: sourceHome },
+        env: { CODEX_HOME: callerCodexHome },
         managedAgentInvocation: {
           credential: "managed-codex-secret",
           cwd: workspaceCwd,
         },
       });
-      const runHome = join(workspaceCwd, ".codex");
 
       expect(plan.cwd).toBe(workspaceCwd);
       expect(plan.env).toMatchObject({
         [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
-        CODEX_HOME: runHome,
+        CODEX_HOME: callerCodexHome,
       });
-      expect(plan.args).not.toContain("-C");
-      expect(plan.args).not.toContain(workspaceCwd);
-      await expect(readFile(join(runHome, "auth.json"), "utf8")).resolves.toBe(
-        JSON.stringify({ refresh_token: "v1" }),
-      );
-      const authStat = await lstat(join(runHome, "auth.json"));
-      expect(authStat.isFile()).toBe(true);
-      expect(authStat.isSymbolicLink()).toBe(false);
-      await writeFile(
-        join(runHome, "auth.json"),
-        JSON.stringify({ refresh_token: "v2" }),
-        "utf8",
-      );
-      await expect(readFile(join(sourceHome, "auth.json"), "utf8")).resolves.toBe(
-        JSON.stringify({ refresh_token: "v2" }),
-      );
-      await writeFile(join(runHome, "sessions", "probe.jsonl"), "session-log", "utf8");
-      await expect(readFile(join(sourceHome, "sessions", "probe.jsonl"), "utf8")).resolves.toBe(
-        "session-log",
-      );
-      expect(await readFile(join(runHome, "config.toml"), "utf8")).toContain(
+      expect(await readFile(join(callerCodexHome, "config.toml"), "utf8")).toContain(
         "features.multi_agent = false",
       );
-      expect(await readFile(join(runHome, "config.toml"), "utf8")).toContain(
-        'model_provider = "OpenAI"',
-      );
+      expect(plan.args).not.toContain("-C");
+      expect(plan.args).not.toContain(workspaceCwd);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
   });
 
-  it("materializes a run-scoped Codex home for managed runs from process CODEX_HOME", async () => {
+  it("materializes a run-scoped Codex home for managed runs when none is provided", async () => {
     const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-"));
-    const sourceHome = join(scratch, "source-codex-home");
     const workspaceCwd = join(scratch, "run-cwd");
     try {
-      await mkdir(sourceHome, { recursive: true });
-      await writeFile(
-        join(sourceHome, "auth.json"),
-        JSON.stringify({ refresh_token: "v1" }),
-        "utf8",
-      );
-      vi.stubEnv("CODEX_HOME", sourceHome);
-
       const adapter = createCodexProvider().createAdapter();
       const plan = await adapter!.buildLaunchPlan({
         runId: "run-managed-codex-auto-home",
@@ -516,33 +424,6 @@ describe("buildCodexLaunchPlan", () => {
       expect(await readFile(join(managedCodexHome, "config.toml"), "utf8")).toContain(
         "features.multi_agent = false",
       );
-      await expect(readFile(join(managedCodexHome, "auth.json"), "utf8")).resolves.toBe(
-        JSON.stringify({ refresh_token: "v1" }),
-      );
-    } finally {
-      vi.unstubAllEnvs();
-      await rm(scratch, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects managed Codex runs when source auth is unavailable", async () => {
-    const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-"));
-    const workspaceCwd = join(scratch, "run-cwd");
-    const sourceHome = join(scratch, "missing-auth-home");
-    try {
-      const adapter = createCodexProvider().createAdapter();
-      await expect(
-        adapter!.buildLaunchPlan({
-          runId: "run-managed-codex-missing-auth",
-          cwd: "/tmp/ignored-by-managed-invocation",
-          prompt: "draw a poster",
-          env: { CODEX_HOME: sourceHome },
-          managedAgentInvocation: {
-            credential: "managed-codex-secret",
-            cwd: workspaceCwd,
-          },
-        }),
-      ).rejects.toThrow(`Expected auth.json under ${sourceHome}`);
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
@@ -550,22 +431,13 @@ describe("buildCodexLaunchPlan", () => {
 
   it("hands managed Codex MCP servers to tsh instead of Codex home config", async () => {
     const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-mcp-"));
-    const sourceHome = join(scratch, "source-codex-home");
     const workspaceCwd = join(scratch, "run-cwd");
     try {
-      await mkdir(sourceHome, { recursive: true });
-      await writeFile(
-        join(sourceHome, "auth.json"),
-        JSON.stringify({ refresh_token: "v1" }),
-        "utf8",
-      );
-
       const adapter = createCodexProvider().createAdapter();
       const plan = await adapter!.buildLaunchPlan({
         runId: "run-managed-codex-mcp",
         cwd: "/tmp/ignored-by-managed-invocation",
         prompt: "draw a poster",
-        env: { CODEX_HOME: sourceHome },
         mcpServers: [
           {
             type: "stdio",
