@@ -83,6 +83,31 @@ function hasDetectCacheKeyOverrides(context: DetectContext | undefined) {
   return Object.keys(context).some((key) => key !== "refresh");
 }
 
+async function buildRunProcessEnv(input: {
+  env?: Record<string, string>;
+  managedAgentInvocation?: AgentRunInput["managedAgentInvocation"];
+}) {
+  const stripLocalAgentHomeEnv = Boolean(input.managedAgentInvocation);
+  const baseEnv = await buildLocalAgentProcessEnv(
+    stripLocalAgentHomeEnv
+      ? process.env
+      : {
+          ...process.env,
+          ...(input.env ?? {}),
+        },
+    { stripLocalAgentHomeEnv },
+  );
+
+  if (!stripLocalAgentHomeEnv || !input.env) {
+    return baseEnv;
+  }
+
+  return buildLocalAgentProcessEnv({
+    ...baseEnv,
+    ...input.env,
+  });
+}
+
 export function createLocalAgentRuntime<
   TKind extends string = string,
   TProvider extends string = string,
@@ -207,15 +232,7 @@ export function createLocalAgentRuntime<
       activeRuns.set(input.runId, { controller, provider });
 
       try {
-        const env = await buildLocalAgentProcessEnv(
-          {
-            ...process.env,
-            ...(input.env ?? {}),
-          },
-          {
-            stripLocalAgentHomeEnv: Boolean(input.managedAgentInvocation),
-          },
-        );
+        const env = await buildRunProcessEnv(input);
         if (signal.aborted) {
           yield { type: "done", status: "canceled", reason: "cancelled" };
           return;
