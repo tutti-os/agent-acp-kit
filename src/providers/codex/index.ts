@@ -183,6 +183,16 @@ async function linkFile(source: string, target: string) {
   }
 }
 
+async function hardLinkOrCopyFile(source: string, target: string) {
+  await ensureParentDirectory(target);
+  await rm(target, { force: true });
+  try {
+    await link(source, target);
+  } catch {
+    await copyFile(source, target);
+  }
+}
+
 function samePath(left: string, right: string) {
   return resolve(left) === resolve(right);
 }
@@ -637,7 +647,11 @@ async function materializeCodexHome(params: {
     await mkdir(join(runHome, "sessions"), { recursive: true });
   } else {
     try {
-      await linkFile(sourceAuthPath, join(runHome, "auth.json"));
+      if (params.managed) {
+        await hardLinkOrCopyFile(sourceAuthPath, join(runHome, "auth.json"));
+      } else {
+        await linkFile(sourceAuthPath, join(runHome, "auth.json"));
+      }
     } catch {
       throw authUnavailableError();
     }

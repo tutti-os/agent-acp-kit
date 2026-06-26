@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -458,6 +458,9 @@ describe("buildCodexLaunchPlan", () => {
       await expect(readFile(join(runHome, "auth.json"), "utf8")).resolves.toBe(
         JSON.stringify({ refresh_token: "v1" }),
       );
+      const authStat = await lstat(join(runHome, "auth.json"));
+      expect(authStat.isFile()).toBe(true);
+      expect(authStat.isSymbolicLink()).toBe(false);
       await writeFile(
         join(runHome, "auth.json"),
         JSON.stringify({ refresh_token: "v2" }),
