@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import * as runtime from "../../src/index.js";
 import * as testing from "../../src/testing/index.js";
+import * as tutti from "../../src/tutti/index.js";
 
 describe("public api", () => {
   it("exports the package facade, official providers, and core helpers", () => {
@@ -82,5 +83,12 @@ describe("public api", () => {
     expect(testing.assertProviderConformance).toBeTypeOf("function");
     expect(testing.createFakeRuntimeProvider).toBeTypeOf("function");
     expect(testing.createFakeAcpPeer).toBeTypeOf("function");
+  });
+
+  it("exports Tutti helpers through the Tutti subpath", () => {
+    expect(tutti.loadTuttiAgentSkillBundle).toBeTypeOf("function");
+    expect(tutti.loadTuttiAgentSkillContext).toBeTypeOf("function");
+    expect(tutti.parseTuttiAgentSkillBundle).toBeTypeOf("function");
+    expect(tutti.resolveTuttiCliCommand).toBeTypeOf("function");
   });
 });
