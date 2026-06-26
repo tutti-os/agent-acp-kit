@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
@@ -32,6 +33,16 @@ function safePathSegment(value: string | undefined, fallback: string) {
     return fallback;
   }
   return safe;
+}
+
+function stablePathSegment(value: string | undefined, fallback: string) {
+  const raw = (value ?? "").trim();
+  const safe = safePathSegment(raw, fallback);
+  if (!raw || raw === safe) {
+    return safe;
+  }
+  const hash = createHash("sha256").update(raw).digest("hex").slice(0, 8);
+  return `${safe}-${hash}`;
 }
 
 async function assertNotSymlink(path: string) {
@@ -121,7 +132,7 @@ export async function materializeSkills(
     runRoot,
     ".local-agent",
     "runs",
-    safePathSegment(runId, "run"),
+    stablePathSegment(runId, "run"),
     "skills",
   );
   const seenRoots = new Set<string>();
@@ -134,7 +145,7 @@ export async function materializeSkills(
 
     const relativeRoot =
       skill.materializedPath ??
-      join(defaultSkillRoot, safePathSegment(skill.slug, "skill"));
+      join(defaultSkillRoot, stablePathSegment(skill.slug, "skill"));
     const rootPath = resolve(runRoot, relativeRoot);
     assertStrictInside(runRoot, rootPath);
     if (seenRoots.has(rootPath)) {
