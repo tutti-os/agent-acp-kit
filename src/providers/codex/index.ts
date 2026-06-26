@@ -680,6 +680,7 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     const materialized = await materializeSkills(
       params.cwd,
       params.skillManifest ?? [],
+      params.runId,
     );
     const prompt = buildCodexPrompt({
       prompt: params.prompt,
@@ -702,6 +703,7 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     });
     const cleanupTargets = [
       ...materialized
+        .filter((skill) => skill.deliveryMode === "materialized-files")
         .map((skill) => skill.materializedPath)
         .filter((path): path is string => Boolean(path)),
       ...(projectRootMarker ? [projectRootMarker] : []),

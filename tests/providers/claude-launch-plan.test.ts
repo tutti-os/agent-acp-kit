@@ -288,6 +288,78 @@ describe("buildClaudeLaunchPlan", () => {
     }
   });
 
+  it("includes materialized skill paths in provider prompts", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "claude-skill-plan-"));
+    try {
+      const plan = await createClaudeProvider().buildLaunchPlan({
+        runId: "run:1",
+        cwd,
+        prompt: "use the skill",
+        skillManifest: [
+          {
+            skillId: "tutti/tutti-cli",
+            slug: "tutti-cli",
+            deliveryMode: "materialized-files",
+            content: "# Tutti CLI",
+          },
+        ],
+      });
+
+      const skillPath = join(
+        cwd,
+        ".local-agent",
+        "runs",
+        "run-1",
+        "skills",
+        "tutti-cli",
+      );
+      expect(plan.prompt).toContain(`${skillPath}/SKILL.md`);
+      await expect(readFile(join(skillPath, "SKILL.md"), "utf8")).resolves.toBe("# Tutti CLI");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps managed invocation skill delivery out of env and argv", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "claude-managed-skill-plan-"));
+    try {
+      const plan = await createClaudeProvider().buildLaunchPlan({
+        runId: "run:1",
+        cwd,
+        prompt: "use the skill",
+        managedAgentInvocation: {
+          credential: "managed-claude-secret",
+          cwd,
+        },
+        skillManifest: [
+          {
+            skillId: "tutti/tutti-cli",
+            slug: "tutti-cli",
+            deliveryMode: "materialized-files",
+            content: "# Tutti CLI",
+          },
+        ],
+      });
+
+      const skillPath = join(
+        cwd,
+        ".local-agent",
+        "runs",
+        "run-1",
+        "skills",
+        "tutti-cli",
+      );
+      expect(plan.prompt).toContain(`${skillPath}/SKILL.md`);
+      expect(plan.args.join(" ")).not.toContain(skillPath);
+      expect(Object.values(plan.env ?? {}).join(" ")).not.toContain(skillPath);
+      expect(plan.env).toMatchObject({
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-claude-secret",
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("returns Claude session ids on done events for future provider resume", async () => {
     const adapter = createClaudeProvider().createAdapter();
     expect(adapter).toBeDefined();
