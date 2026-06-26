@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, rm } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import type { SkillMaterializationRecord } from "../core/skills.js";
@@ -43,6 +44,12 @@ function stablePathSegment(value: string | undefined, fallback: string) {
   }
   const hash = createHash("sha256").update(raw).digest("hex").slice(0, 8);
   return `${safe}-${hash}`;
+}
+
+function assertNoControlCharacters(value: string, label: string) {
+  if (/[\x00-\x1F\x7F-\x9F]/u.test(value)) {
+    throw new Error(`${label} must not contain control characters`);
+  }
 }
 
 async function assertNotSymlink(path: string) {
@@ -117,8 +124,26 @@ async function writeFileNoSymlink(path: string, content: string, baseDir: string
   const resolvedPath = resolve(path);
   assertInside(baseDir, resolvedPath);
   await ensureDirectoryNoSymlink(dirname(resolvedPath), baseDir);
-  await assertNotSymlink(resolvedPath);
-  await writeFile(resolvedPath, content, "utf8");
+  const file = await open(
+    resolvedPath,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+    0o600,
+  ).catch((error: unknown) => {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ELOOP"
+    ) {
+      throw new Error(`Skill materialization path must not contain symlinks: ${resolvedPath}`);
+    }
+    throw error;
+  });
+  try {
+    await file.writeFile(content, "utf8");
+  } finally {
+    await file.close();
+  }
 }
 
 export async function materializeSkills(
@@ -141,6 +166,10 @@ export async function materializeSkills(
     if (skill.deliveryMode !== "materialized-files") {
       materialized.push(skill);
       continue;
+    }
+
+    if (skill.materializedPath !== undefined) {
+      assertNoControlCharacters(skill.materializedPath, "Skill materialization path");
     }
 
     const relativeRoot =
