@@ -447,51 +447,22 @@ Keep tool tokens run-scoped and short-lived. Do not pass broad application secre
 
 The package handles delivery and cleanup. The host remains the source of truth for skill selection, permission, and storage.
 
-Hosts can also pass skill manifests produced by external commands. For example,
-a Tutti workspace app can ask the Tutti CLI to render its dynamic CLI skills,
-then explicitly decide whether to merge Tutti's recommended system prompt into
-the app-owned prompt:
+Hosts can also pass skill manifests produced by external commands. Tutti
+workspace apps can use the Tutti subpath helper to load dynamic CLI skills, then
+decide how to merge Tutti's recommended system prompt with the app-owned prompt:
 
 ```ts
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { loadTuttiAgentSkillContext } from "@tutti-os/agent-acp-kit/tutti";
 
-import type { SkillMaterializationRecord } from "@tutti-os/agent-acp-kit";
-
-const execFileAsync = promisify(execFile);
-
-type TuttiSkillBundle = {
-  schemaVersion: 1;
-  provider: string;
-  agentSessionId?: string;
-  cliCommand?: string;
-  recommendedSystemPrompt?: {
-    format: "text/markdown";
-    content: string;
-  };
-  skills: SkillMaterializationRecord[];
-};
-
-const { stdout } = await execFileAsync(
-  "tutti",
-  [
-    "agent",
-    "tutti-cli-skill-bundle",
-    "--provider",
-    provider,
-    "--agent-session-id",
-    runId,
-    "--json",
-  ],
-  {
-    cwd,
-    maxBuffer: 1024 * 1024,
-  },
-);
-const tuttiBundle = JSON.parse(stdout) as TuttiSkillBundle;
+const tuttiContext = await loadTuttiAgentSkillContext({
+  provider,
+  agentSessionId: runId,
+  cwd,
+  commandEnvNames: ["MY_APP_TUTTI_CLI"],
+});
 const systemPrompt = [
   appSystemPrompt,
-  tuttiBundle.recommendedSystemPrompt?.content,
+  tuttiContext.recommendedSystemPrompt?.content,
 ].filter(Boolean).join("\n\n");
 
 for await (const event of runtime.run({
@@ -500,7 +471,7 @@ for await (const event of runtime.run({
   cwd,
   prompt,
   systemPrompt,
-  skillManifest: tuttiBundle.skills,
+  skillManifest: tuttiContext.skillManifest,
 })) {
   await projectAgentEventToHostStream(event);
 }

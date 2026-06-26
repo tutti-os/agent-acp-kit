@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./tutti": {
+      "types": "./dist/tutti/index.d.ts",
+      "import": "./dist/tutti/index.js"
+    },
     "./runtime-control-plane": {
       "types": "./dist/runtime/control-plane.d.ts",
       "import": "./dist/runtime/control-plane.js"
