@@ -153,7 +153,6 @@ setTimeout(() => process.exit(42), 10);
           name: "aimc",
           command: process.execPath,
           args: ["/tmp/aimc-mcp.js"],
-          executionSide: "vm",
           env: { AIMC_TOOL_TOKEN: "tool-token" },
         },
       ],

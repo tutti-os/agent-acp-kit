@@ -41,7 +41,6 @@ export type {
 export type { AgentRunInput } from "./run-input.js";
 export type {
   LocalAgentMcpEnvEntry,
-  LocalAgentMcpExecutionSide,
   LocalAgentMcpHttpServerConfig,
   LocalAgentMcpServerConfig,
   LocalAgentMcpStdioServerConfig,
