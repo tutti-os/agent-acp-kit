@@ -10,6 +10,7 @@ export function composePromptWithSkills(input: {
   const history = (input.history ?? [])
     .map((message) => `${message.role.toUpperCase()}:\n${message.content}`)
     .join("\n\n");
+  const materializedSkillText = materializedSkillPromptSection(input.skills);
   const injectedSkills = input.skills.filter(
     (skill) =>
       skill.deliveryMode === "prompt-injection" ||
@@ -31,6 +32,7 @@ export function composePromptWithSkills(input: {
 
   return [
     input.systemPrompt?.trim(),
+    materializedSkillText,
     skillText,
     history,
     "Current request:",
@@ -38,6 +40,21 @@ export function composePromptWithSkills(input: {
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+export function materializedSkillPromptSection(
+  skills: SkillMaterializationRecord[],
+) {
+  const materializedSkills = skills.filter(
+    (skill) =>
+      skill.deliveryMode === "materialized-files" && skill.materializedPath,
+  );
+  if (materializedSkills.length === 0) {
+    return "";
+  }
+  return `Workspace skills are materialized under the current run directory. Read the referenced SKILL.md before following a skill.\n${materializedSkills
+    .map((skill) => `- ${skill.slug}: ${skill.materializedPath}/SKILL.md`)
+    .join("\n")}`;
 }
 
 export function composePromptWithSystem(input: {

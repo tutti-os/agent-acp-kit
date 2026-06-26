@@ -448,6 +448,42 @@ Keep tool tokens run-scoped and short-lived. Do not pass broad application secre
 
 The package handles delivery and cleanup. The host remains the source of truth for skill selection, permission, and storage.
 
+Hosts may also obtain a skill manifest from an external command and pass the
+returned records directly into `runtime.run()`. Pass the Tutti AgentGUI session
+id as `--agent-session-id`; when the host maps one agent-acp-kit run to one
+Tutti session, that value can be the run id.
+
+```ts
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import type { SkillMaterializationRecord } from "@tutti-os/agent-acp-kit";
+
+const execFileAsync = promisify(execFile);
+const agentSessionId = runId;
+
+const bundle = JSON.parse(
+  await execFileAsync("tutti", [
+    "agent",
+    "skill-bundle",
+    "--provider",
+    selectedProvider,
+    "--agent-session-id",
+    agentSessionId,
+    "--json",
+  ], { maxBuffer: 1024 * 1024 }).then(({ stdout }) => stdout),
+) as { skills: SkillMaterializationRecord[] };
+
+for await (const event of runtime.run({
+  runId,
+  provider: selectedProvider,
+  cwd,
+  prompt,
+  skillManifest: bundle.skills,
+})) {
+  await projectAgentEventToHostStream(event);
+}
+```
+
 ## Cancellation And Resume
 
 Use `runtime.cancel(runId)` or abort the `signal` passed into `runtime.run()`.
