@@ -1,6 +1,14 @@
 import type { AgentRunMessage } from "../core/provider-plugin.js";
 import type { SkillMaterializationRecord } from "../core/skills.js";
 
+export function skillPromptLabel(slug: string) {
+  const label = slug
+    .replaceAll(/[\r\n\t]+/g, " ")
+    .replaceAll(/[^\x20-\x7E]/g, "?")
+    .trim();
+  return JSON.stringify(label || "skill");
+}
+
 export function composePromptWithSkills(input: {
   history?: AgentRunMessage[];
   prompt: string;
@@ -21,7 +29,7 @@ export function composePromptWithSkills(input: {
   const materializedSkillText =
     materializedSkills.length > 0
       ? `Workspace skills are materialized under the current run directory. Read the referenced SKILL.md before following a skill.\n${materializedSkills
-          .map((skill) => `- ${skill.slug}: ${skill.materializedPath}/SKILL.md`)
+          .map((skill) => `- ${skillPromptLabel(skill.slug)}: ${skill.materializedPath}/SKILL.md`)
           .join("\n")}`
       : "";
   const skillText =

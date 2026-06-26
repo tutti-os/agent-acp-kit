@@ -21,6 +21,7 @@ import {
 import { normalizeMcpServerConfigs } from "../../core/mcp.js";
 import { materializeSkills } from "../../skills/materialize.js";
 import { cleanupPaths } from "../../skills/cleanup.js";
+import { skillPromptLabel } from "../../skills/prompt-injection.js";
 import { resolveTempDir } from "../../process/env.js";
 import { runJsonlTransport } from "../../transports/jsonl/jsonl-transport.js";
 import { detectCodex } from "./detect.js";
@@ -115,7 +116,7 @@ function buildCodexPrompt(input: {
   const materializedSkillSection =
     materializedSkills.length > 0
       ? `Workspace skills are materialized under the current run directory. Read the referenced SKILL.md before following a skill.\n${materializedSkills
-          .map((skill) => `- ${skill.slug}: ${skill.materializedPath}/SKILL.md`)
+          .map((skill) => `- ${skillPromptLabel(skill.slug)}: ${skill.materializedPath}/SKILL.md`)
           .join("\n")}`
       : "";
   const injectedSkillSection =
