@@ -447,6 +447,65 @@ Keep tool tokens run-scoped and short-lived. Do not pass broad application secre
 
 The package handles delivery and cleanup. The host remains the source of truth for skill selection, permission, and storage.
 
+Hosts can also pass skill manifests produced by external commands. For example,
+a Tutti workspace app can ask the Tutti CLI to render its dynamic CLI skills,
+then explicitly decide whether to merge Tutti's recommended system prompt into
+the app-owned prompt:
+
+```ts
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+import type { SkillMaterializationRecord } from "@tutti-os/agent-acp-kit";
+
+const execFileAsync = promisify(execFile);
+
+type TuttiSkillBundle = {
+  schemaVersion: 1;
+  provider: string;
+  agentSessionId?: string;
+  cliCommand?: string;
+  recommendedSystemPrompt?: {
+    format: "text/markdown";
+    content: string;
+  };
+  skills: SkillMaterializationRecord[];
+};
+
+const { stdout } = await execFileAsync(
+  "tutti",
+  [
+    "agent",
+    "tutti-cli-skill-bundle",
+    "--provider",
+    provider,
+    "--agent-session-id",
+    runId,
+    "--json",
+  ],
+  {
+    cwd,
+    maxBuffer: 1024 * 1024,
+  },
+);
+const tuttiBundle = JSON.parse(stdout) as TuttiSkillBundle;
+const systemPrompt = [
+  appSystemPrompt,
+  tuttiBundle.recommendedSystemPrompt?.content,
+].filter(Boolean).join("\n\n");
+
+for await (const event of runtime.run({
+  runId,
+  provider,
+  cwd,
+  prompt,
+  systemPrompt,
+  skillManifest: tuttiBundle.skills,
+})) {
+  await projectAgentEventToHostStream(event);
+}
+```
+
 ## Cancellation And Resume
 
 Use `runtime.cancel(runId)` or abort the `signal` passed into `runtime.run()`.

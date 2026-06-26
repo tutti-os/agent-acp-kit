@@ -269,6 +269,46 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
+  it("includes materialized skill paths in provider prompts", async () => {
+    const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
+    const cwd = await mkdtemp(join(tmpdir(), "codex-skill-plan-"));
+    try {
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+      const plan = await createCodexProvider().buildLaunchPlan({
+        runId: "run:1",
+        cwd,
+        prompt: "use the skill",
+        env: { CODEX_HOME: sourceHome },
+        skillManifest: [
+          {
+            skillId: "tutti/tutti-cli",
+            slug: "tutti-cli",
+            deliveryMode: "materialized-files",
+            content: "# Tutti CLI",
+          },
+        ],
+      });
+
+      const skillPath = join(
+        cwd,
+        ".local-agent",
+        "runs",
+        "run-1",
+        "skills",
+        "tutti-cli",
+      );
+      expect(plan.prompt).toContain(`${skillPath}/SKILL.md`);
+      await expect(readFile(join(skillPath, "SKILL.md"), "utf8")).resolves.toBe("# Tutti CLI");
+    } finally {
+      await rm(sourceHome, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("copies and sanitizes user Codex config even when no MCP servers are provided", async () => {
     const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
