@@ -259,7 +259,6 @@ describe("managed agent invocation", () => {
       {
         name: "aimc",
         type: "stdio",
-        executionSide: "vm",
         command: process.execPath,
         args: ["/tmp/aimc-mcp.js"],
         env: { AIMC_TOOL_TOKEN: "aimc-token" },
@@ -273,7 +272,6 @@ describe("managed agent invocation", () => {
       mcpServers: {
         aimc: {
           type: "stdio",
-          executionSide: "vm",
           command: "node",
           args: ["/tmp/aimc-mcp.js"],
           env: { AIMC_TOOL_TOKEN: "aimc-token" },
@@ -294,26 +292,7 @@ describe("managed agent invocation", () => {
     ]);
   });
 
-  it("rejects managed MCP handoff configs outside v1 VM-local stdio scope", () => {
-    expect(() =>
-      buildManagedAgentMcpAttachmentEnv([
-        {
-          name: "missing-side",
-          command: "node",
-        },
-      ]),
-    ).toThrow(/executionSide: "vm"/);
-
-    expect(() =>
-      buildManagedAgentMcpAttachmentEnv([
-        {
-          name: "sandbox-side",
-          command: "node",
-          executionSide: "sandbox",
-        },
-      ]),
-    ).toThrow(/executionSide: "vm"/);
-
+  it("rejects managed MCP handoff configs outside v1 stdio command scope", () => {
     expect(() =>
       buildManagedAgentMcpAttachmentEnv([
         {
@@ -329,7 +308,6 @@ describe("managed agent invocation", () => {
         {
           name: "unknown-node-path",
           command: "/tmp/node",
-          executionSide: "vm",
         },
       ]),
     ).toThrow(/bare command name or a known absolute node path/);
@@ -352,7 +330,6 @@ describe("managed agent invocation", () => {
               name: "aimc",
               command: "/usr/local/bin/node",
               args: ["/tmp/aimc-mcp.js"],
-              executionSide: "vm",
               env: { AIMC_TOOL_TOKEN: "fallback-token" },
             },
           ],
@@ -364,7 +341,6 @@ describe("managed agent invocation", () => {
             name: "aimc",
             command: process.execPath,
             args: ["/tmp/aimc-mcp.js"],
-            executionSide: "vm",
             env: { AIMC_TOOL_TOKEN: "tool-token" },
           },
         ],
@@ -381,7 +357,6 @@ describe("managed agent invocation", () => {
       mcpServers: {
         aimc: {
           type: "stdio",
-          executionSide: "vm",
           command: "node",
           env: { AIMC_TOOL_TOKEN: "tool-token" },
         },

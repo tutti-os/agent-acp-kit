@@ -93,7 +93,6 @@ export type {
   DetectionResult,
   LaunchPlan,
   LocalAgentMcpEnvEntry,
-  LocalAgentMcpExecutionSide,
   LocalAgentMcpHttpServerConfig,
   LocalAgentMcpServerConfig,
   LocalAgentMcpStdioServerConfig,

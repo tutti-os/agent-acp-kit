@@ -70,7 +70,6 @@ export type ManagedAgentInvocationCredentialHeaders =
 
 export type ManagedAgentMcpStdioAttachment = {
   type: "stdio";
-  executionSide: "vm";
   command: string;
   args: string[];
   env: Record<string, string>;
@@ -444,12 +443,6 @@ function envEntriesToObject(entries: LocalAgentMcpEnvEntry[]) {
 function buildManagedMcpStdioAttachment(
   server: NormalizedLocalAgentMcpStdioServerConfig,
 ): ManagedAgentMcpStdioAttachment {
-  if (server.executionSide !== "vm") {
-    throw new Error(
-      `Managed MCP handoff v1 requires stdio MCP server "${server.name}" to set executionSide: "vm".`,
-    );
-  }
-
   const timeouts = {
     ...(server.startupTimeoutMs
       ? { startupTimeoutMs: server.startupTimeoutMs }
@@ -459,7 +452,6 @@ function buildManagedMcpStdioAttachment(
 
   return {
     type: "stdio",
-    executionSide: "vm",
     command: normalizeManagedMcpStdioCommand(server.name, server.command),
     args: server.args ?? [],
     env: envEntriesToObject(server.env),
