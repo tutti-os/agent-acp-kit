@@ -47,4 +47,33 @@ describe("runtime control plane", () => {
       }),
     ).toEqual({ kind: "local-agent", provider: "codex" });
   });
+
+  it("resolves declared legacy provider aliases to the canonical runtime target", () => {
+    const provider = createFakeRuntimeProvider({
+      runtime: {
+        id: "local-agent:claude-code",
+        kind: "local-agent",
+        provider: "claude-code",
+        mode: "local",
+        status: "online",
+        capabilities: {
+          cancel: true,
+          nativeResume: true,
+          streaming: true,
+          toolGateway: true,
+          maxConcurrentRuns: 1,
+        },
+      },
+    });
+    provider.aliases = ["claude"];
+    const controlPlane = createRuntimeControlPlane([provider]);
+
+    expect(
+      controlPlane.resolveRuntimeTarget({
+        model: "claude:default",
+        requestedRuntimeKind: "local-agent",
+        requestedRuntimeProvider: "claude",
+      }),
+    ).toEqual({ kind: "local-agent", provider: "claude-code" });
+  });
 });

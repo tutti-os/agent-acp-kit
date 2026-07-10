@@ -13,6 +13,8 @@ export type RuntimeProvider<
   TKind extends string = string,
   TProvider extends string = string,
 > = {
+  /** Legacy provider ids accepted at runtime boundaries. Targets always resolve to runtime.provider. */
+  aliases?: readonly string[];
   runtime: AgentRuntimeRecord<TKind, TProvider>;
   streamRun(context: TContext): AsyncGenerator<TEvent>;
 };
