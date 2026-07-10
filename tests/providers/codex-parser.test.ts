@@ -178,4 +178,64 @@ describe("parseCodexItem", () => {
       },
     ]);
   });
+
+  it("maps response_item compatibility envelopes", () => {
+    expect(
+      parseCodexItem({
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Built the page." }],
+        },
+      }),
+    ).toEqual([{ type: "text_delta", text: "Built the page." }]);
+
+    expect(
+      parseCodexItem({
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          call_id: "call-1",
+          arguments: '{"cmd":"wc -l DESIGN.md"}',
+        },
+      }),
+    ).toEqual([
+      {
+        type: "tool_call",
+        id: "call-1",
+        name: "exec_command",
+        input: { cmd: "wc -l DESIGN.md" },
+      },
+    ]);
+
+    expect(
+      parseCodexItem({
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-1",
+          output: "229 DESIGN.md\n",
+        },
+      }),
+    ).toEqual([
+      {
+        type: "tool_result",
+        id: "call-1",
+        output: "229 DESIGN.md\n",
+        status: "completed",
+        isError: false,
+      },
+    ]);
+  });
+
+  it("maps event_msg compatibility envelopes", () => {
+    expect(
+      parseCodexItem({
+        type: "event_msg",
+        payload: { type: "turn_completed" },
+      }),
+    ).toEqual([{ type: "done", status: "completed", reason: "completed" }]);
+  });
 });

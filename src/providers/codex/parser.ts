@@ -4,6 +4,7 @@ type CodexEnvelope = {
   error?: { data?: Record<string, unknown>; message?: string } | null;
   item?: CodexItem;
   message?: string;
+  payload?: Record<string, unknown> | null;
   type?: string;
 };
 
@@ -227,13 +228,111 @@ function parseItem(item: CodexItem): AgentEvent[] {
   return [];
 }
 
+function parseJsonValue(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function readContentText(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const text = value
+    .map((entry) => {
+      const record = toRecord(entry);
+      return typeof record?.text === "string" ? record.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+  return text.trim() ? text : undefined;
+}
+
+function parseResponseItem(payload: Record<string, unknown>): AgentEvent[] {
+  const type = typeof payload.type === "string" ? payload.type : "";
+  if (type === "message" || type === "agent_message") {
+    const text =
+      typeof payload.text === "string" ? payload.text : readContentText(payload.content);
+    return text && payload.role !== "user" ? [{ type: "text_delta", text }] : [];
+  }
+
+  if (type === "reasoning") {
+    const text = readContentText(payload.summary) ??
+      (typeof payload.text === "string" ? payload.text : undefined);
+    return text ? [{ type: "thinking_delta", text }] : [];
+  }
+
+  if (type === "function_call" || type === "tool_call") {
+    const id =
+      typeof payload.call_id === "string" ? payload.call_id :
+      typeof payload.id === "string" ? payload.id : undefined;
+    const name =
+      typeof payload.name === "string" ? payload.name :
+      typeof payload.tool === "string" ? payload.tool : "unknown_tool";
+    return id ? [{
+      type: "tool_call",
+      id,
+      name: normalizeToolName(name),
+      input: parseJsonValue(payload.arguments ?? payload.input),
+    }] : [];
+  }
+
+  if (type === "function_call_output" || type === "tool_result") {
+    const id =
+      typeof payload.call_id === "string" ? payload.call_id :
+      typeof payload.id === "string" ? payload.id : undefined;
+    if (!id) return [];
+    const error = toRecord(payload.error);
+    const isError = payload.is_error === true || payload.isError === true || Boolean(error);
+    const summary =
+      typeof payload.message === "string" ? payload.message :
+      typeof error?.message === "string" ? error.message : undefined;
+    return [{
+      type: "tool_result",
+      id,
+      ...(payload.output !== undefined || payload.result !== undefined ?
+        { output: payload.output ?? payload.result }
+      : {}),
+      ...(summary ? { summary } : {}),
+      status: isError ? "failed" : "completed",
+      isError,
+    }];
+  }
+
+  return parseItem(payload as CodexItem);
+}
+
+function parseEventMessage(payload: Record<string, unknown>): AgentEvent[] {
+  if (payload.type === "turn_completed" || payload.type === "turn_complete") {
+    return [{ type: "done", status: "completed", reason: "completed" }];
+  }
+  if (payload.type === "turn_failed") {
+    return [{
+      type: "error",
+      code: "codex_error",
+      message: typeof payload.message === "string" ? payload.message : "Codex turn failed",
+    }];
+  }
+  return [];
+}
+
 export function parseCodexItem(item: CodexEnvelope | CodexItem): AgentEvent[] {
   if (
     "item" in item ||
     item.type === "item.started" ||
     item.type === "item.completed" ||
     item.type === "turn.failed" ||
-    item.type === "error"
+    item.type === "error" ||
+    item.type === "response_item" ||
+    item.type === "event_msg"
   ) {
     const envelope = item as CodexEnvelope;
 
@@ -260,6 +359,14 @@ export function parseCodexItem(item: CodexEnvelope | CodexItem): AgentEvent[] {
         return [];
       }
       return parseItem(envelope.item);
+    }
+
+    if (envelope.type === "response_item" && envelope.payload) {
+      return parseResponseItem(envelope.payload);
+    }
+
+    if (envelope.type === "event_msg" && envelope.payload) {
+      return parseEventMessage(envelope.payload);
     }
 
     return [];
