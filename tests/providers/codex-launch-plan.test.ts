@@ -1016,6 +1016,27 @@ describe("buildCodexLaunchPlan", () => {
     });
   });
 
+  it("returns compatibility session ids on done events", async () => {
+    const adapter = createCodexProvider().createAdapter();
+    expect(adapter).toBeDefined();
+
+    async function* stream() {
+      yield { type: "session_meta", payload: { id: "compat-session-1" } };
+      yield { type: "done", status: "completed" };
+    }
+
+    const events = [];
+    for await (const event of adapter!.parseEvents(stream())) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "done",
+      status: "completed",
+      sessionId: "compat-session-1",
+    });
+  });
+
   it("keeps parsing Codex raw events after reconnect warnings", async () => {
     const adapter = createCodexProvider().createAdapter();
     expect(adapter).toBeDefined();

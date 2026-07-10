@@ -49,17 +49,22 @@ async function* parseCodexRawEvents(stream: RawAgentStream): AsyncGenerator<Agen
       item && typeof item === "object" && !Array.isArray(item)
         ? (item as Record<string, unknown>)
         : undefined;
-    if (record?.type === "thread.started") {
+    if (record?.type === "thread.started" || record?.type === "session_meta") {
       const thread =
         record.thread && typeof record.thread === "object" && !Array.isArray(record.thread)
           ? (record.thread as Record<string, unknown>)
+          : undefined;
+      const payload =
+        record.payload && typeof record.payload === "object" && !Array.isArray(record.payload)
+          ? (record.payload as Record<string, unknown>)
           : undefined;
       const candidate =
         record.threadId ??
         record.thread_id ??
         record.sessionId ??
         record.session_id ??
-        thread?.id;
+        thread?.id ??
+        payload?.id;
       if (typeof candidate === "string" && candidate.trim()) {
         sessionId = candidate;
       }
