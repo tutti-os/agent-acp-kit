@@ -522,15 +522,32 @@ export function createRuntimeControlPlane<
 ) {
   const now = options?.now ?? (() => new Date().toISOString());
   const providerRegistry = createProviderRegistry(providers);
+  const providerTargets = providers.flatMap((provider) => {
+    const canonicalTarget = getRuntimeTarget(provider.runtime);
+    return [
+      { provider, target: canonicalTarget },
+      ...(provider.aliases ?? []).flatMap((alias) => {
+        const normalized = String(alias).trim();
+        if (!normalized || normalized === String(provider.runtime.provider)) return [];
+        return [{
+          provider,
+          target: { kind: provider.runtime.kind, provider: normalized as TProvider },
+        }];
+      }),
+    ];
+  });
   const providerMap = new Map<
     string,
     RuntimeProvider<TContext, TEvent, TKind, TProvider>
-  >(
-    providers.map((provider) => [
-      getRuntimeTargetKey(getRuntimeTarget(provider.runtime)),
-      provider,
-    ]),
-  );
+  >();
+  for (const entry of providerTargets) {
+    const key = getRuntimeTargetKey(entry.target);
+    const existing = providerMap.get(key);
+    if (existing && existing !== entry.provider) {
+      throw new Error(`Duplicate runtime provider alias: ${key}`);
+    }
+    providerMap.set(key, entry.provider);
+  }
   const runtimeRecords = new Map<string, AgentRuntimeRecord<TKind, TProvider>>(
     providers.map((provider) => [
       provider.runtime.id,
@@ -541,8 +558,8 @@ export function createRuntimeControlPlane<
     ]),
   );
   const runtimeTargetIndex = new Map<string, string>(
-    providers.map((provider) => [
-      getRuntimeTargetKey(getRuntimeTarget(provider.runtime)),
+    providerTargets.map(({ provider, target }) => [
+      getRuntimeTargetKey(target),
       provider.runtime.id,
     ]),
   );
@@ -679,7 +696,7 @@ export function createRuntimeControlPlane<
           `No runtime provider registered for ${target.kind}${providerSuffix}`,
         );
       }
-      return target;
+      return getRuntimeTarget(getRuntimeRecordByTarget(target));
     },
 
     acquireRuntimeLease(
