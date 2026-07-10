@@ -290,6 +290,7 @@ describe("createTuttiAgentAppRuntime", () => {
     expect(local).toMatchObject({
       providerId: "claude-code",
       cwd: "/tmp/local-project",
+      executionMode: "local",
     });
     expect(local).not.toHaveProperty("managedAgentInvocation");
     await collect(local.execute({ prompt: "local" }));
@@ -303,6 +304,7 @@ describe("createTuttiAgentAppRuntime", () => {
       localCwd: "/tmp/local-project",
     });
     expect(managed.cwd).toContain(appDataDir);
+    expect(managed.executionMode).toBe("managed");
     expect(managed).not.toHaveProperty("managedAgentInvocation");
     await collect(managed.execute({ prompt: "managed" }));
     expect(() => managed.execute({ prompt: "again" })).toThrowError(

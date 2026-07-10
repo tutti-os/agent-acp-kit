@@ -96,6 +96,7 @@ export type TuttiAgentAppRunInput = TuttiAgentRunExecutionInput &
 export interface PreparedTuttiAgentRun {
   providerId: string;
   cwd: string;
+  executionMode: "local" | "managed";
   execute(input: TuttiAgentRunExecutionInput): AsyncGenerator<AgentEvent>;
 }
 
@@ -203,6 +204,7 @@ export function createTuttiAgentAppRuntime(
       return {
         providerId,
         cwd,
+        executionMode: runContext ? "managed" : "local",
         execute(executionInput) {
           if (started) {
             throw new TuttiAgentAppRuntimeError(

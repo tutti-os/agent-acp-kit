@@ -181,8 +181,8 @@ provider discovery.
 
 Apps that must build run-scoped skills or MCP files under the final cwd can use
 `prepareRun()` and then call the returned one-shot `execute()` method. The
-prepared object exposes its server-side cwd but not the managed invocation
-credential.
+prepared object exposes its server-side cwd and an `executionMode` discriminator
+for sandbox setup, but not the managed invocation credential.
 
 ## Provider Support
 
