@@ -159,8 +159,14 @@ async function loadStandaloneProviderCatalog(
     schemaVersion: 2,
     source: "standalone",
     defaultProviderId:
-      providers.find((provider) => provider.availability.status === "available")
-        ?.providerId ?? providers[0]?.providerId ?? "",
+      providers.find(
+        (provider) =>
+          provider.runtimeSupported &&
+          provider.availability.status === "available",
+      )?.providerId ??
+      providers.find((provider) => provider.runtimeSupported)?.providerId ??
+      providers[0]?.providerId ??
+      "",
     providers,
   };
 }

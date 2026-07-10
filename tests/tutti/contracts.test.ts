@@ -41,4 +41,18 @@ describe("Tutti browser-safe contracts", () => {
       defaultProviderId: "",
     })).toBe(false);
   });
+
+  it("rejects non-canonical provider IDs", () => {
+    const valid = catalog();
+    expect(isTuttiAgentProviderCatalog({
+      ...valid,
+      defaultProviderId: "claude",
+      providers: [{ ...valid.providers[0], providerId: "claude" }],
+    })).toBe(false);
+    expect(isTuttiAgentProviderCatalog({
+      ...valid,
+      defaultProviderId: " codex ",
+      providers: [{ ...valid.providers[0], providerId: " codex " }],
+    })).toBe(false);
+  });
 });

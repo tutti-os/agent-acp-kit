@@ -97,11 +97,15 @@ export function isTuttiAgentComposerOptions(
 
 function isProviderCatalogEntry(value: unknown) {
   return isRecord(value) &&
-    isNonEmptyString(value.providerId) &&
+    isCanonicalProviderId(value.providerId) &&
     isNonEmptyString(value.displayName) &&
     (value.agentTargetId === undefined || isNonEmptyString(value.agentTargetId)) &&
     typeof value.runtimeSupported === "boolean" &&
     isAvailability(value.availability);
+}
+
+function isCanonicalProviderId(value: unknown): value is string {
+  return isNonEmptyString(value) && value === value.trim() && value !== "claude";
 }
 
 function isNonEmptyString(value: unknown): value is string {

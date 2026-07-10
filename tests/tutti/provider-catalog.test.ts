@@ -208,6 +208,31 @@ describe("Tutti provider catalog", () => {
     expect(catalog.defaultProviderId).toBe("codex");
   });
 
+  it("prefers a managed-supported standalone default when no provider is available", async () => {
+    const catalog = await loadTuttiAgentProviderCatalog({
+      env: {},
+      runtime: fakeRuntime({
+        providers: [
+          { id: "opencode", displayName: "OpenCode", kind: "local-agent" },
+          { id: "codex", displayName: "Codex", kind: "local-agent" },
+        ],
+        detections: [],
+      }),
+      detectContext: {
+        managedAgentInvocation: { credential: "secret", cwd: "/tmp/managed-run" },
+      },
+    });
+    expect(catalog.providers).toMatchObject([
+      { providerId: "opencode", runtimeSupported: false },
+      {
+        providerId: "codex",
+        runtimeSupported: true,
+        availability: { status: "unavailable" },
+      },
+    ]);
+    expect(catalog.defaultProviderId).toBe("codex");
+  });
+
   it("does not fall back when a configured CLI fails", async () => {
     const runtime = fakeRuntime();
     const detect = vi.spyOn(runtime, "detect");
