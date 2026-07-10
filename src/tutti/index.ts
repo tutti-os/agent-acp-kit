@@ -36,9 +36,9 @@ export {
 } from "./runtime-provider-catalog.js";
 export type {
   ResolveTuttiAgentProviderCatalogInput,
-  TuttiAgentProviderCatalogEntry,
-  TuttiAgentProviderCatalogModel,
-  TuttiAgentProviderCatalogResult,
+  TuttiResolvedAgentProviderCatalog,
+  TuttiResolvedAgentProviderCatalogEntry,
+  TuttiResolvedAgentProviderCatalogModel,
 } from "./runtime-provider-catalog.js";
 export * from "./contracts.js";
 

@@ -4,13 +4,13 @@ import type { TuttiCliJsonRequest } from "./cli-json-runner.js";
 import { loadTuttiAgentComposerOptions } from "./composer-options.js";
 import { loadTuttiAgentProviderCatalog } from "./provider-catalog.js";
 
-export interface TuttiAgentProviderCatalogModel {
+export interface TuttiResolvedAgentProviderCatalogModel {
   id: string;
   label: string;
   description?: string;
 }
 
-export interface TuttiAgentProviderCatalogEntry {
+export interface TuttiResolvedAgentProviderCatalogEntry {
   provider: string;
   displayName: string;
   available: boolean;
@@ -18,14 +18,14 @@ export interface TuttiAgentProviderCatalogEntry {
   executablePath: string;
   version: string;
   configDir?: string;
-  models: TuttiAgentProviderCatalogModel[];
+  models: TuttiResolvedAgentProviderCatalogModel[];
   defaultModelId?: string;
   reason?: string;
 }
 
-export interface TuttiAgentProviderCatalogResult {
+export interface TuttiResolvedAgentProviderCatalog {
   defaultProvider: string | null;
-  providers: TuttiAgentProviderCatalogEntry[];
+  providers: TuttiResolvedAgentProviderCatalogEntry[];
   source: "tutti-cli" | "standalone";
 }
 
@@ -44,7 +44,7 @@ export interface ResolveTuttiAgentProviderCatalogInput
  */
 export async function resolveTuttiAgentProviderCatalog(
   input: ResolveTuttiAgentProviderCatalogInput,
-): Promise<TuttiAgentProviderCatalogResult> {
+): Promise<TuttiResolvedAgentProviderCatalog> {
   const detectionsPromise = input.runtime.detect(input.detectContext);
   const runtime = {
     listProviders: () => input.runtime.listProviders(),
@@ -117,7 +117,7 @@ export async function resolveTuttiAgentProviderCatalog(
           detection?.unsupportedReason ||
           localReadinessReason(detection),
       } : {}),
-    } satisfies TuttiAgentProviderCatalogEntry;
+    } satisfies TuttiResolvedAgentProviderCatalogEntry;
   }));
   const preferred = providers.find(
     (provider) => provider.provider === catalog.defaultProviderId && provider.available,
@@ -132,7 +132,7 @@ export async function resolveTuttiAgentProviderCatalog(
 }
 
 export function findTuttiAgentCatalogProvider(
-  providers: readonly TuttiAgentProviderCatalogEntry[],
+  providers: readonly TuttiResolvedAgentProviderCatalogEntry[],
   provider: string,
 ) {
   const normalized = provider.trim().toLowerCase();
