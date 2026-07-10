@@ -1,21 +1,38 @@
-import { execFile } from "node:child_process";
-
 import type {
   SkillMaterializationFile,
   SkillMaterializationRecord,
 } from "../core/skills.js";
+import {
+  hasConfiguredTuttiCli,
+  runTuttiCliJson,
+  TuttiIntegrationError,
+  type TuttiCliJsonRunner,
+} from "./cli-json-runner.js";
+import type { TuttiAgentIntegrationSource } from "./contracts.js";
+
+export {
+  TuttiIntegrationError,
+  resolveTuttiCliCommand,
+} from "./cli-json-runner.js";
+export type {
+  ResolveTuttiCliCommandInput,
+  TuttiCliJsonRunner,
+  TuttiIntegrationErrorCode,
+} from "./cli-json-runner.js";
+export {
+  loadTuttiAgentProviderCatalog,
+  parseTuttiAgentProviderCatalog,
+} from "./provider-catalog.js";
+export type { LoadTuttiAgentProviderCatalogInput } from "./provider-catalog.js";
+export {
+  loadTuttiAgentComposerOptions,
+  parseTuttiAgentComposerOptions,
+} from "./composer-options.js";
+export type { LoadTuttiAgentComposerOptionsInput } from "./composer-options.js";
+export * from "./contracts.js";
 
 const DEFAULT_TUTTI_SKILL_BUNDLE_TIMEOUT_MS = 10_000;
 const DEFAULT_TUTTI_SKILL_BUNDLE_MAX_BUFFER = 1024 * 1024;
-
-export type TuttiCliJsonRunner = (
-  args: string[],
-  options: {
-    cwd?: string;
-    maxBuffer: number;
-    timeoutMs: number;
-  },
-) => Promise<unknown>;
 
 export interface TuttiRecommendedSystemPrompt {
   content: string;
@@ -28,16 +45,12 @@ export interface TuttiAgentSkillBundle {
   provider?: string;
   recommendedSystemPrompt?: TuttiRecommendedSystemPrompt;
   schemaVersion?: number;
+  source: TuttiAgentIntegrationSource;
   skills: SkillMaterializationRecord[];
 }
 
 export interface TuttiAgentSkillContext extends TuttiAgentSkillBundle {
   skillManifest: SkillMaterializationRecord[];
-}
-
-export interface ResolveTuttiCliCommandInput {
-  env?: Record<string, string | undefined>;
-  envNames?: string[];
 }
 
 export interface LoadTuttiAgentSkillBundleInput {
@@ -48,52 +61,37 @@ export interface LoadTuttiAgentSkillBundleInput {
   env?: NodeJS.ProcessEnv;
   maxBuffer?: number;
   provider: string;
+  browserUse?: boolean;
+  computerUse?: boolean;
   runTuttiCli?: TuttiCliJsonRunner;
+  signal?: AbortSignal;
   timeoutMs?: number;
 }
 
 export type LoadTuttiAgentSkillContextInput = LoadTuttiAgentSkillBundleInput;
 
-export function resolveTuttiCliCommand(
-  input: ResolveTuttiCliCommandInput = {},
-): string {
-  const env = input.env ?? process.env;
-  for (const name of [...(input.envNames ?? []), "TUTTI_CLI"]) {
-    const value = env[name]?.trim();
-    if (value) return value;
-  }
-  return "";
-}
-
 export async function loadTuttiAgentSkillBundle(
   input: LoadTuttiAgentSkillBundleInput,
 ): Promise<TuttiAgentSkillBundle> {
+  if (!hasConfiguredTuttiCli(input)) {
+    return { source: "standalone", skills: [] };
+  }
   const args = createTuttiAgentSkillBundleArgs(input);
   const maxBuffer = input.maxBuffer ?? DEFAULT_TUTTI_SKILL_BUNDLE_MAX_BUFFER;
   const timeoutMs = input.timeoutMs ?? DEFAULT_TUTTI_SKILL_BUNDLE_TIMEOUT_MS;
   const cwd = normalizeOptionalString(input.cwd);
 
-  const payload =
-    input.runTuttiCli ?
-      await input.runTuttiCli(args, {
-        ...(cwd ? { cwd } : {}),
-        maxBuffer,
-        timeoutMs,
-      })
-    : await runTuttiCliCommand({
-        args,
-        command: normalizeOptionalString(input.command) ??
-          resolveTuttiCliCommand({
-            env: input.env,
-            envNames: input.commandEnvNames,
-          }),
-        ...(cwd ? { cwd } : {}),
-        env: input.env ?? process.env,
-        maxBuffer,
-        timeoutMs,
-      });
-
-  if (payload === undefined) return { skills: [] };
+  const payload = await runTuttiCliJson({
+    args,
+    command: input.command,
+    commandEnvNames: input.commandEnvNames,
+    ...(cwd ? { cwd } : {}),
+    env: input.env,
+    maxBuffer,
+    runTuttiCli: input.runTuttiCli,
+    signal: input.signal,
+    timeoutMs,
+  });
 
   const bundle = parseTuttiAgentSkillBundle(payload);
   assertTuttiAgentSkillBundleMatchesInput(bundle, input);
@@ -119,10 +117,10 @@ export function parseTuttiAgentSkillBundle(
       parseJsonRecord(value, "Tutti skill bundle response")
     : value;
   if (!isRecord(payload)) {
-    throw new Error("Tutti skill bundle response is not an object");
+    throw invalidSkillBundle("Tutti skill bundle response is not an object");
   }
   if (!Array.isArray(payload.skills)) {
-    throw new Error("Tutti skill bundle response does not contain a skills array");
+    throw invalidSkillBundle("Tutti skill bundle response does not contain a skills array");
   }
 
   const recommendedSystemPrompt = parseRecommendedSystemPrompt(
@@ -130,6 +128,7 @@ export function parseTuttiAgentSkillBundle(
   );
 
   return {
+    source: "tutti-cli",
     ...(typeof payload.schemaVersion === "number" ?
       { schemaVersion: payload.schemaVersion }
     : {}),
@@ -145,7 +144,7 @@ export function parseTuttiAgentSkillBundle(
     ...(recommendedSystemPrompt ? { recommendedSystemPrompt } : {}),
     skills: payload.skills.map((item, index) => {
       if (!isSkillMaterializationRecord(item)) {
-        throw new Error(
+        throw invalidSkillBundle(
           `Tutti skill bundle contains an invalid skill record at index ${index}`,
         );
       }
@@ -159,46 +158,15 @@ function createTuttiAgentSkillBundleArgs(
 ): string[] {
   const agentSessionId = normalizeOptionalString(input.agentSessionId);
   return [
+    "--json",
     "agent",
     "tutti-cli-skill-bundle",
     "--provider",
     input.provider,
     ...(agentSessionId ? ["--agent-session-id", agentSessionId] : []),
-    "--json",
+    ...(input.browserUse ? ["--browser-use"] : []),
+    ...(input.computerUse ? ["--computer-use"] : []),
   ];
-}
-
-async function runTuttiCliCommand(input: {
-  args: string[];
-  command: string;
-  cwd?: string;
-  env: NodeJS.ProcessEnv;
-  maxBuffer: number;
-  timeoutMs: number;
-}): Promise<unknown> {
-  if (!input.command.trim()) return undefined;
-
-  return await new Promise<unknown>((resolve, reject) => {
-    execFile(
-      input.command,
-      input.args,
-      {
-        ...(input.cwd ? { cwd: input.cwd } : {}),
-        encoding: "utf8",
-        env: input.env,
-        maxBuffer: input.maxBuffer,
-        timeout: input.timeoutMs,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const message = (stderr || stdout).trim() || error.message;
-          reject(new Error(message));
-          return;
-        }
-        resolve(stdout);
-      },
-    );
-  });
 }
 
 function assertTuttiAgentSkillBundleMatchesInput(
@@ -206,7 +174,7 @@ function assertTuttiAgentSkillBundleMatchesInput(
   input: LoadTuttiAgentSkillBundleInput,
 ) {
   if (bundle.provider && bundle.provider !== input.provider) {
-    throw new Error(
+    throw invalidSkillBundle(
       `Tutti skill bundle provider mismatch: expected ${input.provider}, got ${bundle.provider}`,
     );
   }
@@ -217,7 +185,7 @@ function assertTuttiAgentSkillBundleMatchesInput(
     bundle.agentSessionId &&
     bundle.agentSessionId !== expectedAgentSessionId
   ) {
-    throw new Error(
+    throw invalidSkillBundle(
       `Tutti skill bundle session mismatch: expected ${expectedAgentSessionId}, got ${bundle.agentSessionId}`,
     );
   }
@@ -227,8 +195,11 @@ function parseJsonRecord(value: string, label: string): unknown {
   try {
     return JSON.parse(value || "{}");
   } catch (error) {
-    throw new Error(
-      `${label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    throw new TuttiIntegrationError(
+      "invalid_response",
+      `${label} is not valid JSON.`,
+      {},
+      { cause: error },
     );
   }
 }
@@ -238,10 +209,10 @@ function parseRecommendedSystemPrompt(
 ): TuttiRecommendedSystemPrompt | undefined {
   if (value === undefined || value === null) return undefined;
   if (!isRecord(value)) {
-    throw new Error("Tutti skill bundle recommendedSystemPrompt is not an object");
+    throw invalidSkillBundle("Tutti skill bundle recommendedSystemPrompt is not an object");
   }
   if (typeof value.content !== "string") {
-    throw new Error(
+    throw invalidSkillBundle(
       "Tutti skill bundle recommendedSystemPrompt.content is not a string",
     );
   }
@@ -296,4 +267,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeOptionalString(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function invalidSkillBundle(message: string) {
+  return new TuttiIntegrationError("invalid_response", message);
 }

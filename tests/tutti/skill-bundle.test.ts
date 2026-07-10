@@ -12,7 +12,7 @@ describe("Tutti skill bundle helpers", () => {
   it("loads and validates the Tutti CLI skill bundle", async () => {
     const calls: Array<{
       args: string[];
-      options: { cwd?: string; maxBuffer: number; timeoutMs: number };
+      options: { cwd?: string; maxBuffer: number; signal?: AbortSignal; timeoutMs: number };
     }> = [];
     const runTuttiCli: TuttiCliJsonRunner = async (args, options) => {
       calls.push({ args, options });
@@ -47,18 +47,19 @@ describe("Tutti skill bundle helpers", () => {
     expect(calls).toEqual([
       {
         args: [
+          "--json",
           "agent",
           "tutti-cli-skill-bundle",
           "--provider",
           "codex",
           "--agent-session-id",
           "run-1",
-          "--json",
         ],
         options: { cwd: "/workspace", maxBuffer: 456, timeoutMs: 123 },
       },
     ]);
     expect(context.skills).toHaveLength(1);
+    expect(context.source).toBe("tutti-cli");
     expect(context.skillManifest).toBe(context.skills);
     expect(context.recommendedSystemPrompt?.content).toBe("Use Tutti skills.");
   });
@@ -69,7 +70,32 @@ describe("Tutti skill bundle helpers", () => {
         env: {},
         provider: "codex",
       }),
-    ).resolves.toEqual({ skills: [] });
+    ).resolves.toEqual({ source: "standalone", skills: [] });
+  });
+
+  it("forwards browser, computer, and abort controls", async () => {
+    const controller = new AbortController();
+    const calls: Array<{ args: string[]; signal?: AbortSignal }> = [];
+    await loadTuttiAgentSkillBundle({
+      browserUse: true,
+      computerUse: true,
+      provider: "codex",
+      signal: controller.signal,
+      runTuttiCli: async (args, options) => {
+        calls.push({ args, signal: options.signal });
+        return { provider: "codex", skills: [] };
+      },
+    });
+    expect(calls[0]?.args).toEqual([
+      "--json",
+      "agent",
+      "tutti-cli-skill-bundle",
+      "--provider",
+      "codex",
+      "--browser-use",
+      "--computer-use",
+    ]);
+    expect(calls[0]?.signal).toBe(controller.signal);
   });
 
   it("checks provider and session echo values", async () => {

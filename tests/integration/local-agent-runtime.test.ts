@@ -16,6 +16,56 @@ describe("createLocalAgentRuntime", () => {
     vi.unstubAllEnvs();
   });
 
+  it("accepts provider aliases only at input and lists canonical ids", async () => {
+    const provider: LocalAgentProviderPlugin<"local-agent", "canonical"> = {
+      id: "canonical",
+      aliases: ["legacy"],
+      displayName: "Canonical",
+      kind: "local-agent",
+      async detect() {
+        return { authState: "ok", executablePath: "canonical", version: "1" };
+      },
+      capabilities() {
+        return { cancel: true, nativeResume: false, streaming: true, toolGateway: false, maxConcurrentRuns: 1 };
+      },
+      async buildLaunchPlan() {
+        throw new Error("not used");
+      },
+      async *run(params) {
+        yield { type: "done", status: "completed", sessionId: String(params.runtimeProvider) };
+      },
+    };
+    const runtime = createLocalAgentRuntime({ providers: [provider] });
+    expect(runtime.listProviders()).toEqual([
+      { id: "canonical", displayName: "Canonical", kind: "local-agent" },
+    ]);
+    const events: AgentEvent[] = [];
+    for await (const event of runtime.run({
+      runId: "alias-run",
+      provider: "legacy" as "canonical",
+      cwd: process.cwd(),
+      prompt: "hello",
+    })) {
+      events.push(event);
+    }
+    expect(events[0]).toMatchObject({ type: "done", sessionId: "canonical" });
+  });
+
+  it("rejects duplicate provider ids and aliases during construction", () => {
+    const base = createFakeProvider();
+    expect(() => createLocalAgentRuntime({ providers: [base, base] })).toThrow(
+      "Duplicate local agent provider id: fake",
+    );
+    expect(() =>
+      createLocalAgentRuntime({
+        providers: [
+          { ...base, id: "one", aliases: ["shared"] },
+          { ...base, id: "two", aliases: ["shared"] },
+        ],
+      }),
+    ).toThrow("Duplicate local agent provider alias shared");
+  });
+
   it("detects registered providers and streams normalized agent events", async () => {
     const runtime = createLocalAgentRuntime({
       providers: [
@@ -669,7 +719,7 @@ describe("createLocalAgentRuntime", () => {
       }
     };
 
-    await expect(collect()).rejects.toThrow(/codex, claude, nexight/);
+    await expect(collect()).rejects.toThrow(/codex, claude-code, nexight/);
   });
 
   it("runs provider adapters through the transport pipeline", async () => {

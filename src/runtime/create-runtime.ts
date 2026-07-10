@@ -90,9 +90,34 @@ export function createLocalAgentRuntime<
   providers: LocalAgentProviderPlugin<TKind, TProvider>[];
   transports?: Transport[];
 }): LocalAgentRuntime<TKind, TProvider> {
-  const providers = new Map<TProvider, LocalAgentProviderPlugin<TKind, TProvider>>(
-    options.providers.map((provider) => [provider.id, provider]),
-  );
+  const providers = new Map<string, LocalAgentProviderPlugin<TKind, TProvider>>();
+  const canonicalProviderIds = new Set<string>();
+  for (const provider of options.providers) {
+    const canonicalId = String(provider.id).trim();
+    if (!canonicalId) {
+      throw new Error("Local agent provider id cannot be empty");
+    }
+    if (providers.has(canonicalId)) {
+      throw new Error(`Duplicate local agent provider id: ${canonicalId}`);
+    }
+    providers.set(canonicalId, provider);
+    canonicalProviderIds.add(canonicalId);
+  }
+  for (const provider of options.providers) {
+    for (const rawAlias of provider.aliases ?? []) {
+      const alias = rawAlias.trim();
+      if (!alias || alias === String(provider.id)) {
+        continue;
+      }
+      const existing = providers.get(alias);
+      if (existing) {
+        throw new Error(
+          `Duplicate local agent provider alias ${alias}: ${String(existing.id)} and ${String(provider.id)}`,
+        );
+      }
+      providers.set(alias, provider);
+    }
+  }
   const activeRuns = new Map<
     string,
     {
@@ -197,9 +222,10 @@ export function createLocalAgentRuntime<
     },
 
     async *run(input) {
-      const provider = providers.get(input.provider);
+      const requestedProviderId = String(input.provider);
+      const provider = providers.get(requestedProviderId);
       if (!provider) {
-        throw new Error(`No local agent provider registered for ${input.provider}`);
+        throw new Error(`No local agent provider registered for ${requestedProviderId}`);
       }
 
       const controller = new AbortController();
@@ -225,7 +251,10 @@ export function createLocalAgentRuntime<
             ...input,
             env,
             runtimeKind: input.runtimeKind ?? provider.kind,
-            runtimeProvider: input.runtimeProvider ?? provider.id,
+            runtimeProvider:
+              input.runtimeProvider && canonicalProviderIds.has(String(input.runtimeProvider))
+                ? input.runtimeProvider
+                : provider.id,
             signal,
           });
         const adapter = provider.createAdapter?.();

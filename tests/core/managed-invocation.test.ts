@@ -24,14 +24,15 @@ function decodeManagedMcpAttachment(value: string) {
 }
 
 describe("managed agent invocation", () => {
-  it("limits managed invocation providers to codex, claude, and nexight", () => {
+  it("exposes canonical managed providers and accepts the legacy Claude input", () => {
     expect(MANAGED_AGENT_INVOCATION_PROVIDER_IDS).toEqual([
       "codex",
-      "claude",
+      "claude-code",
       "nexight",
     ]);
     expect(isManagedAgentInvocationProviderId("codex")).toBe(true);
     expect(isManagedAgentInvocationProviderId("claude")).toBe(true);
+    expect(isManagedAgentInvocationProviderId("claude-code")).toBe(true);
     expect(isManagedAgentInvocationProviderId("nexight")).toBe(true);
     expect(isManagedAgentInvocationProviderId("nextop")).toBe(false);
   });
@@ -150,6 +151,23 @@ describe("managed agent invocation", () => {
           cwd: context?.cwd,
         },
       });
+    } finally {
+      await rm(appDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("canonicalizes legacy Claude provider input inside managed context creation", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "agent-acp-kit-"));
+    try {
+      const context = await createManagedAgentRunContextFromHeaders(
+        { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: "run-secret" },
+        {
+          appDataDir,
+          providerId: "claude",
+          runId: "legacy-run",
+        },
+      );
+      expect(context?.cwd).toContain("claude-code-");
     } finally {
       await rm(appDataDir, { recursive: true, force: true });
     }

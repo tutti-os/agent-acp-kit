@@ -50,8 +50,8 @@ describe("runAcpTransport", () => {
     const events = [];
     const script = createFakeAcpPeerScript({
       updates: [
-        { type: "text_delta", text: "hello" },
-        { type: "reasoning_delta", text: "thinking" },
+        { sessionUpdate: "text_delta", content: { type: "text", text: "hello" } },
+        { sessionUpdate: "reasoning_delta", content: { type: "text", text: "thinking" } },
         { type: "tool_call", id: "tool_1", name: "generate_image", input: { prompt: "x" } },
         {
           type: "tool_result",
@@ -114,7 +114,7 @@ describe("runAcpTransport", () => {
       expectedMethods: [
         "initialize",
         "session/new",
-        "session/set_model",
+        "session/set_config_option",
         "session/prompt",
       ],
       sessionId: "session_model",
@@ -148,6 +148,99 @@ describe("runAcpTransport", () => {
         reason: "completed",
         exitCode: 0,
         sessionId: "session_model",
+      },
+    ]);
+  });
+
+  it("uses ACP capabilities, model fallback, prompt content, and permission result shape", async () => {
+    const script = String.raw`
+process.stdin.setEncoding("utf8");
+let buffer = "";
+let promptRequestId;
+function send(message) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+}
+function fail(message) {
+  send({ method: "session/update", params: { type: "error", error: message } });
+  process.exit(2);
+}
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  let index = buffer.indexOf("\n");
+  while (index >= 0) {
+    const line = buffer.slice(0, index).trim();
+    buffer = buffer.slice(index + 1);
+    index = buffer.indexOf("\n");
+    if (!line) continue;
+    const message = JSON.parse(line);
+    if (message.method === "initialize") {
+      if (message.params?.clientCapabilities?.fs?.readTextFile !== false ||
+          message.params?.clientCapabilities?._meta?.terminal_output !== true) {
+        fail("invalid client capabilities");
+        return;
+      }
+      send({ id: message.id, result: { ok: true } });
+    } else if (message.method === "session/new") {
+      send({ id: message.id, result: { sessionId: "session-fallback" } });
+    } else if (message.method === "session/set_config_option") {
+      send({ id: message.id, error: { code: -32601, message: "unsupported" } });
+    } else if (message.method === "session/set_model") {
+      if (message.params?.modelId !== "model-x") {
+        fail("missing modelId");
+        return;
+      }
+      send({ id: message.id, result: { ok: true } });
+    } else if (message.method === "session/prompt") {
+      if (!Array.isArray(message.params?.prompt) || message.params.prompt[0]?.text !== "hello") {
+        fail("prompt is not ACP content");
+        return;
+      }
+      promptRequestId = message.id;
+      send({
+        id: 99,
+        method: "session/request_permission",
+        params: { options: [{ optionId: "allow" }] },
+      });
+    } else if (message.id === 99) {
+      if (message.result?.outcome?.outcome !== "selected" ||
+          message.result?.outcome?.optionId !== "allow") {
+        fail("invalid permission response");
+        return;
+      }
+      send({ method: "session/update", params: { sessionUpdate: "text_delta", content: { text: "ok" } } });
+      send({ id: promptRequestId, result: { stopReason: "end_turn" } });
+      setTimeout(() => process.exit(0), 5);
+    }
+  }
+});
+`;
+    const events = [];
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "hello",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
+      },
+      {
+        cwd: process.cwd(),
+        model: "model-x",
+        prompt: "hello",
+        runId: "run_acp_fallback",
+      },
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: "text_delta", text: "ok" },
+      {
+        type: "done",
+        status: "completed",
+        reason: "completed",
+        exitCode: 0,
+        sessionId: "session-fallback",
       },
     ]);
   });

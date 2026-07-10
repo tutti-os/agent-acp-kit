@@ -11,8 +11,11 @@ function pushSessionUpdateEvents(queue: AgentEvent[], params: unknown) {
     string,
     unknown
   >;
-  const kind = String(update.type ?? update.kind ?? update.status ?? "");
+  const kind = String(
+    update.sessionUpdate ?? update.type ?? update.kind ?? update.status ?? "",
+  );
 
+  const content = update.content;
   const text =
     typeof update.text === "string"
       ? update.text
@@ -20,6 +23,9 @@ function pushSessionUpdateEvents(queue: AgentEvent[], params: unknown) {
         ? update.delta
         : typeof update.content === "string"
           ? update.content
+          : content && typeof content === "object" && !Array.isArray(content) &&
+              typeof (content as Record<string, unknown>).text === "string"
+            ? String((content as Record<string, unknown>).text)
           : undefined;
   if (text && /reason|thinking/i.test(kind)) {
     queue.push({ type: "thinking_delta", text });
@@ -118,6 +124,8 @@ export async function* runAcpTransport(
   const queue: AgentEvent[] = [];
   let done = false;
   let fatalError = false;
+  let lifecycleCompleted = false;
+  let lifecycleSettled = false;
   let nextId = 1;
   let sessionId: string | undefined;
   let resumeToken: string | undefined;
@@ -214,12 +222,18 @@ export async function* runAcpTransport(
         options?: Array<{ kind?: string; optionId?: string }>;
       };
       if (message.id !== undefined) {
+        const selectedOptionId = choosePermissionOutcome(params.options ?? []);
         sendJsonRpc(processHandle.child.stdin, {
           jsonrpc: "2.0",
           id: message.id,
-          result: {
-            outcome: choosePermissionOutcome(params.options ?? []),
-          },
+          result: selectedOptionId
+            ? {
+                outcome: {
+                  outcome: "selected",
+                  optionId: selectedOptionId,
+                },
+              }
+            : { outcome: { outcome: "cancelled" } },
         });
       }
       return;
@@ -288,7 +302,7 @@ export async function* runAcpTransport(
       });
     }
     const failed = fatalError || timedOut || (code != null && code !== 0);
-    const canceled = signal != null && !failed;
+    const canceled = signal != null && !failed && !lifecycleCompleted;
     queue.push({
       type: "done",
       status: canceled ? "canceled" : failed ? "failed" : "completed",
@@ -300,45 +314,65 @@ export async function* runAcpTransport(
     done = true;
   });
 
-  try {
-    await sendRequest("initialize", {
-      clientInfo: { name: "agent-acp-kit", version: "0.0.0" },
-      protocolVersion: 1,
-    });
-    const newSessionResult = await sendRequest(
-      "session/new",
-      buildAcpSessionNewParams(
-        params.cwd,
-        params.mcpServers || params.resume
-          ? {
-              ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
-              ...(params.resume ? { resume: params.resume } : {}),
-            }
-          : undefined,
-      ),
-    );
-    captureSessionMetadata(newSessionResult);
-    if (params.model) {
-      await sendRequest("session/set_model", {
-        ...(sessionId ? { sessionId } : {}),
-        model: params.model,
+  const runLifecycle = async () => {
+    try {
+      await sendRequest("initialize", {
+        clientInfo: { name: "agent-acp-kit", version: "0.0.0" },
+        protocolVersion: 1,
+        clientCapabilities: {
+          fs: { readTextFile: false, writeTextFile: false },
+          terminal: false,
+          _meta: { terminal_output: true },
+        },
       });
+      const newSessionResult = await sendRequest(
+        "session/new",
+        buildAcpSessionNewParams(
+          params.cwd,
+          params.mcpServers || params.resume
+            ? {
+                ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
+                ...(params.resume ? { resume: params.resume } : {}),
+              }
+            : undefined,
+        ),
+      );
+      captureSessionMetadata(newSessionResult);
+      if (params.model && sessionId) {
+        try {
+          await sendRequest("session/set_config_option", {
+            sessionId,
+            configId: "model",
+            value: params.model,
+          });
+        } catch {
+          await sendRequest("session/set_model", {
+            sessionId,
+            modelId: params.model,
+          });
+        }
+      }
+      await sendRequest("session/prompt", {
+        ...(sessionId ? { sessionId } : {}),
+        prompt: [{ type: "text", text: params.prompt }],
+      });
+      lifecycleCompleted = true;
+      processHandle.child.stdin.end();
+    } catch (error) {
+      fatalError = true;
+      queue.push({
+        type: "error",
+        code: "acp_lifecycle_failed",
+        message: error instanceof Error ? error.message : "ACP lifecycle failed.",
+      });
+      processHandle.child.kill();
+    } finally {
+      lifecycleSettled = true;
     }
-    await sendRequest("session/prompt", {
-      ...(sessionId ? { sessionId } : {}),
-      prompt: params.prompt,
-    });
-  } catch (error) {
-    fatalError = true;
-    queue.push({
-      type: "error",
-      code: "acp_lifecycle_failed",
-      message: error instanceof Error ? error.message : "ACP lifecycle failed.",
-    });
-    processHandle.child.kill();
-  }
+  };
+  void runLifecycle();
 
-  while (!done || queue.length > 0) {
+  while (!done || !lifecycleSettled || queue.length > 0) {
     const next = queue.shift();
     if (next) {
       yield next;

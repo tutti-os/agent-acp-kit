@@ -126,14 +126,14 @@ async function materializeClaudeMcpConfig(params: {
 
 export function createClaudeProvider(): LocalAgentProviderPlugin<
   "local-agent",
-  "claude"
+  "claude-code"
 > {
   const cleanupByRunId = new Map<string, string[]>();
 
   async function prepareLaunchPlan(
-    params: Parameters<LocalAgentProviderPlugin<"local-agent", "claude">["buildLaunchPlan"]>[0],
+    params: Parameters<LocalAgentProviderPlugin<"local-agent", "claude-code">["buildLaunchPlan"]>[0],
   ) {
-    params = applyManagedAgentInvocationToRunParams("claude", params);
+    params = applyManagedAgentInvocationToRunParams("claude-code", params);
     const managed = Boolean(params.managedAgentInvocation);
     const materialized = await materializeSkills(
       params.cwd,
@@ -196,13 +196,14 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
     await cleanupPaths(cleanupTargets);
   }
 
-  const plugin: LocalAgentProviderPlugin<"local-agent", "claude"> = {
-    id: "claude",
+  const plugin: LocalAgentProviderPlugin<"local-agent", "claude-code"> = {
+    id: "claude-code",
+    aliases: ["claude"],
     displayName: "Claude Code",
     kind: "local-agent",
     async detect(context) {
       const detectionContext = prepareManagedAgentInvocationDetectContext(
-        "claude",
+        "claude-code",
         context,
       );
       return detectClaude({

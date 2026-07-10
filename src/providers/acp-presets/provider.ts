@@ -113,7 +113,7 @@ export type AcpProviderId = (typeof ACP_PROVIDER_SPECS)[number]["id"];
 
 export const DEFAULT_LOCAL_AGENT_PROVIDER_IDS = [
   "codex",
-  "claude",
+  "claude-code",
   ...ACP_PROVIDER_SPECS.map((provider) => provider.id),
 ] as const;
 

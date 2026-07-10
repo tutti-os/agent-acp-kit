@@ -1,19 +1,20 @@
 import type {
-  LocalAgentMcpEnvEntry,
   NormalizedLocalAgentMcpHttpServerConfig,
   NormalizedLocalAgentMcpStdioServerConfig,
 } from "../../core/mcp.js";
 
+export type AcpMcpEnvEntry = { name: string; value: string };
+
 export type AcpSessionNewParams = {
   cwd: string;
   mcpServers: Array<
-    | (NormalizedLocalAgentMcpStdioServerConfig & {
+    | (Omit<NormalizedLocalAgentMcpStdioServerConfig, "env"> & {
         type: "stdio";
-        env: LocalAgentMcpEnvEntry[];
+        env: AcpMcpEnvEntry[];
       })
-    | (NormalizedLocalAgentMcpHttpServerConfig & {
+    | (Omit<NormalizedLocalAgentMcpHttpServerConfig, "env"> & {
         type: "http";
-        env: LocalAgentMcpEnvEntry[];
+        env: AcpMcpEnvEntry[];
       })
   >;
   resume?: {

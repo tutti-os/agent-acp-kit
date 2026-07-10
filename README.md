@@ -140,13 +140,61 @@ for await (const event of runtime.run({
 | Skills | materialized files, prompt injection, project-instruction style delivery, cleanup |
 | Events | normalized `AgentEvent` discriminated union |
 | Testing | fake provider, fake ACP peer, fixtures, conformance helpers |
+| Tutti integration | auto CLI-backed/standalone provider catalog, composer options, dynamic skill context, browser-safe contracts |
+
+## Tutti Workspace Apps
+
+Tutti apps keep platform integration behind `@tutti-os/agent-acp-kit/tutti` and keep actual Agent execution in an app-owned local runtime:
+
+```ts
+import {
+  createDefaultLocalAgentRuntime,
+  createManagedAgentRunContextFromHeaders,
+} from "@tutti-os/agent-acp-kit";
+import {
+  loadTuttiAgentComposerOptions,
+  loadTuttiAgentProviderCatalog,
+  loadTuttiAgentSkillContext,
+} from "@tutti-os/agent-acp-kit/tutti";
+
+const runtime = createDefaultLocalAgentRuntime();
+const catalog = await loadTuttiAgentProviderCatalog({ runtime });
+const providerId = catalog.defaultProviderId;
+const composer = await loadTuttiAgentComposerOptions({
+  runtime,
+  providerId,
+  cwd: appLocalCwd,
+});
+const skills = await loadTuttiAgentSkillContext({
+  provider: providerId,
+  agentSessionId: runId,
+  cwd: appLocalCwd,
+});
+const runContext = await createManagedAgentRunContextFromHeaders(headers, {
+  providerId,
+  runId,
+});
+```
+
+There is no app-facing mode switch. If `TUTTI_CLI` is present, the facade uses versioned Tutti CLI JSON for enabled provider visibility, composer options, and dynamic skills. If it is absent, catalog/composer automatically use runtime discovery and skill context is empty with `source: "standalone"`. A configured CLI that fails or returns an unsupported schema produces `TuttiIntegrationError`; it never silently falls back.
+
+Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at runtime/managed/install ingress. `nexight` and `tutti-agent` are distinct providers and are never aliases.
+
+Frontend code can import DTO types and guards without Node dependencies:
+
+```ts
+import {
+  isTuttiAgentProviderCatalog,
+  type TuttiAgentProviderCatalog,
+} from "@tutti-os/agent-acp-kit/tutti/contracts";
+```
 
 ## Provider Support
 
 | Provider | Status | Transport | Notes |
 | --- | --- | --- | --- |
 | Codex | Supported | `codex exec --json` JSONL | Dynamic model discovery via `codex debug models`; per-run `CODEX_HOME` with copied auth and sanitized config; same-provider resume via `codex exec resume --json <session> -` |
-| Claude Code | Supported | `claude -p --output-format stream-json` | Uses fallback model hints, custom model pass-through, and same-provider resume via `--resume <session>` |
+| Claude Code (`claude-code`) | Supported | `claude -p --output-format stream-json` | Canonical provider ID is `claude-code`; legacy `claude` input is accepted internally; supports fallback model hints, custom model pass-through, and same-provider resume via `--resume <session>` |
 | Devin for Terminal | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `DEVIN_ACP_BIN` |
 | Hermes | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `HERMES_ACP_BIN` |
 | Kimi | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `KIMI_ACP_BIN` |

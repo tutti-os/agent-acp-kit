@@ -38,7 +38,7 @@ describe("buildAcpSessionNewParams", () => {
           name: "toolbox",
           command: "node",
           args: ["mcp.js"],
-          env: [{ key: "TOKEN", value: "secret" }],
+          env: [{ name: "TOKEN", value: "secret" }],
         },
         {
           type: "http",
