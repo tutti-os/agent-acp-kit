@@ -245,11 +245,11 @@ process.stdin.on("data", (chunk) => {
     ]);
   });
 
-  it("sets a model even when the ACP peer omits a session id", async () => {
+  it("rejects a malformed ACP session/new response before model selection", async () => {
     const script = String.raw`
 process.stdin.setEncoding("utf8");
 let buffer = "";
-const methods = [];
+setInterval(() => {}, 1000);
 function send(message) {
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
 }
@@ -262,23 +262,10 @@ process.stdin.on("data", (chunk) => {
     index = buffer.indexOf("\n");
     if (!line) continue;
     const message = JSON.parse(line);
-    methods.push(message.method);
     if (message.method === "initialize") {
       send({ id: message.id, result: { ok: true } });
     } else if (message.method === "session/new") {
       send({ id: message.id, result: { ok: true } });
-    } else if (message.method === "session/set_config_option") {
-      if (message.params?.value !== "model-without-session" || "sessionId" in message.params) {
-        process.exit(2);
-      }
-      send({ id: message.id, result: { ok: true } });
-    } else if (message.method === "session/prompt") {
-      if (JSON.stringify(methods) !== JSON.stringify([
-        "initialize", "session/new", "session/set_config_option", "session/prompt",
-      ])) process.exit(3);
-      send({ method: "session/update", params: { type: "text_delta", text: "implicit session" } });
-      send({ id: message.id, result: { stopReason: "end_turn" } });
-      setTimeout(() => process.exit(0), 5);
     }
   }
 });
@@ -295,16 +282,20 @@ process.stdin.on("data", (chunk) => {
       },
       {
         cwd: process.cwd(),
-        model: "model-without-session",
+        model: "model-x",
         prompt: "hello",
-        runId: "run_acp_implicit_session",
+        runId: "run_acp_missing_session",
       },
     )) events.push(event);
 
-    expect(events).toEqual([
-      { type: "text_delta", text: "implicit session" },
-      { type: "done", status: "completed", reason: "completed", exitCode: 0 },
-    ]);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "error",
+        code: "acp_lifecycle_failed",
+        message: "ACP session/new did not return a sessionId.",
+      }),
+      expect.objectContaining({ type: "done", status: "failed" }),
+    ]));
   });
 
   it("reports signal termination after prompt acknowledgement as canceled", async () => {
@@ -326,12 +317,14 @@ process.stdin.on("data", (chunk) => {
     const message = JSON.parse(line);
     if (message.method === "initialize") send({ id: message.id, result: { ok: true } });
     if (message.method === "session/new") send({ id: message.id, result: { sessionId: "cancel-me" } });
-    if (message.method === "session/prompt") send({ id: message.id, result: { stopReason: "end_turn" } });
+    if (message.method === "session/prompt") {
+      send({ id: message.id, result: { stopReason: "end_turn" } });
+      send({ method: "session/update", params: { type: "text_delta", text: "abort-ready" } });
+    }
   }
 });
 `;
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 100);
     const events = [];
     for await (const event of runAcpTransport(
       {
@@ -348,7 +341,12 @@ process.stdin.on("data", (chunk) => {
         runId: "run_acp_abort_after_ack",
         signal: controller.signal,
       },
-    )) events.push(event);
+    )) {
+      events.push(event);
+      if (event.type === "text_delta" && event.text === "abort-ready") {
+        controller.abort();
+      }
+    }
 
     expect(events.at(-1)).toMatchObject({
       type: "done",

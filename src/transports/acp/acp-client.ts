@@ -337,22 +337,25 @@ export async function* runAcpTransport(
         ),
       );
       captureSessionMetadata(newSessionResult);
+      if (!sessionId) {
+        throw new Error("ACP session/new did not return a sessionId.");
+      }
       if (params.model) {
         try {
           await sendRequest("session/set_config_option", {
-            ...(sessionId ? { sessionId } : {}),
+            sessionId,
             configId: "model",
             value: params.model,
           });
         } catch {
           await sendRequest("session/set_model", {
-            ...(sessionId ? { sessionId } : {}),
+            sessionId,
             modelId: params.model,
           });
         }
       }
       await sendRequest("session/prompt", {
-        ...(sessionId ? { sessionId } : {}),
+        sessionId,
         prompt: [{ type: "text", text: params.prompt }],
       });
       processHandle.child.stdin.end();

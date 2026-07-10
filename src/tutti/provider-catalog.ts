@@ -108,13 +108,22 @@ function parseCliProviderCatalog(
   });
 
   const defaultProviderId = canonicalTuttiProviderId(payload.defaultProviderId.trim());
+  const configuredDefault = providers.find(
+    (provider) => provider.providerId === defaultProviderId,
+  );
+  const usableDefault =
+    configuredDefault?.runtimeSupported &&
+    configuredDefault.availability.status === "available"
+      ? configuredDefault
+      : providers.find(
+          (provider) =>
+            provider.runtimeSupported &&
+            provider.availability.status === "available",
+        ) ?? providers.find((provider) => provider.runtimeSupported);
   return {
     schemaVersion: 2,
     source: "tutti-cli",
-    defaultProviderId:
-      defaultProviderId && seen.has(defaultProviderId)
-        ? defaultProviderId
-        : providers[0]?.providerId ?? "",
+    defaultProviderId: usableDefault?.providerId ?? providers[0]?.providerId ?? "",
     providers,
   };
 }

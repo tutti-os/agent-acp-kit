@@ -66,6 +66,7 @@ describe("Tutti provider catalog", () => {
 
     expect(calls).toEqual([["--json", "agent", "providers"]]);
     expect(catalog.source).toBe("tutti-cli");
+    expect(catalog.defaultProviderId).toBe("codex");
     expect(catalog.providers.map((provider) => provider.providerId)).toEqual([
       "future-agent",
       "codex",
@@ -168,6 +169,7 @@ describe("Tutti provider catalog", () => {
       },
       { providerId: "codex", runtimeSupported: true },
     ]);
+    expect(catalog.defaultProviderId).toBe("codex");
   });
 
   it("applies the managed provider boundary in standalone mode too", async () => {
