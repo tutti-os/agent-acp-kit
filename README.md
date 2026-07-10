@@ -155,11 +155,12 @@ import {
   loadTuttiAgentComposerOptions,
   loadTuttiAgentProviderCatalog,
   loadTuttiAgentSkillContext,
+  resolveTuttiAgentProviderCatalog,
 } from "@tutti-os/agent-acp-kit/tutti";
 
 const runtime = createDefaultLocalAgentRuntime();
-const catalog = await loadTuttiAgentProviderCatalog({ runtime });
-const providerId = catalog.defaultProviderId;
+const catalog = await resolveTuttiAgentProviderCatalog({ runtime });
+const providerId = catalog.defaultProvider;
 const composer = await loadTuttiAgentComposerOptions({
   runtime,
   providerId,
@@ -177,6 +178,8 @@ const runContext = await createManagedAgentRunContextFromHeaders(headers, {
 ```
 
 There is no app-facing mode switch. If `TUTTI_CLI` is present, the facade uses versioned Tutti CLI JSON for enabled provider visibility, composer options, and dynamic skills. If it is absent, catalog/composer automatically use runtime discovery and skill context is empty with `source: "standalone"`. A configured CLI that fails or returns an unsupported schema produces `TuttiIntegrationError`; it never silently falls back.
+
+Use `resolveTuttiAgentProviderCatalog` for an app-facing provider picker: it combines platform visibility, one shared runtime detection, authentication readiness, and lazy composer models. Use the lower-level `loadTuttiAgentProviderCatalog` only when the raw versioned platform catalog is the required contract.
 
 Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at SDK input ingress and is never returned. `nexight` and `tutti-agent` are distinct providers and are never aliases.
 
