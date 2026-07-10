@@ -178,7 +178,7 @@ const runContext = await createManagedAgentRunContextFromHeaders(headers, {
 
 There is no app-facing mode switch. If `TUTTI_CLI` is present, the facade uses versioned Tutti CLI JSON for enabled provider visibility, composer options, and dynamic skills. If it is absent, catalog/composer automatically use runtime discovery and skill context is empty with `source: "standalone"`. A configured CLI that fails or returns an unsupported schema produces `TuttiIntegrationError`; it never silently falls back.
 
-Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at runtime/managed/install ingress. `nexight` and `tutti-agent` are distinct providers and are never aliases.
+Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at SDK input ingress and is never returned. `nexight` and `tutti-agent` are distinct providers and are never aliases.
 
 Frontend code can import DTO types and guards without Node dependencies:
 

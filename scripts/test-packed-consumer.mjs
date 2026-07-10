@@ -8,12 +8,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = mkdtempSync(path.join(tmpdir(), "agent-acp-kit-consumer-"));
 
 try {
-  const packOutput = execFileSync("npm", ["pack", "--json"], {
+  const packOutput = execFileSync("npm", ["pack", "--json", "--pack-destination", fixture], {
     cwd: root,
     encoding: "utf8",
   });
   const packResult = JSON.parse(packOutput)[0];
-  const tarball = path.join(root, packResult.filename);
+  const tarball = path.join(fixture, packResult.filename);
   writeFileSync(
     path.join(fixture, "package.json"),
     JSON.stringify({ name: "agent-acp-kit-consumer", private: true, type: "module" }),
@@ -89,7 +89,6 @@ console.log(JSON.stringify({ ok: true, providers: catalog.providers.length, even
     readFileSync(path.join(fixture, "node_modules/@tutti-os/agent-acp-kit/package.json"), "utf8"),
   );
   console.log(`packed consumer verified @tutti-os/agent-acp-kit@${packageJson.version}`);
-  rmSync(tarball, { force: true });
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }

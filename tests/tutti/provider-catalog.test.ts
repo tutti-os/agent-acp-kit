@@ -94,6 +94,118 @@ describe("Tutti provider catalog", () => {
     ]);
   });
 
+  it("canonicalizes the legacy Claude ingress without exposing an alias", async () => {
+    const catalog = await loadTuttiAgentProviderCatalog({
+      runtime: fakeRuntime(),
+      runTuttiCli: async () => ({
+        schemaVersion: 2,
+        defaultProviderId: "claude",
+        providers: [{
+          providerId: "claude",
+          displayName: "Claude Code",
+          availability: { status: "available", reasonCode: "", detail: "" },
+        }],
+      }),
+    });
+    expect(catalog.defaultProviderId).toBe("claude-code");
+    expect(catalog.providers).toMatchObject([
+      { providerId: "claude-code", runtimeSupported: true },
+    ]);
+  });
+
+  it("marks every runtime-unsupported provider unavailable", async () => {
+    const catalog = await loadTuttiAgentProviderCatalog({
+      runtime: fakeRuntime(),
+      runTuttiCli: async () => ({
+        schemaVersion: 2,
+        defaultProviderId: "future-agent",
+        providers: [{
+          providerId: "future-agent",
+          displayName: "Future Agent",
+          availability: { status: "unknown", reasonCode: "probing", detail: "Waiting" },
+        }],
+      }),
+    });
+    expect(catalog.providers[0]).toMatchObject({
+      runtimeSupported: false,
+      availability: { status: "unavailable", reasonCode: "kit_runtime_unavailable" },
+    });
+  });
+
+  it("disables CLI providers that managed invocation cannot execute", async () => {
+    const catalog = await loadTuttiAgentProviderCatalog({
+      runtime: fakeRuntime({
+        providers: [
+          { id: "codex", displayName: "Codex", kind: "local-agent" },
+          { id: "opencode", displayName: "OpenCode", kind: "local-agent" },
+        ],
+      }),
+      detectContext: {
+        managedAgentInvocation: { credential: "secret", cwd: "/tmp/managed-run" },
+      },
+      runTuttiCli: async () => ({
+        schemaVersion: 2,
+        defaultProviderId: "opencode",
+        providers: [
+          {
+            providerId: "opencode",
+            displayName: "OpenCode",
+            availability: { status: "available", reasonCode: "", detail: "" },
+          },
+          {
+            providerId: "codex",
+            displayName: "Codex",
+            availability: { status: "available", reasonCode: "", detail: "" },
+          },
+        ],
+      }),
+    });
+    expect(catalog.providers).toMatchObject([
+      {
+        providerId: "opencode",
+        runtimeSupported: false,
+        availability: { status: "unavailable", reasonCode: "managed_provider_unsupported" },
+      },
+      { providerId: "codex", runtimeSupported: true },
+    ]);
+  });
+
+  it("applies the managed provider boundary in standalone mode too", async () => {
+    const catalog = await loadTuttiAgentProviderCatalog({
+      env: {},
+      runtime: fakeRuntime({
+        providers: [
+          { id: "opencode", displayName: "OpenCode", kind: "local-agent" },
+          { id: "codex", displayName: "Codex", kind: "local-agent" },
+        ],
+        detections: [
+          {
+            provider: "opencode",
+            displayName: "OpenCode",
+            result: { authState: "ok", executablePath: "opencode", version: "1" },
+          },
+          {
+            provider: "codex",
+            displayName: "Codex",
+            result: { authState: "ok", executablePath: "codex", version: "1" },
+          },
+        ],
+      }),
+      detectContext: {
+        managedAgentInvocation: { credential: "secret", cwd: "/tmp/managed-run" },
+      },
+    });
+    expect(catalog.providers).toMatchObject([
+      {
+        providerId: "opencode",
+        runtimeSupported: false,
+        availability: { status: "unavailable", reasonCode: "managed_provider_unsupported" },
+      },
+      { providerId: "codex", runtimeSupported: true },
+    ]);
+    expect(catalog.defaultProviderId).toBe("codex");
+  });
+
   it("does not fall back when a configured CLI fails", async () => {
     const runtime = fakeRuntime();
     const detect = vi.spyOn(runtime, "detect");

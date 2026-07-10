@@ -124,7 +124,6 @@ export async function* runAcpTransport(
   const queue: AgentEvent[] = [];
   let done = false;
   let fatalError = false;
-  let lifecycleCompleted = false;
   let lifecycleSettled = false;
   let nextId = 1;
   let sessionId: string | undefined;
@@ -302,7 +301,7 @@ export async function* runAcpTransport(
       });
     }
     const failed = fatalError || timedOut || (code != null && code !== 0);
-    const canceled = signal != null && !failed && !lifecycleCompleted;
+    const canceled = signal != null && !failed;
     queue.push({
       type: "done",
       status: canceled ? "canceled" : failed ? "failed" : "completed",
@@ -338,16 +337,16 @@ export async function* runAcpTransport(
         ),
       );
       captureSessionMetadata(newSessionResult);
-      if (params.model && sessionId) {
+      if (params.model) {
         try {
           await sendRequest("session/set_config_option", {
-            sessionId,
+            ...(sessionId ? { sessionId } : {}),
             configId: "model",
             value: params.model,
           });
         } catch {
           await sendRequest("session/set_model", {
-            sessionId,
+            ...(sessionId ? { sessionId } : {}),
             modelId: params.model,
           });
         }
@@ -356,7 +355,6 @@ export async function* runAcpTransport(
         ...(sessionId ? { sessionId } : {}),
         prompt: [{ type: "text", text: params.prompt }],
       });
-      lifecycleCompleted = true;
       processHandle.child.stdin.end();
     } catch (error) {
       fatalError = true;

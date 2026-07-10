@@ -73,7 +73,12 @@ export function isTuttiAgentProviderCatalog(
   if (typeof value.defaultProviderId !== "string" || !Array.isArray(value.providers)) {
     return false;
   }
-  return value.providers.every(isProviderCatalogEntry);
+  if (!value.providers.every(isProviderCatalogEntry)) return false;
+  const providerIds = value.providers.map((provider) => provider.providerId);
+  if (new Set(providerIds).size !== providerIds.length) return false;
+  return providerIds.length === 0
+    ? value.defaultProviderId === ""
+    : providerIds.includes(value.defaultProviderId);
 }
 
 export function isTuttiAgentComposerOptions(
@@ -92,11 +97,15 @@ export function isTuttiAgentComposerOptions(
 
 function isProviderCatalogEntry(value: unknown) {
   return isRecord(value) &&
-    typeof value.providerId === "string" &&
-    typeof value.displayName === "string" &&
-    (value.agentTargetId === undefined || typeof value.agentTargetId === "string") &&
+    isNonEmptyString(value.providerId) &&
+    isNonEmptyString(value.displayName) &&
+    (value.agentTargetId === undefined || isNonEmptyString(value.agentTargetId)) &&
     typeof value.runtimeSupported === "boolean" &&
     isAvailability(value.availability);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function isAvailability(value: unknown) {

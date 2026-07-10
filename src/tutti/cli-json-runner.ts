@@ -108,17 +108,15 @@ export async function runTuttiCliJson(
   } catch (error) {
     if (error instanceof TuttiIntegrationError) throw error;
     if (input.signal?.aborted) {
-      throw new TuttiIntegrationError("cli_aborted", "Tutti CLI request was aborted.", {}, { cause: error });
+      throw new TuttiIntegrationError("cli_aborted", "Tutti CLI request was aborted.");
     }
     const candidate = error as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
     if (candidate.killed && candidate.signal === "SIGTERM") {
-      throw new TuttiIntegrationError("cli_timeout", "Tutti CLI request timed out.", {}, { cause: error });
+      throw new TuttiIntegrationError("cli_timeout", "Tutti CLI request timed out.");
     }
     throw new TuttiIntegrationError(
       "cli_execution_failed",
       "Tutti CLI request failed.",
-      {},
-      { cause: error },
     );
   }
 }

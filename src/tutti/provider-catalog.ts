@@ -11,6 +11,12 @@ import {
   TuttiIntegrationError,
   type TuttiCliJsonRequest,
 } from "./cli-json-runner.js";
+import { isManagedAgentInvocationProviderId } from "../core/managed-invocation.js";
+import {
+  canonicalTuttiProviderId,
+  isRecord,
+  optionalString,
+} from "./internal.js";
 
 export interface LoadTuttiAgentProviderCatalogInput
   extends Omit<TuttiCliJsonRequest, "args"> {
@@ -26,7 +32,7 @@ export async function loadTuttiAgentProviderCatalog(
       ...input,
       args: ["--json", "agent", "providers"],
     });
-    return parseCliProviderCatalog(payload, input.runtime);
+    return parseCliProviderCatalog(payload, input.runtime, input.detectContext);
   }
   return await loadStandaloneProviderCatalog(input.runtime, input.detectContext);
 }
@@ -41,6 +47,7 @@ export function parseTuttiAgentProviderCatalog(
 function parseCliProviderCatalog(
   payload: unknown,
   runtime: Pick<LocalAgentRuntime<string, string>, "listProviders">,
+  detectContext?: DetectContext,
 ): TuttiAgentProviderCatalog {
   if (!isRecord(payload)) {
     throw invalidCatalog("Tutti provider catalog is not an object.");
@@ -59,24 +66,34 @@ function parseCliProviderCatalog(
   const runtimeProviderIds = new Set(
     runtime.listProviders().map((provider) => String(provider.id)),
   );
+  const managedInvocation = Boolean(detectContext?.managedAgentInvocation);
   const seen = new Set<string>();
   const providers = payload.providers.map((value, index) => {
     if (!isRecord(value)) {
       throw invalidCatalog(`Tutti provider catalog entry ${index} is invalid.`);
     }
-    const providerId = requiredString(value.providerId, `providers[${index}].providerId`);
+    const providerId = canonicalTuttiProviderId(
+      requiredString(value.providerId, `providers[${index}].providerId`),
+    );
     if (seen.has(providerId)) {
       throw invalidCatalog(`Tutti provider catalog contains duplicate provider ${providerId}.`);
     }
     seen.add(providerId);
-    const runtimeSupported = runtimeProviderIds.has(providerId);
+    const runtimeRegistered = runtimeProviderIds.has(providerId);
+    const managedSupported =
+      !managedInvocation || isManagedAgentInvocationProviderId(providerId);
+    const runtimeSupported = runtimeRegistered && managedSupported;
     const platformAvailability = parseAvailability(value.availability, index);
     const availability =
-      !runtimeSupported && platformAvailability.status === "available"
+      !runtimeSupported
         ? {
             status: "unavailable" as const,
-            reasonCode: "kit_runtime_unavailable",
-            detail: "The installed agent-acp-kit cannot execute this provider.",
+            reasonCode: runtimeRegistered
+              ? "managed_provider_unsupported"
+              : "kit_runtime_unavailable",
+            detail: runtimeRegistered
+              ? "Managed execution does not support this provider."
+              : "The installed agent-acp-kit cannot execute this provider.",
           }
         : platformAvailability;
     return {
@@ -90,7 +107,7 @@ function parseCliProviderCatalog(
     } satisfies TuttiAgentProviderCatalogEntry;
   });
 
-  const defaultProviderId = payload.defaultProviderId.trim();
+  const defaultProviderId = canonicalTuttiProviderId(payload.defaultProviderId.trim());
   return {
     schemaVersion: 2,
     source: "tutti-cli",
@@ -111,12 +128,24 @@ async function loadStandaloneProviderCatalog(
   const byProvider = new Map(
     detections.map((detection) => [String(detection.provider), detection.result]),
   );
-  const providers = descriptors.map((descriptor) => ({
-    providerId: String(descriptor.id),
-    displayName: descriptor.displayName,
-    availability: standaloneAvailability(byProvider.get(String(descriptor.id))),
-    runtimeSupported: true,
-  } satisfies TuttiAgentProviderCatalogEntry));
+  const providers = descriptors.map((descriptor) => {
+    const providerId = String(descriptor.id);
+    const runtimeSupported =
+      !detectContext?.managedAgentInvocation ||
+      isManagedAgentInvocationProviderId(providerId);
+    return {
+      providerId,
+      displayName: descriptor.displayName,
+      availability: runtimeSupported
+        ? standaloneAvailability(byProvider.get(providerId))
+        : {
+            status: "unavailable",
+            reasonCode: "managed_provider_unsupported",
+            detail: "Managed execution does not support this provider.",
+          },
+      runtimeSupported,
+    } satisfies TuttiAgentProviderCatalogEntry;
+  });
   return {
     schemaVersion: 2,
     source: "standalone",
@@ -178,12 +207,4 @@ function requiredString(value: unknown, field: string) {
   const normalized = optionalString(value);
   if (!normalized) throw invalidCatalog(`Tutti provider catalog ${field} is invalid.`);
   return normalized;
-}
-
-function optionalString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

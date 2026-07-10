@@ -93,9 +93,13 @@ export function createLocalAgentRuntime<
   const providers = new Map<string, LocalAgentProviderPlugin<TKind, TProvider>>();
   const canonicalProviderIds = new Set<string>();
   for (const provider of options.providers) {
-    const canonicalId = String(provider.id).trim();
+    const rawId = String(provider.id);
+    const canonicalId = rawId.trim();
     if (!canonicalId) {
       throw new Error("Local agent provider id cannot be empty");
+    }
+    if (rawId !== canonicalId) {
+      throw new Error(`Local agent provider id must not contain surrounding whitespace: ${rawId}`);
     }
     if (providers.has(canonicalId)) {
       throw new Error(`Duplicate local agent provider id: ${canonicalId}`);
@@ -104,9 +108,10 @@ export function createLocalAgentRuntime<
     canonicalProviderIds.add(canonicalId);
   }
   for (const provider of options.providers) {
+    const canonicalId = String(provider.id).trim();
     for (const rawAlias of provider.aliases ?? []) {
       const alias = rawAlias.trim();
-      if (!alias || alias === String(provider.id)) {
+      if (!alias || alias === canonicalId) {
         continue;
       }
       const existing = providers.get(alias);

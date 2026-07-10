@@ -41,6 +41,7 @@ const cliCatalog = {
 };
 
 const cliComposer = {
+  schemaVersion: 1,
   provider: "codex",
   effectiveSettings: { model: "gpt-5", permissionModeId: "auto" },
   modelConfig: {
@@ -107,6 +108,33 @@ describe("Tutti composer options", () => {
     });
   });
 
+  it("preserves the selected standalone model", async () => {
+    const options = await loadTuttiAgentComposerOptions({
+      env: {},
+      runtime: runtime(),
+      providerId: "codex",
+      model: "custom-model",
+    });
+    expect(options).toMatchObject({
+      effectiveSettings: { model: "custom-model" },
+      modelConfig: { currentValue: "custom-model", defaultValue: "gpt-5" },
+    });
+  });
+
+  it("rejects unsupported composer schemas", async () => {
+    let call = 0;
+    await expect(
+      loadTuttiAgentComposerOptions({
+        runtime: runtime(),
+        providerId: "codex",
+        runTuttiCli: async () => {
+          call += 1;
+          return call === 1 ? cliCatalog : { ...cliComposer, schemaVersion: 2 };
+        },
+      }),
+    ).rejects.toMatchObject({ code: "unsupported_schema" });
+  });
+
   it("rejects providers absent from the CLI catalog", async () => {
     await expect(
       loadTuttiAgentComposerOptions({
@@ -115,5 +143,35 @@ describe("Tutti composer options", () => {
         runTuttiCli: async () => cliCatalog,
       }),
     ).rejects.toMatchObject({ code: "provider_not_found" });
+  });
+
+  it("accepts the legacy Claude id only at input and returns canonical output", async () => {
+    const claudeRuntime = runtime();
+    claudeRuntime.listProviders = () => [
+      { id: "claude-code", displayName: "Claude Code", kind: "local-agent" },
+    ];
+    const claudeCatalog = {
+      ...cliCatalog,
+      defaultProviderId: "claude-code",
+      providers: [{
+        ...cliCatalog.providers[0],
+        providerId: "claude-code",
+        displayName: "Claude Code",
+      }],
+    };
+    const claudeComposer = {
+      ...cliComposer,
+      provider: "claude-code",
+    };
+    let call = 0;
+    const options = await loadTuttiAgentComposerOptions({
+      runtime: claudeRuntime,
+      providerId: "claude",
+      runTuttiCli: async () => {
+        call += 1;
+        return call === 1 ? claudeCatalog : claudeComposer;
+      },
+    });
+    expect(options.providerId).toBe("claude-code");
   });
 });

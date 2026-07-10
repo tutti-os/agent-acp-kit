@@ -38,6 +38,7 @@ describe("runTuttiCliJson", () => {
       .catch((error) => error);
     expect(timeout).toMatchObject({ code: "cli_timeout" });
     expect(String(timeout)).not.toContain("managed-secret");
+    expect(timeout.cause).toBeUndefined();
 
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 20);
@@ -49,6 +50,16 @@ describe("runTuttiCliJson", () => {
     }).catch((error) => error);
     expect(aborted).toMatchObject({ code: "cli_aborted" });
     expect(String(aborted)).not.toContain("managed-secret");
+    expect(aborted.cause).toBeUndefined();
+
+    const failed = await runTuttiCliJson({
+      args: [],
+      runTuttiCli: async () => {
+        throw new Error("managed-secret");
+      },
+    }).catch((error) => error);
+    expect(failed).toMatchObject({ code: "cli_execution_failed" });
+    expect(failed.cause).toBeUndefined();
   });
 
   it("classifies malformed JSON", async () => {

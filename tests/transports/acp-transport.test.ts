@@ -245,6 +245,119 @@ process.stdin.on("data", (chunk) => {
     ]);
   });
 
+  it("sets a model even when the ACP peer omits a session id", async () => {
+    const script = String.raw`
+process.stdin.setEncoding("utf8");
+let buffer = "";
+const methods = [];
+function send(message) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+}
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  let index = buffer.indexOf("\n");
+  while (index >= 0) {
+    const line = buffer.slice(0, index).trim();
+    buffer = buffer.slice(index + 1);
+    index = buffer.indexOf("\n");
+    if (!line) continue;
+    const message = JSON.parse(line);
+    methods.push(message.method);
+    if (message.method === "initialize") {
+      send({ id: message.id, result: { ok: true } });
+    } else if (message.method === "session/new") {
+      send({ id: message.id, result: { ok: true } });
+    } else if (message.method === "session/set_config_option") {
+      if (message.params?.value !== "model-without-session" || "sessionId" in message.params) {
+        process.exit(2);
+      }
+      send({ id: message.id, result: { ok: true } });
+    } else if (message.method === "session/prompt") {
+      if (JSON.stringify(methods) !== JSON.stringify([
+        "initialize", "session/new", "session/set_config_option", "session/prompt",
+      ])) process.exit(3);
+      send({ method: "session/update", params: { type: "text_delta", text: "implicit session" } });
+      send({ id: message.id, result: { stopReason: "end_turn" } });
+      setTimeout(() => process.exit(0), 5);
+    }
+  }
+});
+`;
+    const events = [];
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "hello",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
+      },
+      {
+        cwd: process.cwd(),
+        model: "model-without-session",
+        prompt: "hello",
+        runId: "run_acp_implicit_session",
+      },
+    )) events.push(event);
+
+    expect(events).toEqual([
+      { type: "text_delta", text: "implicit session" },
+      { type: "done", status: "completed", reason: "completed", exitCode: 0 },
+    ]);
+  });
+
+  it("reports signal termination after prompt acknowledgement as canceled", async () => {
+    const script = String.raw`
+process.stdin.setEncoding("utf8");
+let buffer = "";
+setInterval(() => {}, 1000);
+function send(message) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+}
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  let index = buffer.indexOf("\n");
+  while (index >= 0) {
+    const line = buffer.slice(0, index).trim();
+    buffer = buffer.slice(index + 1);
+    index = buffer.indexOf("\n");
+    if (!line) continue;
+    const message = JSON.parse(line);
+    if (message.method === "initialize") send({ id: message.id, result: { ok: true } });
+    if (message.method === "session/new") send({ id: message.id, result: { sessionId: "cancel-me" } });
+    if (message.method === "session/prompt") send({ id: message.id, result: { stopReason: "end_turn" } });
+  }
+});
+`;
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 100);
+    const events = [];
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "hello",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
+      },
+      {
+        cwd: process.cwd(),
+        prompt: "hello",
+        runId: "run_acp_abort_after_ack",
+        signal: controller.signal,
+      },
+    )) events.push(event);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "done",
+      status: "canceled",
+      reason: "cancelled",
+      sessionId: "cancel-me",
+    });
+  });
+
   it("fails lifecycle requests promptly when the ACP peer exits before acknowledgement", async () => {
     const events = [];
 

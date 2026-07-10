@@ -92,7 +92,7 @@ export type ManagedAgentMcpAttachmentEnv = {
 
 export function isManagedAgentInvocationProviderId(
   providerId: string,
-): providerId is ManagedAgentInvocationProviderId {
+): boolean {
   const canonicalProviderId = canonicalManagedAgentInvocationProviderId(providerId);
   return MANAGED_AGENT_INVOCATION_PROVIDER_IDS.includes(
     canonicalProviderId as ManagedAgentInvocationProviderId,

@@ -12,6 +12,11 @@ import {
   type TuttiCliJsonRequest,
 } from "./cli-json-runner.js";
 import { loadTuttiAgentProviderCatalog } from "./provider-catalog.js";
+import {
+  canonicalTuttiProviderId,
+  isRecord,
+  optionalString,
+} from "./internal.js";
 
 export interface LoadTuttiAgentComposerOptionsInput
   extends Omit<TuttiCliJsonRequest, "args"> {
@@ -27,7 +32,7 @@ export interface LoadTuttiAgentComposerOptionsInput
 export async function loadTuttiAgentComposerOptions(
   input: LoadTuttiAgentComposerOptionsInput,
 ): Promise<TuttiAgentComposerOptions> {
-  const providerId = input.providerId.trim();
+  const providerId = canonicalTuttiProviderId(input.providerId.trim());
   const catalog = await loadTuttiAgentProviderCatalog(input);
   const provider = catalog.providers.find((entry) => entry.providerId === providerId);
   if (!provider) {
@@ -52,7 +57,7 @@ export async function loadTuttiAgentComposerOptions(
     });
     return parseTuttiAgentComposerOptions(payload, providerId, "tutti-cli");
   }
-  return await standaloneComposerOptions(input.runtime, providerId);
+  return await standaloneComposerOptions(input.runtime, providerId, input.model);
 }
 
 export function parseTuttiAgentComposerOptions(
@@ -61,6 +66,13 @@ export function parseTuttiAgentComposerOptions(
   source: "tutti-cli" | "standalone" = "tutti-cli",
 ): TuttiAgentComposerOptions {
   if (!isRecord(payload)) throw invalidComposer("Tutti composer response is not an object.");
+  if (payload.schemaVersion !== 1) {
+    throw new TuttiIntegrationError(
+      "unsupported_schema",
+      "Tutti composer options schema is unsupported.",
+      { schemaVersion: typeof payload.schemaVersion === "number" ? payload.schemaVersion : -1 },
+    );
+  }
   const providerId = optionalString(payload.providerId) ?? optionalString(payload.provider);
   if (!providerId || providerId !== expectedProviderId) {
     throw invalidComposer("Tutti composer response provider does not match the request.");
@@ -80,6 +92,7 @@ export function parseTuttiAgentComposerOptions(
 async function standaloneComposerOptions(
   runtime: LocalAgentRuntime<string, string>,
   providerId: string,
+  selectedModel?: string,
 ): Promise<TuttiAgentComposerOptions> {
   const detection = (await runtime.detect()).find(
     (entry) => String(entry.provider) === providerId,
@@ -91,15 +104,16 @@ async function standaloneComposerOptions(
     ...(model.description ? { description: model.description } : {}),
   }));
   const defaultValue = options[0]?.value ?? "";
+  const currentValue = optionalString(selectedModel) ?? defaultValue;
   const unavailableConfig = emptyComposerConfig();
   return {
     schemaVersion: 1,
     source: "standalone",
     providerId,
-    effectiveSettings: defaultValue ? { model: defaultValue } : {},
+    effectiveSettings: currentValue ? { model: currentValue } : {},
     modelConfig: {
       configurable: options.length > 0,
-      currentValue: defaultValue,
+      currentValue,
       defaultValue,
       options,
     },
@@ -190,12 +204,4 @@ function emptyComposerConfig(): TuttiAgentComposerConfig {
 
 function invalidComposer(message: string) {
   return new TuttiIntegrationError("invalid_response", message);
-}
-
-function optionalString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

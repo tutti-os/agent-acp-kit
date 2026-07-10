@@ -64,6 +64,11 @@ describe("createLocalAgentRuntime", () => {
         ],
       }),
     ).toThrow("Duplicate local agent provider alias shared");
+    expect(() =>
+      createLocalAgentRuntime({
+        providers: [{ ...base, id: " spaced " }],
+      }),
+    ).toThrow("Local agent provider id must not contain surrounding whitespace");
   });
 
   it("detects registered providers and streams normalized agent events", async () => {
