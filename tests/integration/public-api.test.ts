@@ -7,10 +7,11 @@ import * as tutti from "../../src/tutti/index.js";
 describe("public api", () => {
   it("exports the package facade, official providers, and core helpers", () => {
     expect(runtime.createLocalAgentRuntime).toBeTypeOf("function");
+    expect(runtime.createDefaultLocalAgentRuntime).toBeTypeOf("function");
     expect(runtime.createCodexProvider).toBeTypeOf("function");
     expect(runtime.codexProvider.id).toBe("codex");
     expect(runtime.createClaudeProvider).toBeTypeOf("function");
-    expect(runtime.claudeProvider.id).toBe("claude");
+    expect(runtime.claudeProvider.id).toBe("claude-code");
     expect(runtime.installAgentProvider).toBeTypeOf("function");
     expect(runtime.getAgentProviderInstallStatus).toBeTypeOf("function");
     expect(runtime.MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV).toBe(
@@ -27,7 +28,7 @@ describe("public api", () => {
     );
     expect(runtime.MANAGED_AGENT_INVOCATION_PROVIDER_IDS).toEqual([
       "codex",
-      "claude",
+      "claude-code",
       "nexight",
     ]);
     expect(runtime.isManagedAgentInvocationProviderId("nextop")).toBe(false);
@@ -35,7 +36,7 @@ describe("public api", () => {
     expect(runtime.createDefaultLocalAgentProviderPlugins).toBeTypeOf("function");
     expect(runtime.DEFAULT_LOCAL_AGENT_PROVIDER_IDS).toEqual([
       "codex",
-      "claude",
+      "claude-code",
       "devin",
       "hermes",
       "kimi",
@@ -88,6 +89,8 @@ describe("public api", () => {
   it("exports Tutti helpers through the Tutti subpath", () => {
     expect(tutti.loadTuttiAgentSkillBundle).toBeTypeOf("function");
     expect(tutti.loadTuttiAgentSkillContext).toBeTypeOf("function");
+    expect(tutti.loadTuttiAgentProviderCatalog).toBeTypeOf("function");
+    expect(tutti.loadTuttiAgentComposerOptions).toBeTypeOf("function");
     expect(tutti.parseTuttiAgentSkillBundle).toBeTypeOf("function");
     expect(tutti.resolveTuttiCliCommand).toBeTypeOf("function");
   });

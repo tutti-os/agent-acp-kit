@@ -85,6 +85,8 @@ Root exports should stay focused on:
 
 Use subpath exports for specialized surfaces:
 
+- `./tutti` for server-side auto CLI-backed/standalone catalog, composer, and skill integration.
+- `./tutti/contracts` for browser-safe Tutti DTO types and guards with no Node imports.
 - `./runtime-control-plane` for runtime selection/control-plane helpers.
 - `./testing` for fake providers, fake ACP peers, fixtures, and conformance helpers.
 
@@ -140,10 +142,19 @@ pnpm build
 
 For changes that affect a host integration, also run the host tests that consume `@tutti-os/agent-acp-kit`.
 
+Tutti integration rules:
+
+- Auto detection is the only app-facing behavior. Do not add app-provided `mode` or `required` switches.
+- Absence of `TUTTI_CLI` means standalone; a configured CLI failure is typed and must not fall back.
+- CLI catalog entries define visibility. Runtime registration may disable an entry but may not add one omitted by the CLI.
+- Provider aliases are input-only. Public catalog/runtime output is canonical, and `nexight` must never alias `tutti-agent`.
+- App identity, daemon URL/token, CLI argv, schema validation, timeout, and cancellation do not belong in consumer apps.
+
 For release readiness, run:
 
 ```bash
 pnpm pack:check
+pnpm test:packed-consumer
 ```
 
 and verify the tarball includes `dist`, `README.md`, `AGENTS.md`, and `package.json`.

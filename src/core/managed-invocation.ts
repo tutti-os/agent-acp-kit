@@ -24,7 +24,7 @@ export const TUTTI_APP_DATA_DIR_ENV = "TUTTI_APP_DATA_DIR";
 
 export const MANAGED_AGENT_INVOCATION_PROVIDER_IDS = [
   "codex",
-  "claude",
+  "claude-code",
   "nexight",
 ] as const;
 
@@ -92,10 +92,16 @@ export type ManagedAgentMcpAttachmentEnv = {
 
 export function isManagedAgentInvocationProviderId(
   providerId: string,
-): providerId is ManagedAgentInvocationProviderId {
+): boolean {
+  const canonicalProviderId = canonicalManagedAgentInvocationProviderId(providerId);
   return MANAGED_AGENT_INVOCATION_PROVIDER_IDS.includes(
-    providerId as ManagedAgentInvocationProviderId,
+    canonicalProviderId as ManagedAgentInvocationProviderId,
   );
+}
+
+function canonicalManagedAgentInvocationProviderId(providerId: string) {
+  const normalized = providerId.trim();
+  return normalized === "claude" ? "claude-code" : normalized;
 }
 
 export function isManagedAgentInvocationCwd(cwd: string) {
@@ -288,7 +294,7 @@ export async function createManagedAgentRunContextFromHeaders(
     return undefined;
   }
 
-  assertManagedAgentInvocationProviderId(options.providerId);
+  const canonicalProviderId = assertManagedAgentInvocationProviderId(options.providerId);
   const appDataDir = resolveManagedAgentBaseCwd(options);
   if (!appDataDir) {
     throw new Error(
@@ -300,7 +306,7 @@ export async function createManagedAgentRunContextFromHeaders(
     appDataDir,
     options.runsDirName ?? DEFAULT_MANAGED_AGENT_RUNS_DIR_NAME,
     `${managedRunPathSegment(
-      options.providerId,
+      canonicalProviderId,
       "provider id",
     )}-${managedRunPathSegment(options.runId, "run id")}`,
   );
@@ -334,8 +340,9 @@ function normalizeManagedAgentInvocation(
 }
 
 export function assertManagedAgentInvocationProviderId(providerId: string) {
-  if (isManagedAgentInvocationProviderId(providerId)) {
-    return;
+  const canonicalProviderId = canonicalManagedAgentInvocationProviderId(providerId);
+  if (isManagedAgentInvocationProviderId(canonicalProviderId)) {
+    return canonicalProviderId as ManagedAgentInvocationProviderId;
   }
 
   throw new Error(
@@ -576,7 +583,7 @@ export function applyManagedAgentInvocationToLaunchPlan(
     return plan;
   }
 
-  assertManagedAgentInvocationProviderId(providerId);
+  const canonicalProviderId = assertManagedAgentInvocationProviderId(providerId);
   const normalized = normalizeManagedAgentInvocation(invocation);
   const mcpAttachment = buildManagedAgentMcpAttachmentEnv(plan.mcpServers);
   const planWithoutManagedMcpServers = mcpAttachment
@@ -591,7 +598,7 @@ export function applyManagedAgentInvocationToLaunchPlan(
     env: mergeEnv(plan.env, normalized, mcpAttachment),
     fallbackPlan: plan.fallbackPlan
       ? applyManagedAgentInvocationToLaunchPlan(
-          providerId,
+          canonicalProviderId,
           plan.fallbackPlan,
           normalized,
         )

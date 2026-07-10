@@ -1,0 +1,165 @@
+import { execFile } from "node:child_process";
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_BUFFER = 1024 * 1024;
+
+export type TuttiIntegrationErrorCode =
+  | "cli_aborted"
+  | "cli_execution_failed"
+  | "cli_timeout"
+  | "invalid_response"
+  | "provider_not_found"
+  | "provider_runtime_unavailable"
+  | "unsupported_schema";
+
+export class TuttiIntegrationError extends Error {
+  constructor(
+    readonly code: TuttiIntegrationErrorCode,
+    message: string,
+    readonly details: Readonly<Record<string, string | number | boolean>> = {},
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "TuttiIntegrationError";
+  }
+}
+
+export type TuttiCliJsonRunner = (
+  args: string[],
+  options: {
+    cwd?: string;
+    maxBuffer: number;
+    signal?: AbortSignal;
+    timeoutMs: number;
+  },
+) => Promise<unknown>;
+
+export interface ResolveTuttiCliCommandInput {
+  env?: Record<string, string | undefined>;
+  envNames?: string[];
+}
+
+export function resolveTuttiCliCommand(
+  input: ResolveTuttiCliCommandInput = {},
+): string {
+  const env = input.env ?? process.env;
+  for (const name of [...(input.envNames ?? []), "TUTTI_CLI"]) {
+    const value = env[name]?.trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+export interface TuttiCliJsonRequest {
+  args: string[];
+  command?: string | null;
+  commandEnvNames?: string[];
+  cwd?: string | null;
+  env?: NodeJS.ProcessEnv;
+  maxBuffer?: number;
+  runTuttiCli?: TuttiCliJsonRunner;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+export function hasConfiguredTuttiCli(input: Omit<TuttiCliJsonRequest, "args">) {
+  return Boolean(
+    input.runTuttiCli ||
+      normalizeOptionalString(input.command) ||
+      resolveTuttiCliCommand({ env: input.env, envNames: input.commandEnvNames }),
+  );
+}
+
+export async function runTuttiCliJson(
+  input: TuttiCliJsonRequest,
+): Promise<unknown> {
+  const cwd = normalizeOptionalString(input.cwd);
+  const options = {
+    ...(cwd ? { cwd } : {}),
+    maxBuffer: input.maxBuffer ?? DEFAULT_MAX_BUFFER,
+    ...(input.signal ? { signal: input.signal } : {}),
+    timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  };
+  try {
+    const payload = input.runTuttiCli
+      ? await input.runTuttiCli(input.args, options)
+      : await execTuttiCli({
+          args: input.args,
+          command:
+            normalizeOptionalString(input.command) ??
+            resolveTuttiCliCommand({
+              env: input.env,
+              envNames: input.commandEnvNames,
+            }),
+          env: input.env ?? process.env,
+          ...options,
+        });
+    if (typeof payload !== "string") return payload;
+    try {
+      return JSON.parse(payload || "{}");
+    } catch (error) {
+      throw new TuttiIntegrationError(
+        "invalid_response",
+        "Tutti CLI returned invalid JSON.",
+        {},
+        { cause: error },
+      );
+    }
+  } catch (error) {
+    if (error instanceof TuttiIntegrationError) throw error;
+    if (input.signal?.aborted) {
+      throw new TuttiIntegrationError("cli_aborted", "Tutti CLI request was aborted.");
+    }
+    const candidate = error as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+    if (candidate.killed && candidate.signal === "SIGTERM") {
+      throw new TuttiIntegrationError("cli_timeout", "Tutti CLI request timed out.");
+    }
+    throw new TuttiIntegrationError(
+      "cli_execution_failed",
+      "Tutti CLI request failed.",
+    );
+  }
+}
+
+async function execTuttiCli(input: {
+  args: string[];
+  command: string;
+  cwd?: string;
+  env: NodeJS.ProcessEnv;
+  maxBuffer: number;
+  signal?: AbortSignal;
+  timeoutMs: number;
+}) {
+  if (!input.command) {
+    throw new TuttiIntegrationError(
+      "cli_execution_failed",
+      "Tutti CLI command is not configured.",
+    );
+  }
+  return await new Promise<string>((resolve, reject) => {
+    execFile(
+      input.command,
+      input.args,
+      {
+        ...(input.cwd ? { cwd: input.cwd } : {}),
+        encoding: "utf8",
+        env: input.env,
+        maxBuffer: input.maxBuffer,
+        ...(input.signal ? { signal: input.signal } : {}),
+        timeout: input.timeoutMs,
+      },
+      (error, stdout) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(stdout);
+      },
+    );
+  });
+}
+
+function normalizeOptionalString(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}

@@ -7,14 +7,14 @@ function normalizeClaudeModel(model: string | undefined) {
 }
 
 function resolveProviderResumeId(
-  resume: AgentRunParams<"local-agent", "claude">["resume"],
+  resume: AgentRunParams<"local-agent", "claude-code">["resume"],
 ) {
   if (!resume || resume.mode === "fresh") return undefined;
   return (resume.providerSessionId ?? resume.resumeToken)?.trim() || undefined;
 }
 
 export function buildClaudeLaunchPlan(
-  params: AgentRunParams<"local-agent", "claude">,
+  params: AgentRunParams<"local-agent", "claude-code">,
   executablePath = "claude",
   options?: { mcpConfigPath?: string },
 ): ProviderLaunchPlan {
@@ -45,7 +45,7 @@ export function buildClaudeLaunchPlan(
     ...(params.timeoutMs ? { timeoutMs: params.timeoutMs } : {}),
   };
   return applyManagedAgentInvocationToLaunchPlan(
-    "claude",
+    "claude-code",
     plan,
     params.managedAgentInvocation,
   );

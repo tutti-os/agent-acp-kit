@@ -3,6 +3,10 @@ import path from "node:path";
 import { normalizeMcpServerConfigs, type LocalAgentMcpServerConfig } from "../../core/mcp.js";
 import type { AcpSessionNewParams } from "./acp-types.js";
 
+function acpEnvEntries(entries: Array<{ key: string; value: string }>) {
+  return entries.map((entry) => ({ name: entry.key, value: entry.value }));
+}
+
 export function buildAcpSessionNewParams(
   cwd: string,
   options?: {
@@ -20,7 +24,7 @@ export function buildAcpSessionNewParams(
             name: server.name,
             url: server.url,
             ...(server.headers ? { headers: server.headers } : {}),
-            env: server.env,
+            env: acpEnvEntries(server.env),
           };
         }
         return {
@@ -28,7 +32,7 @@ export function buildAcpSessionNewParams(
           name: server.name,
           command: server.command,
           args: server.args ?? [],
-          env: server.env,
+          env: acpEnvEntries(server.env),
         };
       },
     ),

@@ -117,6 +117,8 @@ export type LocalAgentProviderPlugin<
   TProvider extends string = string,
 > = {
   id: TProvider;
+  /** Legacy input ids accepted by the runtime. Catalogs always expose `id`. */
+  aliases?: readonly string[];
   displayName: string;
   kind: TKind;
   detect(context?: DetectContext): Promise<AgentDetection | null>;

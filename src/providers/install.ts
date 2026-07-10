@@ -6,7 +6,8 @@ import path from "node:path";
 import { resolveCommandExecutable } from "../process/command-resolver.js";
 import { buildLocalAgentProcessEnv } from "../process/env.js";
 
-export type InstallableAgentProviderId = "codex" | "claude";
+export type InstallableAgentProviderId = "codex" | "claude-code";
+type InstallableAgentProviderInput = InstallableAgentProviderId | "claude";
 
 export type AgentProviderInstallAvailability =
   | "ready"
@@ -108,8 +109,8 @@ export const AGENT_PROVIDER_INSTALL_SPECS = {
     installCommand: "npm install -g @openai/codex",
     adapterInstallCommand: "",
   },
-  claude: {
-    provider: "claude",
+  "claude-code": {
+    provider: "claude-code",
     displayName: "Claude Code",
     cliBinary: "claude",
     adapterBinary: "claude-agent-acp",
@@ -177,7 +178,7 @@ async function providerAuthOk(
   env: NodeJS.ProcessEnv,
 ) {
   if (provider === "codex") return codexAuthOk(env);
-  if (provider === "claude" && cliPath) {
+  if (provider === "claude-code" && cliPath) {
     return runShortCommand({
       command: cliPath,
       args: ["auth", "status"],
@@ -189,9 +190,10 @@ async function providerAuthOk(
 }
 
 export async function getAgentProviderInstallStatus(
-  provider: InstallableAgentProviderId,
+  providerInput: InstallableAgentProviderInput,
   options: Pick<AgentProviderInstallOptions, "commandResolver" | "env"> = {},
 ): Promise<AgentProviderInstallStatus> {
+  const provider = normalizeInstallableProviderId(providerInput);
   const spec = AGENT_PROVIDER_INSTALL_SPECS[provider];
   const env = await buildLocalAgentProcessEnv({
     ...process.env,
@@ -334,9 +336,10 @@ function commandForStatus(
 }
 
 export async function installAgentProvider(
-  provider: InstallableAgentProviderId,
+  providerInput: InstallableAgentProviderInput,
   options: AgentProviderInstallOptions = {},
 ): Promise<AgentProviderInstallResult> {
+  const provider = normalizeInstallableProviderId(providerInput);
   const spec = AGENT_PROVIDER_INSTALL_SPECS[provider];
   const env = await buildLocalAgentProcessEnv({
     ...process.env,
@@ -443,4 +446,10 @@ export async function installAgentProvider(
     after,
     commandResult,
   };
+}
+
+function normalizeInstallableProviderId(
+  provider: InstallableAgentProviderInput,
+): InstallableAgentProviderId {
+  return provider === "claude" ? "claude-code" : provider;
 }
