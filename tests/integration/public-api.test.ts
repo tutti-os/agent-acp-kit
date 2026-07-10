@@ -7,6 +7,7 @@ import * as tutti from "../../src/tutti/index.js";
 describe("public api", () => {
   it("exports the package facade, official providers, and core helpers", () => {
     expect(runtime.createLocalAgentRuntime).toBeTypeOf("function");
+    expect(runtime.createDefaultLocalAgentRuntime).toBeTypeOf("function");
     expect(runtime.createCodexProvider).toBeTypeOf("function");
     expect(runtime.codexProvider.id).toBe("codex");
     expect(runtime.createClaudeProvider).toBeTypeOf("function");
@@ -86,6 +87,8 @@ describe("public api", () => {
   });
 
   it("exports Tutti helpers through the Tutti subpath", () => {
+    expect(tutti.createTuttiAgentAppRuntime).toBeTypeOf("function");
+    expect(tutti.TuttiAgentAppRuntimeError).toBeTypeOf("function");
     expect(tutti.loadTuttiAgentSkillBundle).toBeTypeOf("function");
     expect(tutti.loadTuttiAgentSkillContext).toBeTypeOf("function");
     expect(tutti.parseTuttiAgentSkillBundle).toBeTypeOf("function");

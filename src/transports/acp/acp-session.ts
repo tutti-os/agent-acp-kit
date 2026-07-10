@@ -20,7 +20,10 @@ export function buildAcpSessionNewParams(
             name: server.name,
             url: server.url,
             ...(server.headers ? { headers: server.headers } : {}),
-            env: server.env,
+            env: server.env.map((entry) => ({
+              name: entry.key,
+              value: entry.value,
+            })),
           };
         }
         return {
@@ -28,7 +31,10 @@ export function buildAcpSessionNewParams(
           name: server.name,
           command: server.command,
           args: server.args ?? [],
-          env: server.env,
+          env: server.env.map((entry) => ({
+            name: entry.key,
+            value: entry.value,
+          })),
         };
       },
     ),

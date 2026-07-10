@@ -5,6 +5,30 @@ import type {
   SkillMaterializationRecord,
 } from "../core/skills.js";
 
+export {
+  createTuttiAgentAppRuntime,
+  TuttiAgentAppRuntimeError,
+} from "./app-runtime.js";
+export type {
+  CreateTuttiAgentAppRuntimeOptions,
+  PrepareTuttiAgentRunInput,
+  PreparedTuttiAgentRun,
+  TuttiAgentAppRunInput,
+  TuttiAgentAppRuntime,
+  TuttiAgentAppRuntimeErrorCode,
+  TuttiAgentAppRuntimeMode,
+  TuttiAgentProviderAuthState,
+  TuttiAgentProviderCatalog,
+  TuttiAgentProviderCatalogEntry,
+  TuttiAgentProviderCatalogInput,
+  TuttiAgentProviderCatalogModel,
+  TuttiAgentRunExecutionInput,
+} from "./app-runtime.js";
+export type {
+  TuttiAgentComposerConfig,
+  TuttiAgentComposerOptions,
+} from "./workspace-app-client.js";
+
 const DEFAULT_TUTTI_SKILL_BUNDLE_TIMEOUT_MS = 10_000;
 const DEFAULT_TUTTI_SKILL_BUNDLE_MAX_BUFFER = 1024 * 1024;
 

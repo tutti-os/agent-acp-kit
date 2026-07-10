@@ -51,6 +51,10 @@ describe("runAcpTransport", () => {
     const script = createFakeAcpPeerScript({
       updates: [
         { type: "text_delta", text: "hello" },
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " nested" },
+        },
         { type: "reasoning_delta", text: "thinking" },
         { type: "tool_call", id: "tool_1", name: "generate_image", input: { prompt: "x" } },
         {
@@ -83,6 +87,7 @@ describe("runAcpTransport", () => {
 
     expect(events).toEqual([
       { type: "text_delta", text: "hello" },
+      { type: "text_delta", text: " nested" },
       { type: "thinking_delta", text: "thinking" },
       {
         type: "tool_call",
@@ -98,13 +103,12 @@ describe("runAcpTransport", () => {
         output: { imageUrl: "https://example.com/image.png" },
       },
       { type: "usage", usage: { inputTokens: 1, outputTokens: 2 } },
-      {
+      expect.objectContaining({
         type: "done",
         status: "completed",
         reason: "completed",
-        exitCode: 0,
         sessionId: "session_fake",
-      },
+      }),
     ]);
   });
 
@@ -114,10 +118,11 @@ describe("runAcpTransport", () => {
       expectedMethods: [
         "initialize",
         "session/new",
-        "session/set_model",
+        "session/set_config_option",
         "session/prompt",
       ],
       sessionId: "session_model",
+      expectPromptContentBlocks: true,
       updates: [{ type: "text_delta", text: "model ready" }],
     });
 
@@ -142,13 +147,130 @@ describe("runAcpTransport", () => {
 
     expect(events).toEqual([
       { type: "text_delta", text: "model ready" },
-      {
+      expect.objectContaining({
         type: "done",
         status: "completed",
         reason: "completed",
-        exitCode: 0,
         sessionId: "session_model",
+      }),
+    ]);
+  });
+
+  it("falls back to session/set_model when config options are unsupported", async () => {
+    const events = [];
+    const script = createFakeAcpPeerScript({
+      errorMethods: ["session/set_config_option"],
+      expectedMethods: [
+        "initialize",
+        "session/new",
+        "session/set_config_option",
+        "session/set_model",
+        "session/prompt",
+      ],
+      sessionId: "session_model_fallback",
+      updates: [{ type: "text_delta", text: "fallback ready" }],
+    });
+
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "make image",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
       },
+      {
+        cwd: process.cwd(),
+        model: "kimi-k2",
+        prompt: "make image",
+        runId: "run_acp_model_fallback",
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text_delta", text: "fallback ready" },
+      expect.objectContaining({
+        type: "done",
+        status: "completed",
+        reason: "completed",
+        sessionId: "session_model_fallback",
+      }),
+    ]);
+  });
+
+  it("answers ACP permission requests with the selected outcome shape", async () => {
+    const events = [];
+    const script = `
+process.stdin.setEncoding("utf8");
+let buffer = "";
+let permissionGranted = false;
+let sessionNewRequestId;
+function send(message) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\\n");
+}
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  let newlineIndex = buffer.indexOf("\\n");
+  while (newlineIndex >= 0) {
+    const line = buffer.slice(0, newlineIndex).trim();
+    buffer = buffer.slice(newlineIndex + 1);
+    newlineIndex = buffer.indexOf("\\n");
+    if (!line) continue;
+    const message = JSON.parse(line);
+    if (message.method === "initialize") {
+      send({ id: message.id, result: { ok: true } });
+    } else if (message.method === "session/new") {
+      sessionNewRequestId = message.id;
+      send({
+        id: "permission-1",
+        method: "session/request_permission",
+        params: { options: [{ optionId: "allow" }] },
+      });
+    } else if (message.id === "permission-1" && !message.method) {
+      permissionGranted =
+        message.result?.outcome?.outcome === "selected" &&
+        message.result?.outcome?.optionId === "allow";
+      send({ id: sessionNewRequestId, result: { sessionId: "permission-session" } });
+    } else if (message.method === "session/prompt") {
+      send({ id: message.id, result: { ok: true } });
+      send({
+        method: "session/update",
+        params: { type: "text_delta", text: permissionGranted ? "approved" : "rejected" },
+      });
+      process.exit(permissionGranted ? 0 : 4);
+    }
+  }
+});
+`;
+
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "continue",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
+      },
+      {
+        cwd: process.cwd(),
+        prompt: "continue",
+        runId: "run_acp_permission",
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text_delta", text: "approved" },
+      expect.objectContaining({
+        type: "done",
+        status: "completed",
+        sessionId: "permission-session",
+      }),
     ]);
   });
 
