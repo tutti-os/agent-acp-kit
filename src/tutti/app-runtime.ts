@@ -39,6 +39,7 @@ export interface TuttiAgentProviderCatalogModel {
 
 export interface TuttiAgentProviderCatalogEntry {
   id: string;
+  runtimeProviderId: string;
   displayName: string;
   available: boolean;
   reasonCode?: string;
@@ -311,6 +312,7 @@ async function resolveManagedProviderCatalog(
 
       return {
         id,
+        runtimeProviderId,
         displayName: displayNameForTuttiAgentProvider(
           id,
           runtimeDisplayName,
@@ -369,6 +371,7 @@ async function resolveStandaloneProviderCatalog(
     const available = Boolean(result && result.supported !== false);
     return {
       id: toTuttiCatalogProviderId(detection.provider),
+      runtimeProviderId: detection.provider,
       displayName: displayNameForTuttiAgentProvider(
         detection.provider,
         detection.displayName,

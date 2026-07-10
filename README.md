@@ -149,6 +149,9 @@ The facade reads the scoped app environment, keeps the app server token out of
 browser code, maps Tutti provider ids to runtime ids, and resolves managed
 request headers without exposing credentials to the app.
 
+Catalog entries expose both the stable Tutti `id` and the kit
+`runtimeProviderId`; apps do not maintain provider alias tables.
+
 ```ts
 import {
   createTuttiAgentAppRuntime,

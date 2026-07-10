@@ -66,6 +66,7 @@ describe("createTuttiAgentAppRuntime", () => {
       providers: [
         {
           id: "claude-code",
+          runtimeProviderId: "claude",
           displayName: "Claude Code",
           available: true,
           authState: "authenticated",
@@ -73,6 +74,7 @@ describe("createTuttiAgentAppRuntime", () => {
         },
         {
           id: "cursor",
+          runtimeProviderId: "cursor",
           displayName: "Cursor Agent",
           available: false,
           reasonCode: "not_installed",
@@ -144,12 +146,14 @@ describe("createTuttiAgentAppRuntime", () => {
     expect(catalog.providers).toEqual([
       expect.objectContaining({
         id: "codex",
+        runtimeProviderId: "codex",
         available: true,
         composerStatus: "ready",
         models: [{ id: "gpt-5", label: "GPT-5" }],
       }),
       expect.objectContaining({
         id: "claude-code",
+        runtimeProviderId: "claude",
         available: false,
         reasonCode: "login_required",
       }),
