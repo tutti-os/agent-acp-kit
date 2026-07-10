@@ -56,6 +56,8 @@ Own these concerns here:
 - Provider output parsing into `AgentEvent`.
 - Skill materialization, prompt injection, and cleanup.
 - Public testing helpers and provider conformance checks.
+- Server-only Tutti workspace-app integration behind the explicit `./tutti`
+  subpath, including scoped provider catalogs and managed/local run preparation.
 
 Do not own these concerns here:
 
@@ -85,6 +87,8 @@ Root exports should stay focused on:
 
 Use subpath exports for specialized surfaces:
 
+- `./tutti` for server-only Tutti workspace-app integration and dynamic CLI
+  skill context.
 - `./runtime-control-plane` for runtime selection/control-plane helpers.
 - `./testing` for fake providers, fake ACP peers, fixtures, and conformance helpers.
 

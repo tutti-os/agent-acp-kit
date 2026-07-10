@@ -141,6 +141,49 @@ for await (const event of runtime.run({
 | Events | normalized `AgentEvent` discriminated union |
 | Testing | fake provider, fake ACP peer, fixtures, conformance helpers |
 
+## Tutti Workspace App Quick Start
+
+Workspace app servers can use the server-only Tutti subpath to share one
+provider catalog and run path across packaged Tutti and standalone development.
+The facade reads the scoped app environment, keeps the app server token out of
+browser code, maps Tutti provider ids to runtime ids, and resolves managed
+request headers without exposing credentials to the app.
+
+```ts
+import {
+  createTuttiAgentAppRuntime,
+} from "@tutti-os/agent-acp-kit/tutti";
+
+const agents = createTuttiAgentAppRuntime();
+
+const catalog = await agents.getProviderCatalog({
+  preferredProviderId: savedProviderId,
+  composer: { cwd: workspaceCwd },
+});
+
+for await (const event of agents.run({
+  headers: request.headers,
+  providerId: catalog.selectedProviderId!,
+  runId: crypto.randomUUID(),
+  localCwd: workspaceCwd,
+  prompt: "Summarize the current workspace.",
+})) {
+  // Project AgentEvent into the app-owned stream or persistence protocol.
+}
+```
+
+In automatic mode, all of `TUTTI_API_BASE_URL`, `TUTTI_WORKSPACE_ID`,
+`TUTTI_APP_ID`, and `TUTTI_APP_SERVER_TOKEN` select the scoped Tutti catalog.
+When none are present, the same facade uses local runtime detection. A partial
+environment is rejected instead of silently changing modes. Tutti catalog
+failures never synthesize a provider list or fall back to global daemon or CLI
+provider discovery.
+
+Apps that must build run-scoped skills or MCP files under the final cwd can use
+`prepareRun()` and then call the returned one-shot `execute()` method. The
+prepared object exposes its server-side cwd but not the managed invocation
+credential.
+
 ## Provider Support
 
 | Provider | Status | Transport | Notes |
@@ -531,6 +574,7 @@ Main export:
 
 ```ts
 import {
+  createDefaultLocalAgentRuntime,
   createLocalAgentRuntime,
   createCodexProvider,
   createClaudeProvider,
@@ -542,6 +586,17 @@ import {
   type AgentRunInput,
   type ManagedAgentInvocation,
 } from "@tutti-os/agent-acp-kit";
+```
+
+Tutti workspace-app server export:
+
+```ts
+import {
+  createTuttiAgentAppRuntime,
+  TuttiAgentAppRuntimeError,
+  loadTuttiAgentSkillContext,
+  type TuttiAgentProviderCatalog,
+} from "@tutti-os/agent-acp-kit/tutti";
 ```
 
 Runtime control plane export:
