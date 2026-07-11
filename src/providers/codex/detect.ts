@@ -10,6 +10,7 @@ import { resolveCommandExecutable } from "../../process/command-resolver.js";
 
 const execFileAsync = promisify(execFile);
 const CODEX_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
+const CODEX_AUTH_STATUS_TIMEOUT_MS = 5_000;
 const CODEX_MODEL_DISCOVERY_MAX_BUFFER = 8 * 1024 * 1024;
 const CODEX_DEFAULT_MODELS: AgentModelOption[] = [
   { id: "default", label: "Default (CLI config)" },
@@ -29,6 +30,7 @@ function authStatusText(value: unknown) {
 }
 
 async function detectCodexAuthState(options: {
+  authStatusTimeoutMs?: number;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   executablePath: string;
@@ -40,6 +42,7 @@ async function detectCodexAuthState(options: {
       {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         env: options.env,
+        timeout: options.authStatusTimeoutMs ?? CODEX_AUTH_STATUS_TIMEOUT_MS,
       },
     );
     const text = authStatusText(result).toLowerCase();
@@ -322,6 +325,7 @@ export async function discoverCodexModels(options: {
 }
 
 export async function detectCodex(options?: {
+  authStatusTimeoutMs?: number;
   command?: string;
   cwd?: string;
   defaultHomeDirName?: string;
@@ -333,9 +337,10 @@ export async function detectCodex(options?: {
 }) {
   const command = options?.command ?? "codex";
   const homeEnvKey = options?.homeEnvKey ?? "CODEX_HOME";
-  const configDir = (
-    options?.env?.[homeEnvKey] || process.env[homeEnvKey] || ""
-  ).trim() || path.join(homedir(), options?.defaultHomeDirName ?? ".codex");
+  const environment = options?.env ?? process.env;
+  const configDir =
+    (environment[homeEnvKey] ?? "").trim() ||
+    path.join(homedir(), options?.defaultHomeDirName ?? ".codex");
   let executablePath: string;
   try {
     executablePath = await resolveCommandExecutable({
@@ -387,6 +392,9 @@ export async function detectCodex(options?: {
   const supported = isVersionAtLeast(version, options?.minimumVersion);
   const authState = options?.probeAuthStatus
     ? await detectCodexAuthState({
+        ...(options.authStatusTimeoutMs
+          ? { authStatusTimeoutMs: options.authStatusTimeoutMs }
+          : {}),
         ...(options?.cwd ? { cwd: options.cwd } : {}),
         ...(options?.env ? { env: options.env } : {}),
         executablePath,

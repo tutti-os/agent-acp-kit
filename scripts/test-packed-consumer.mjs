@@ -20,7 +20,13 @@ try {
   );
   execFileSync(
     "npm",
-    ["install", "--ignore-scripts", tarball, "typescript@5.9.3", "@types/node@22"],
+    [
+      "install",
+      "--ignore-scripts",
+      tarball,
+      "typescript@5.9.3",
+      "@types/node@22.19.19",
+    ],
     {
     cwd: fixture,
     stdio: "inherit",

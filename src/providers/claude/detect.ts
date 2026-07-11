@@ -76,7 +76,7 @@ export async function detectClaudeAuthState(input: {
   try {
     const { stdout } = await execFileAsync(
       input.executablePath,
-      ["auth", "status", "--json"],
+      ["auth", "status"],
       {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         env: input.env,

@@ -229,16 +229,20 @@ describe("buildLocalAgentProcessEnv", () => {
         PATH: "/usr/bin",
         CLAUDE_CONFIG_DIR: "/tmp/claude-config",
         CODEX_HOME: "/tmp/codex-home",
+        TUTTI_AGENT_HOME: "/tmp/tutti-agent-home",
         Claude_Config_Dir: "/tmp/mixed-claude-config",
         Codex_Home: "/tmp/mixed-codex-home",
+        Tutti_Agent_Home: "/tmp/mixed-tutti-agent-home",
       },
       { stripLocalAgentHomeEnv: true },
     );
 
     expect(env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
     expect(env).not.toHaveProperty("CODEX_HOME");
+    expect(env).not.toHaveProperty("TUTTI_AGENT_HOME");
     expect(env).not.toHaveProperty("Claude_Config_Dir");
     expect(env).not.toHaveProperty("Codex_Home");
+    expect(env).not.toHaveProperty("Tutti_Agent_Home");
   });
 
   it("appends unique PATH entries in order", () => {

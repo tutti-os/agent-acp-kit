@@ -414,6 +414,52 @@ describe("createLocalAgentRuntime", () => {
     );
   });
 
+  it("does not forward the user's Tutti Agent home into managed runs", async () => {
+    vi.stubEnv("TUTTI_AGENT_HOME", "/tmp/user-tutti-agent-home");
+    let receivedHome: string | undefined;
+    const provider: LocalAgentProviderPlugin<"local-agent", "tutti-agent"> = {
+      id: "tutti-agent",
+      displayName: "Tutti Agent",
+      kind: "local-agent",
+      async detect() {
+        return { authState: "ok", executablePath: "tutti-agent", version: "1" };
+      },
+      capabilities() {
+        return {
+          cancel: true,
+          nativeResume: true,
+          streaming: true,
+          toolGateway: false,
+          maxConcurrentRuns: 1,
+        };
+      },
+      async buildLaunchPlan() {
+        throw new Error("not used");
+      },
+      async *run(params) {
+        receivedHome = params.env?.TUTTI_AGENT_HOME;
+        yield { type: "done", status: "completed" };
+      },
+    };
+    const runtime = createLocalAgentRuntime({ providers: [provider] });
+
+    for await (const _event of runtime.run({
+      runId: "managed-tutti-agent-home",
+      provider: "tutti-agent",
+      cwd: "/tmp/app-cwd",
+      prompt: "hello",
+      managedAgentInvocation: {
+        credential: "managed-tutti-agent-secret",
+        cwd: "/tmp/managed-tutti-agent-run",
+      },
+    })) {
+      // Drain the provider stream.
+    }
+
+    expect(receivedHome).toBeUndefined();
+    expect(process.env.TUTTI_AGENT_HOME).toBe("/tmp/user-tutti-agent-home");
+  });
+
   it("does not forward managed invocation credentials to unsupported provider detection", async () => {
     let receivedContext: unknown;
     const provider: LocalAgentProviderPlugin<"local-agent", "nextop"> = {

@@ -147,10 +147,10 @@ async function loadStandaloneProviderCatalog(
       providerId,
       displayName: descriptor.displayName,
       availability: runtimeSupported
-          ? standaloneAvailability(
-              byProvider.get(providerId),
-              descriptor.requiresKnownAuth === true,
-            )
+        ? standaloneAvailability(
+            byProvider.get(providerId),
+            descriptor.requiresKnownAuth === true,
+          )
         : {
             status: "unavailable",
             reasonCode: "managed_provider_unsupported",

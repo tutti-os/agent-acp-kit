@@ -1,8 +1,8 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
 import { detectCodex } from "../../src/providers/codex/detect.js";
@@ -11,9 +11,20 @@ describe("detectCodex", () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     while (tempDirs.length > 0) {
       rmSync(tempDirs.pop()!, { recursive: true, force: true });
     }
+  });
+
+  it("does not read ambient home variables when an isolated env is supplied", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-isolated-env-"));
+    tempDirs.push(dir);
+    vi.stubEnv("CODEX_HOME", join(dir, "ambient-codex-home"));
+
+    const detection = await detectCodex({ env: { PATH: dir } });
+
+    expect(detection.configDir).toBe(join(homedir(), ".codex"));
   });
 
   it("reports unsupported when the Codex CLI is not installed", async () => {
@@ -86,6 +97,30 @@ describe("detectCodex", () => {
       supported: true,
       authState: "missing",
     });
+  });
+
+  it("bounds Tutti Agent authentication probes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-tutti-auth-timeout-"));
+    tempDirs.push(dir);
+    const tuttiAgentBin = join(dir, "tutti-agent");
+    writeFileSync(
+      tuttiAgentBin,
+      `#!${process.execPath}\nif (process.argv[2] === "--version") { console.log("tutti-agent 0.0.1"); process.exit(0); }\nif (process.argv[2] === "login") { setTimeout(() => {}, 10_000); } else { process.exit(1); }\n`,
+    );
+    chmodSync(tuttiAgentBin, 0o755);
+
+    const startedAt = Date.now();
+    const detection = await detectCodex({
+      authStatusTimeoutMs: 50,
+      command: "tutti-agent",
+      defaultHomeDirName: ".tutti-agent",
+      env: { PATH: dir },
+      homeEnvKey: "TUTTI_AGENT_HOME",
+      probeAuthStatus: true,
+    });
+
+    expect(detection.authState).toBe("unknown");
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
   it("passes cwd and env through version and model discovery subprocesses", async () => {
