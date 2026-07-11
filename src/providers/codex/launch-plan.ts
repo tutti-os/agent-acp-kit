@@ -3,30 +3,46 @@ import { applyManagedAgentInvocationToLaunchPlan } from "../../core/managed-invo
 import { clampCodexReasoning } from "./reasoning.js";
 
 function codexPermissionArgs(
-  permission: AgentRunParams<"local-agent", "codex">["permission"],
+  permission: AgentRunParams<"local-agent", string>["permission"],
 ) {
   if (permission?.semantic === "full-access") {
     return ["--dangerously-bypass-approvals-and-sandbox"];
   }
   if (permission?.semantic === "ask-before-write") {
-    return ["--sandbox", "read-only", "-c", 'approval_policy="on-request"'];
+    return [
+      "-c",
+      'sandbox_mode="read-only"',
+      "-c",
+      'approval_policy="on-request"',
+    ];
   }
   if (permission?.semantic === "locked-down") {
-    return ["--sandbox", "read-only", "-c", 'approval_policy="never"'];
+    return [
+      "-c",
+      'sandbox_mode="read-only"',
+      "-c",
+      'approval_policy="never"',
+    ];
   }
-  return ["--sandbox", "workspace-write", "-c", 'approval_policy="on-request"'];
+  return [
+    "-c",
+    'sandbox_mode="workspace-write"',
+    "-c",
+    'approval_policy="on-request"',
+  ];
 }
 
 function resolveProviderResumeId(
-  resume: AgentRunParams<"local-agent", "codex">["resume"],
+  resume: AgentRunParams<"local-agent", string>["resume"],
 ) {
   if (!resume || resume.mode === "fresh") return undefined;
   return (resume.providerSessionId ?? resume.resumeToken)?.trim() || undefined;
 }
 
 export function buildCodexLaunchPlan(
-  params: AgentRunParams<"local-agent", "codex">,
+  params: AgentRunParams<"local-agent", string>,
   executablePath = "codex",
+  providerId = "codex",
 ): ProviderLaunchPlan {
   const resumeId = resolveProviderResumeId(params.resume);
   const managed = Boolean(params.managedAgentInvocation);
@@ -81,11 +97,12 @@ export function buildCodexLaunchPlan(
         resume: { mode: "fresh" },
       },
       executablePath,
+      providerId,
     );
   }
 
   return applyManagedAgentInvocationToLaunchPlan(
-    "codex",
+    providerId,
     plan,
     params.managedAgentInvocation,
   );

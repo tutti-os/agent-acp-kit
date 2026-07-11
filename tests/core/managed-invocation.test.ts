@@ -28,12 +28,13 @@ describe("managed agent invocation", () => {
     expect(MANAGED_AGENT_INVOCATION_PROVIDER_IDS).toEqual([
       "codex",
       "claude-code",
-      "nexight",
+      "tutti-agent",
     ]);
     expect(isManagedAgentInvocationProviderId("codex")).toBe(true);
     expect(isManagedAgentInvocationProviderId("claude")).toBe(true);
     expect(isManagedAgentInvocationProviderId("claude-code")).toBe(true);
-    expect(isManagedAgentInvocationProviderId("nexight")).toBe(true);
+    expect(isManagedAgentInvocationProviderId("tutti-agent")).toBe(true);
+    expect(isManagedAgentInvocationProviderId("nexight")).toBe(false);
     expect(isManagedAgentInvocationProviderId("nextop")).toBe(false);
   });
 
@@ -411,7 +412,7 @@ describe("managed agent invocation", () => {
   });
 
   it("adds managed credentials to detection redaction secrets", () => {
-    const context = prepareManagedAgentInvocationDetectContext("nexight", {
+    const context = prepareManagedAgentInvocationDetectContext("tutti-agent", {
       managedAgentInvocation: {
         credential: "managed-detect-secret",
         cwd: "/workspace/project",

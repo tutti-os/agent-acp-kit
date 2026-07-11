@@ -740,7 +740,7 @@ describe("createLocalAgentRuntime", () => {
       }
     };
 
-    await expect(collect()).rejects.toThrow(/codex, claude-code, nexight/);
+    await expect(collect()).rejects.toThrow(/codex, claude-code, tutti-agent/);
   });
 
   it("runs provider adapters through the transport pipeline", async () => {

@@ -5,7 +5,12 @@ export type { LocalAgentRuntime } from "./runtime/create-runtime.js";
 export { createDefaultLocalAgentRuntime } from "./runtime/create-default-runtime.js";
 
 export { createClaudeProvider, claudeProvider } from "./providers/claude/index.js";
-export { createCodexProvider, codexProvider } from "./providers/codex/index.js";
+export {
+  createCodexProvider,
+  createTuttiAgentProvider,
+  codexProvider,
+  tuttiAgentProvider,
+} from "./providers/codex/index.js";
 export { createFakeProvider, fakeProvider } from "./providers/fake/index.js";
 export { createGenericAcpProvider } from "./providers/generic-acp/index.js";
 export {

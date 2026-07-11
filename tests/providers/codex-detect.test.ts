@@ -59,6 +59,35 @@ describe("detectCodex", () => {
     });
   });
 
+  it("supports the Tutti Agent command and TUTTI_AGENT_HOME", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-tutti-agent-detect-"));
+    tempDirs.push(dir);
+    const tuttiAgentBin = join(dir, "tutti-agent");
+    writeFileSync(
+      tuttiAgentBin,
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"tutti-agent 0.0.1\"; exit 0; fi\nif [ \"$1\" = \"login\" ] && [ \"$2\" = \"status\" ]; then echo \"Not logged in\"; exit 1; fi\nexit 1\n",
+    );
+    chmodSync(tuttiAgentBin, 0o755);
+
+    const home = join(dir, ".tutti-agent-home");
+    const detection = await detectCodex({
+      command: "tutti-agent",
+      defaultHomeDirName: ".tutti-agent",
+      env: { PATH: dir, TUTTI_AGENT_HOME: home },
+      homeEnvKey: "TUTTI_AGENT_HOME",
+      probeAuthStatus: true,
+    });
+
+    expect(detection).toMatchObject({
+      executablePath: tuttiAgentBin,
+      version: "tutti-agent 0.0.1",
+      configDir: home,
+      skillsDir: join(home, "skills"),
+      supported: true,
+      authState: "missing",
+    });
+  });
+
   it("passes cwd and env through version and model discovery subprocesses", async () => {
     const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-managed-"));
     const cwd = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-managed-cwd-"));

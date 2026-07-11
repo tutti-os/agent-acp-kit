@@ -184,7 +184,7 @@ There is no app-facing mode switch. If `TUTTI_CLI` is present, the facade uses v
 
 Use `resolveTuttiAgentProviderCatalog` for an app-facing provider picker: it combines platform visibility, one shared runtime detection, authentication readiness, and lazy composer models. Use the lower-level `loadTuttiAgentProviderCatalog` only when the raw versioned platform catalog is the required contract.
 
-Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at SDK input ingress and is never returned. `nexight` and `tutti-agent` are distinct providers and are never aliases.
+Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at SDK input ingress and is never returned. The first-party Tutti provider is `tutti-agent`; historical `nexight` must not be registered or exposed as a new App runtime provider.
 
 Frontend code can import DTO types and guards without Node dependencies:
 
@@ -425,11 +425,10 @@ one under the managed cwd. Hosts that do not need a custom Codex home can use
 the run context returned by `createManagedAgentRunContextFromHeaders()` without
 passing any Codex-home path.
 
-Managed invocation is intentionally limited to provider ids `codex`, `claude`,
-and `nexight`. There is no `nextop` alias. Codex and Claude are built-in
-providers; `nexight` can be supplied by a host-owned provider plugin when the
-host has a defined Nexight transport contract. The SDK expects managed CLI
-shims to be available on `PATH` and does not hardcode shim paths.
+Managed invocation is intentionally limited to provider ids `codex`,
+`claude-code`, and `tutti-agent`. There is no `nextop` or `nexight` ingress
+alias. All three are built-in providers. The SDK expects managed CLI shims to
+be available on `PATH` and does not hardcode shim paths.
 
 In managed hosts, avoid alternate credential paths. Do not read a browser JSB
 credential and forward it in the request body, do not store managed credentials

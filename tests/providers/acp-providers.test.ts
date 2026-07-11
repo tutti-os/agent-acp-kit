@@ -7,8 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ACP_PROVIDER_SPECS,
   DEFAULT_LOCAL_AGENT_PROVIDER_IDS,
-  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
-  MANAGED_AGENT_MCP_ATTACHMENT_ENV,
   createDefaultLocalAgentProviderPlugins,
   createGenericAcpProvider,
   createKnownAcpProvider,
@@ -114,69 +112,6 @@ setTimeout(() => process.exit(42), 10);
         streaming: true,
       });
     }
-  });
-
-  it("applies managed invocation to generic ACP providers when the provider id is nexight", async () => {
-    const provider = createGenericAcpProvider({
-      args: ["acp"],
-      command: "nexight",
-      displayName: "Nexight",
-      providerId: "nexight",
-    });
-
-    const plan = await provider.buildLaunchPlan({
-      runId: "run_nexight",
-      cwd: "/tmp/project",
-      prompt: "hello",
-      managedAgentInvocation: {
-        credential: "managed-nexight-secret",
-        cwd: "/workspace/project",
-      },
-    });
-
-    expect(plan).toMatchObject({
-      command: "nexight",
-      cwd: "/workspace/project",
-      env: {
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-nexight-secret",
-      },
-      redactionSecrets: ["managed-nexight-secret"],
-      transport: "acp-json-rpc",
-    });
-  });
-
-  it("moves managed generic ACP MCP servers into tsh handoff env", async () => {
-    const provider = createGenericAcpProvider({
-      args: ["acp"],
-      command: "nexight",
-      displayName: "Nexight",
-      providerId: "nexight",
-    });
-
-    const plan = await provider.buildLaunchPlan({
-      runId: "run_nexight_mcp",
-      cwd: "/tmp/project",
-      prompt: "hello",
-      managedAgentInvocation: {
-        credential: "managed-nexight-secret",
-        cwd: "/workspace/project",
-      },
-      mcpServers: [
-        {
-          name: "aimc",
-          command: process.execPath,
-          args: ["/tmp/aimc-mcp.js"],
-          env: { AIMC_TOOL_TOKEN: "tool-token" },
-        },
-      ],
-    });
-
-    const encoded = plan.env?.[MANAGED_AGENT_MCP_ATTACHMENT_ENV];
-    expect(encoded).toBeTruthy();
-    expect(plan.mcpServers).toBeUndefined();
-    expect(plan.redactionSecrets).toContain("managed-nexight-secret");
-    expect(plan.redactionSecrets).toContain("tool-token");
-    expect(plan.redactionSecrets).toContain(encoded);
   });
 
   it("builds the default provider list with dedicated Codex and Claude plus ACP presets", () => {
