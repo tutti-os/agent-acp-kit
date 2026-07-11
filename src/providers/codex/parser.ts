@@ -43,6 +43,16 @@ function isReconnectMessage(message: string) {
   return /^Reconnecting\.\.\.\s+\d+\/\d+(?:\s+\([^)]+\))?$/.test(message);
 }
 
+function isSkillBudgetDiagnostic(message: string) {
+  return /^(?:Skill descriptions were shortened to fit (?:the )?(?:\d+% )?skills context budget\.|Exceeded skills context budget\. All skill descriptions were removed and\b)/.test(
+    message,
+  );
+}
+
+function isTransientWarningMessage(message: string) {
+  return isReconnectMessage(message) || isSkillBudgetDiagnostic(message);
+}
+
 function statusWarning(message: string): AgentEvent {
   return {
     type: "status",
@@ -339,7 +349,7 @@ export function parseCodexItem(item: CodexEnvelope | CodexItem): AgentEvent[] {
     if (envelope.type === "turn.failed" || envelope.type === "error") {
       const message =
         envelope.error?.message ?? envelope.message ?? "Codex turn failed";
-      if (envelope.type === "error" && isReconnectMessage(message)) {
+      if (envelope.type === "error" && isTransientWarningMessage(message)) {
         return [statusWarning(message)];
       }
       return [

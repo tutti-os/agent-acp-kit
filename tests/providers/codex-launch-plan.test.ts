@@ -1196,4 +1196,40 @@ describe("buildCodexLaunchPlan", () => {
       }),
     );
   });
+
+  it("keeps parsing Codex raw events after skill budget diagnostics", async () => {
+    const adapter = createCodexProvider().createAdapter();
+    expect(adapter).toBeDefined();
+    const message =
+      "Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
+
+    async function* stream() {
+      yield { type: "error", message };
+      yield {
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "continued after diagnostic" }],
+        },
+      };
+      yield { type: "event_msg", payload: { type: "turn_completed" } };
+    }
+
+    const events = [];
+    for await (const event of adapter!.parseEvents(stream())) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "status",
+        status: "warning",
+        stage: "warning",
+        message,
+      },
+      { type: "text_delta", text: "continued after diagnostic" },
+      { type: "done", status: "completed", reason: "completed" },
+    ]);
+  });
 });

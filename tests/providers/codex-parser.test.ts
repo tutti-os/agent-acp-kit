@@ -164,6 +164,43 @@ describe("parseCodexItem", () => {
     ]);
   });
 
+  it("maps skill budget diagnostics into transient warning statuses", () => {
+    const diagnostics = [
+      "Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.",
+      "Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.",
+      "Exceeded skills context budget. All skill descriptions were removed and Codex will continue without them.",
+    ];
+
+    for (const message of diagnostics) {
+      expect(parseCodexItem({ type: "error", message })).toEqual([
+        {
+          type: "status",
+          status: "warning",
+          stage: "warning",
+          message,
+        },
+      ]);
+    }
+  });
+
+  it("keeps turn failures terminal even when their message resembles a skill diagnostic", () => {
+    const message =
+      "Skill descriptions were shortened to fit the 2% skills context budget.";
+
+    expect(
+      parseCodexItem({
+        type: "turn.failed",
+        error: { message },
+      }),
+    ).toEqual([
+      {
+        type: "error",
+        code: "codex_error",
+        message,
+      },
+    ]);
+  });
+
   it("maps ordinary top-level errors into error events", () => {
     expect(
       parseCodexItem({
