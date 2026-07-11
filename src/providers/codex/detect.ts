@@ -392,7 +392,7 @@ export async function detectCodex(options?: {
   const supported = isVersionAtLeast(version, options?.minimumVersion);
   const authState = options?.probeAuthStatus
     ? await detectCodexAuthState({
-        ...(options.authStatusTimeoutMs
+        ...(options.authStatusTimeoutMs !== undefined
           ? { authStatusTimeoutMs: options.authStatusTimeoutMs }
           : {}),
         ...(options?.cwd ? { cwd: options.cwd } : {}),

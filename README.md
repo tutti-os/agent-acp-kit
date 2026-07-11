@@ -201,7 +201,7 @@ import {
 | --- | --- | --- | --- |
 | Codex | Supported | `codex exec --json` JSONL | Dynamic model discovery via `codex debug models`; per-run `CODEX_HOME` with copied auth and sanitized config; same-provider resume via `codex exec resume --json <session> -` |
 | Claude Code (`claude-code`) | Supported | `claude -p --output-format stream-json` | Canonical provider ID is `claude-code`; legacy `claude` input is accepted internally; supports fallback model hints, custom model pass-through, and same-provider resume via `--resume <session>` |
-| Tutti Agent (`tutti-agent`) | Supported | `tutti-agent exec --json` JSONL | First-party canonical provider; Codex-compatible transport with isolated per-run `TUTTI_AGENT_HOME`; authentication is probed with `tutti-agent login status`; no Nexight runtime alias |
+| Tutti Agent (`tutti-agent`) | Supported | `tutti-agent exec --json` JSONL | First-party canonical provider; local runs copy credentials into a temporary `TUTTI_AGENT_HOME`, while managed runs use the managed run directory supplied by Tutti; authentication is probed with `tutti-agent login status`; no Nexight runtime alias |
 | Devin for Terminal | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `DEVIN_ACP_BIN` |
 | Hermes | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `HERMES_ACP_BIN` |
 | Kimi | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `KIMI_ACP_BIN` |
