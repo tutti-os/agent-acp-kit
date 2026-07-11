@@ -24,7 +24,6 @@ export function buildAcpSessionNewParams(
             name: server.name,
             url: server.url,
             ...(server.headers ? { headers: server.headers } : {}),
-            env: acpEnvEntries(server.env),
           };
         }
         return {

@@ -13,6 +13,23 @@ function resolveProviderResumeId(
   return (resume.providerSessionId ?? resume.resumeToken)?.trim() || undefined;
 }
 
+function resolveClaudePermissionMode(
+  permission: AgentRunParams<"local-agent", "claude-code">["permission"],
+) {
+  switch (permission?.semantic) {
+    case "accept-edits":
+      return "acceptEdits";
+    case "locked-down":
+      return "dontAsk";
+    case "auto":
+      return "auto";
+    case "full-access":
+      return "bypassPermissions";
+    default:
+      return undefined;
+  }
+}
+
 export function buildClaudeLaunchPlan(
   params: AgentRunParams<"local-agent", "claude-code">,
   executablePath = "claude",
@@ -33,7 +50,10 @@ export function buildClaudeLaunchPlan(
   for (const dir of params.extraAllowedDirs ?? []) {
     if (dir) args.push("--add-dir", dir);
   }
-  args.push("--permission-mode", "bypassPermissions");
+  const permissionMode = resolveClaudePermissionMode(params.permission);
+  if (permissionMode) {
+    args.push("--permission-mode", permissionMode);
+  }
   const plan: ProviderLaunchPlan = {
     args,
     command: executablePath,

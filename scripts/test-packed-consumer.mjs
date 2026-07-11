@@ -18,10 +18,36 @@ try {
     path.join(fixture, "package.json"),
     JSON.stringify({ name: "agent-acp-kit-consumer", private: true, type: "module" }),
   );
-  execFileSync("npm", ["install", "--ignore-scripts", tarball], {
+  execFileSync("npm", ["install", "--ignore-scripts", tarball, "typescript@5.9.3"], {
     cwd: fixture,
     stdio: "inherit",
   });
+  writeFileSync(
+    path.join(fixture, "type-smoke.ts"),
+    `
+import type { AgentRunInput } from "@tutti-os/agent-acp-kit";
+import type { TuttiAgentPermissionMode } from "@tutti-os/agent-acp-kit/tutti/contracts";
+
+export function composerPermissionToRun(
+  mode: TuttiAgentPermissionMode,
+): AgentRunInput["permission"] {
+  return { modeId: mode.id, semantic: mode.semantic };
+}
+`,
+  );
+  execFileSync(
+    path.join(fixture, "node_modules/.bin/tsc"),
+    [
+      "--noEmit",
+      "--strict",
+      "--target", "ES2022",
+      "--module", "NodeNext",
+      "--moduleResolution", "NodeNext",
+      "--skipLibCheck",
+      "type-smoke.ts",
+    ],
+    { cwd: fixture, stdio: "inherit" },
+  );
   writeFileSync(
     path.join(fixture, "smoke.mjs"),
     `
@@ -40,15 +66,22 @@ import { createFakeAcpPeerScript } from "@tutti-os/agent-acp-kit/testing";
 const peer = createFakeAcpPeerScript({
   updates: [{ sessionUpdate: "text_delta", content: { text: "packed-ok" } }],
 });
+const packedProvider = createGenericAcpProvider({
+  providerId: "packed",
+  displayName: "Packed",
+  command: process.execPath,
+  args: ["-e", peer],
+});
 const runtime = createLocalAgentRuntime({
-  providers: [
-    createGenericAcpProvider({
-      providerId: "packed",
-      displayName: "Packed",
-      command: process.execPath,
-      args: ["-e", peer],
+  providers: [{
+    ...packedProvider,
+    detect: async () => ({
+      authState: "ok",
+      executablePath: process.execPath,
+      supported: true,
+      version: process.version,
     }),
-  ],
+  }],
 });
 const catalog = await loadTuttiAgentProviderCatalog({
   runtime,

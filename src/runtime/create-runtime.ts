@@ -13,6 +13,7 @@ import type {
   RuntimeLease,
   RuntimeProvider,
 } from "../core/provider-plugin.js";
+import { resolveAgentPermissionSelection } from "../core/permissions.js";
 import type { DetectContext } from "../core/detection.js";
 import type { AgentEvent } from "../core/events.js";
 import type { AgentRunInput } from "../core/run-input.js";
@@ -255,6 +256,7 @@ export function createLocalAgentRuntime<
           applyManagedAgentInvocationToRunParams(String(provider.id), {
             ...input,
             env,
+            permission: resolveAgentPermissionSelection(input.permission),
             runtimeKind: input.runtimeKind ?? provider.kind,
             runtimeProvider:
               input.runtimeProvider && canonicalProviderIds.has(String(input.runtimeProvider))
@@ -475,6 +477,7 @@ function createBuiltInAcpTransport(): Transport {
         cwd: plan.cwd,
         prompt: plan.prompt,
         ...(plan.model ? { model: plan.model } : {}),
+        ...(plan.permission ? { permission: plan.permission } : {}),
         ...(plan.mcpServers ? { mcpServers: plan.mcpServers } : {}),
         ...(plan.resume ? { resume: plan.resume } : {}),
         ...(plan.timeoutMs ? { timeoutMs: plan.timeoutMs } : {}),

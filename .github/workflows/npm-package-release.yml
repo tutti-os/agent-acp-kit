@@ -145,8 +145,14 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+
       - name: Validate package tarball
-        run: npm pack --dry-run
+        run: pnpm pack:check
+
+      - name: Test packed consumer
+        run: pnpm test:packed-consumer
 
       - name: Prepare release ref
         if: ${{ inputs.dry_run != true }}

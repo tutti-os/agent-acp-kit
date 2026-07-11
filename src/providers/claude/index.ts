@@ -12,6 +12,7 @@ import {
   normalizeMcpServerConfigs,
   type NormalizedLocalAgentMcpServerConfig,
 } from "../../core/mcp.js";
+import { resolveAgentPermissionSelection } from "../../core/permissions.js";
 import { materializeSkills } from "../../skills/materialize.js";
 import { cleanupPaths } from "../../skills/cleanup.js";
 import { composePromptWithSkills } from "../../skills/prompt-injection.js";
@@ -134,6 +135,10 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "claude-code">["buildLaunchPlan"]>[0],
   ) {
     params = applyManagedAgentInvocationToRunParams("claude-code", params);
+    params = {
+      ...params,
+      permission: resolveAgentPermissionSelection(params.permission),
+    };
     const managed = Boolean(params.managedAgentInvocation);
     const materialized = await materializeSkills(
       params.cwd,

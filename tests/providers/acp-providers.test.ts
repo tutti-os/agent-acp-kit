@@ -89,11 +89,24 @@ setTimeout(() => process.exit(42), 10);
         runId: `run_${provider.id}`,
         cwd: "/tmp",
         prompt: "hello",
+        permission: { modeId: "full-access", semantic: "full-access" },
         runtimeKind: "local-agent",
         runtimeProvider: provider.id,
       });
 
       expect(plan.promptInput).toBe("stdin");
+      expect(plan.permission).toEqual({
+        modeId: "full-access",
+        semantic: "full-access",
+      });
+      const defaultPlan = await provider.buildLaunchPlan({
+        runId: `run_default_${provider.id}`,
+        cwd: "/tmp",
+        prompt: "hello",
+        runtimeKind: "local-agent",
+        runtimeProvider: provider.id,
+      });
+      expect(defaultPlan.permission).toEqual({ semantic: "full-access" });
       expect(plan.args).toEqual(spec.args);
       expect(provider.capabilities()).toMatchObject({
         maxConcurrentRuns: Number.MAX_SAFE_INTEGER,

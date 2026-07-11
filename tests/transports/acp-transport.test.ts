@@ -51,6 +51,7 @@ describe("runAcpTransport", () => {
     const script = createFakeAcpPeerScript({
       updates: [
         { sessionUpdate: "text_delta", content: { type: "text", text: "hello" } },
+        { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thought" } },
         { sessionUpdate: "reasoning_delta", content: { type: "text", text: "thinking" } },
         { type: "tool_call", id: "tool_1", name: "generate_image", input: { prompt: "x" } },
         {
@@ -83,6 +84,7 @@ describe("runAcpTransport", () => {
 
     expect(events).toEqual([
       { type: "text_delta", text: "hello" },
+      { type: "thinking", text: "thought" },
       { type: "thinking_delta", text: "thinking" },
       {
         type: "tool_call",
@@ -227,6 +229,7 @@ process.stdin.on("data", (chunk) => {
       {
         cwd: process.cwd(),
         model: "model-x",
+        permission: { semantic: "full-access" },
         prompt: "hello",
         runId: "run_acp_fallback",
       },

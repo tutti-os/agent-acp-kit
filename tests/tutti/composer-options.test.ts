@@ -66,7 +66,6 @@ describe("Tutti composer options", () => {
       runtime: runtime(),
       providerId: "codex",
       cwd: "/workspace",
-      includeCapabilityCatalog: false,
       runTuttiCli: async (args) => {
         calls.push(args);
         return calls.length === 1 ? cliCatalog : cliComposer;
@@ -82,8 +81,6 @@ describe("Tutti composer options", () => {
         "codex",
         "--cwd",
         "/workspace",
-        "--include-capability-catalog",
-        "false",
       ],
     ]);
     expect(options).toMatchObject({
@@ -133,6 +130,29 @@ describe("Tutti composer options", () => {
         },
       }),
     ).rejects.toMatchObject({ code: "unsupported_schema" });
+  });
+
+  it("rejects missing or unknown permission semantics", async () => {
+    for (const semantic of [undefined, "provider-owned-superuser"]) {
+      let call = 0;
+      await expect(
+        loadTuttiAgentComposerOptions({
+          runtime: runtime(),
+          providerId: "codex",
+          runTuttiCli: async () => {
+            call += 1;
+            if (call === 1) return cliCatalog;
+            return {
+              ...cliComposer,
+              permissionConfig: {
+                ...cliComposer.permissionConfig,
+                modes: [{ id: "auto", label: "Auto", semantic }],
+              },
+            };
+          },
+        }),
+      ).rejects.toMatchObject({ code: "invalid_response" });
+    }
   });
 
   it("rejects providers absent from the CLI catalog", async () => {

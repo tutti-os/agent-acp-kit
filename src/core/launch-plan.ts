@@ -1,4 +1,5 @@
 import type { LocalAgentMcpServerConfig } from "./mcp.js";
+import type { AgentPermissionSelection } from "./permissions.js";
 
 export type LaunchPlan = {
   args: string[];
@@ -10,6 +11,7 @@ export type LaunchPlan = {
   promptInput: "stdin" | "argv";
   mcpServers?: LocalAgentMcpServerConfig[];
   model?: string;
+  permission?: AgentPermissionSelection;
   redactionSecrets?: string[];
   resume?: {
     mode: "native" | "provider" | "fresh";

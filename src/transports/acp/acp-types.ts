@@ -14,7 +14,6 @@ export type AcpSessionNewParams = {
       })
     | (Omit<NormalizedLocalAgentMcpHttpServerConfig, "env"> & {
         type: "http";
-        env: AcpMcpEnvEntry[];
       })
   >;
   resume?: {

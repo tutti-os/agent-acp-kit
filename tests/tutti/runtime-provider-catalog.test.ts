@@ -92,6 +92,7 @@ describe("Tutti app-facing provider catalog", () => {
     });
 
     expect(localRuntime.detect).toHaveBeenCalledTimes(1);
+    expect(calls.filter((args) => args.includes("providers"))).toHaveLength(1);
     expect(calls.filter((args) => args.includes("composer-options"))).toHaveLength(1);
     expect(result.defaultProvider).toBe("codex");
     expect(result.providers).toMatchObject([
@@ -128,5 +129,52 @@ describe("Tutti app-facing provider catalog", () => {
     });
 
     expect(result.providers[0]).toMatchObject({ provider: "codex", available: true });
+  });
+
+  it("requires known-good Claude auth while preserving unknown auth for ACP providers", async () => {
+    const localRuntime = runtime();
+    localRuntime.listProviders = () => [
+      { id: "claude-code", displayName: "Claude Code", kind: "local-agent" },
+      { id: "cursor", displayName: "Cursor", kind: "local-agent" },
+    ];
+    localRuntime.detect = vi.fn(async () => [
+      {
+        provider: "claude-code",
+        displayName: "Claude Code",
+        result: {
+          authState: "unknown",
+          executablePath: "claude",
+          supported: true,
+          version: "1",
+        },
+      },
+      {
+        provider: "cursor",
+        displayName: "Cursor",
+        result: {
+          authState: "unknown",
+          executablePath: "cursor-agent",
+          supported: true,
+          version: "1",
+        },
+      },
+    ]);
+
+    const result = await resolveTuttiAgentProviderCatalog({
+      env: {},
+      includeComposerModels: false,
+      runtime: localRuntime,
+    });
+
+    expect(result.providers).toMatchObject([{
+      provider: "claude-code",
+      authState: "unknown",
+      available: false,
+    }, {
+      provider: "cursor",
+      authState: "unknown",
+      available: true,
+    }]);
+    expect(result.defaultProvider).toBe("cursor");
   });
 });

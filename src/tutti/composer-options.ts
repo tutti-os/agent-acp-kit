@@ -1,9 +1,11 @@
 import type { LocalAgentRuntime } from "../runtime/create-runtime.js";
+import { isAgentPermissionSemantic } from "../core/permissions.js";
 import type {
   TuttiAgentComposerConfig,
   TuttiAgentComposerOption,
   TuttiAgentComposerOptions,
   TuttiAgentPermissionConfig,
+  TuttiAgentProviderCatalog,
 } from "./contracts.js";
 import {
   hasConfiguredTuttiCli,
@@ -26,14 +28,21 @@ export interface LoadTuttiAgentComposerOptionsInput
   model?: string;
   permissionMode?: string;
   reasoningEffort?: string;
-  includeCapabilityCatalog?: boolean;
 }
 
 export async function loadTuttiAgentComposerOptions(
   input: LoadTuttiAgentComposerOptionsInput,
 ): Promise<TuttiAgentComposerOptions> {
-  const providerId = canonicalTuttiProviderId(input.providerId.trim());
   const catalog = await loadTuttiAgentProviderCatalog(input);
+  return loadTuttiAgentComposerOptionsWithCatalog(input, catalog);
+}
+
+/** Internal facade hook for callers that already loaded the visibility catalog. */
+export async function loadTuttiAgentComposerOptionsWithCatalog(
+  input: LoadTuttiAgentComposerOptionsInput,
+  catalog: TuttiAgentProviderCatalog,
+): Promise<TuttiAgentComposerOptions> {
+  const providerId = canonicalTuttiProviderId(input.providerId.trim());
   const provider = catalog.providers.find((entry) => entry.providerId === providerId);
   if (!provider) {
     throw new TuttiIntegrationError(
@@ -139,9 +148,6 @@ function createComposerArgs(input: LoadTuttiAgentComposerOptionsInput, providerI
     ...(optionalString(input.reasoningEffort)
       ? ["--reasoning-effort", optionalString(input.reasoningEffort)!]
       : []),
-    ...(input.includeCapabilityCatalog === undefined
-      ? []
-      : ["--include-capability-catalog", String(input.includeCapabilityCatalog)]),
   ];
 }
 
@@ -187,12 +193,15 @@ function parsePermissionConfig(value: unknown): TuttiAgentPermissionConfig {
       if (!isRecord(mode)) throw invalidComposer(`Tutti composer permission mode ${index} is invalid.`);
       const id = optionalString(mode.id);
       const label = optionalString(mode.label);
-      if (!id || !label) throw invalidComposer(`Tutti composer permission mode ${index} fields are invalid.`);
+      const semantic = optionalString(mode.semantic);
+      if (!id || !label || !isAgentPermissionSemantic(semantic)) {
+        throw invalidComposer(`Tutti composer permission mode ${index} fields are invalid.`);
+      }
       return {
         id,
         label,
+        semantic,
         ...(optionalString(mode.description) ? { description: optionalString(mode.description) } : {}),
-        ...(optionalString(mode.semantic) ? { semantic: optionalString(mode.semantic) } : {}),
       };
     }),
   };

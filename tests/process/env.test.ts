@@ -174,6 +174,19 @@ describe("injectSystemProxyEnv", () => {
 });
 
 describe("buildLocalAgentProcessEnv", () => {
+  it("removes Claude's nested-session marker from child agent environments", async () => {
+    const env = await buildLocalAgentProcessEnv({
+      PATH: "/usr/bin",
+      CLAUDECODE: "1",
+      ClaudeCode: "mixed-case-marker",
+      CLAUDE_CONFIG_DIR: "/tmp/claude-config",
+    });
+
+    expect(env).not.toHaveProperty("CLAUDECODE");
+    expect(env).not.toHaveProperty("ClaudeCode");
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/tmp/claude-config");
+  });
+
   it("adds common local agent binary directories without duplicating existing PATH entries", async () => {
     const env = await buildLocalAgentProcessEnv({
       PATH: "/usr/bin:/opt/homebrew/bin",

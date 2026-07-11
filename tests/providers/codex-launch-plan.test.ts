@@ -23,7 +23,7 @@ describe("buildCodexLaunchPlan", () => {
     });
   });
 
-  it("uses trusted local execution, stdin delivery, cwd pinning, and repeatable add-dir flags", () => {
+  it("uses the safe auto policy, stdin delivery, cwd pinning, and repeatable add-dir flags", () => {
     expect(
       buildCodexLaunchPlan({
         runId: "run-1",
@@ -44,7 +44,10 @@ describe("buildCodexLaunchPlan", () => {
         "--disable",
         "plugins",
         "--ignore-rules",
-        "--dangerously-bypass-approvals-and-sandbox",
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        'approval_policy="on-request"',
         "-C",
         "/tmp/project",
         "--add-dir",
@@ -53,6 +56,43 @@ describe("buildCodexLaunchPlan", () => {
         "/tmp/codex/generated_images",
       ],
     });
+  });
+
+  it("maps provider-neutral permission selections to Codex launch arguments", () => {
+    const base = {
+      runId: "run-permission",
+      cwd: "/tmp/project",
+      prompt: "update the project",
+    } as const;
+
+    expect(
+      buildCodexLaunchPlan({
+        ...base,
+        permission: { modeId: "read-only", semantic: "ask-before-write" },
+      }).args,
+    ).toEqual(expect.arrayContaining([
+      "--sandbox",
+      "read-only",
+      "-c",
+      'approval_policy="on-request"',
+    ]));
+
+    const fullAccessArgs = buildCodexLaunchPlan({
+      ...base,
+      permission: { modeId: "full-access", semantic: "full-access" },
+    }).args;
+    expect(fullAccessArgs).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(fullAccessArgs).not.toContain("--sandbox");
+
+    expect(
+      buildCodexLaunchPlan({
+        ...base,
+        permission: {
+          modeId: "full-access",
+          semantic: "ask-before-write",
+        },
+      }).args,
+    ).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
   it("injects managed invocation env and cwd into Codex launch plans", () => {
@@ -119,7 +159,10 @@ describe("buildCodexLaunchPlan", () => {
       "--disable",
       "plugins",
       "--ignore-rules",
-      "--dangerously-bypass-approvals-and-sandbox",
+      "--sandbox",
+      "workspace-write",
+      "-c",
+      'approval_policy="on-request"',
       "-C",
       "/tmp/project",
       "--model",
@@ -156,7 +199,10 @@ describe("buildCodexLaunchPlan", () => {
         "--disable",
         "plugins",
         "--ignore-rules",
-        "--dangerously-bypass-approvals-and-sandbox",
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        'approval_policy="on-request"',
         "--model",
         "gpt-5.4",
         "-c",
@@ -177,7 +223,10 @@ describe("buildCodexLaunchPlan", () => {
         "--disable",
         "plugins",
         "--ignore-rules",
-        "--dangerously-bypass-approvals-and-sandbox",
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        'approval_policy="on-request"',
         "-C",
         "/tmp/project",
         "--model",
@@ -209,7 +258,10 @@ describe("buildCodexLaunchPlan", () => {
       "--disable",
       "plugins",
       "--ignore-rules",
-      "--dangerously-bypass-approvals-and-sandbox",
+      "--sandbox",
+      "workspace-write",
+      "-c",
+      'approval_policy="on-request"',
       "codex-token-1",
       "-",
     ]);
@@ -263,6 +315,7 @@ describe("buildCodexLaunchPlan", () => {
 
       expect(plan.prompt).toMatch(/^Host system rules\n\n/);
       expect(plan.prompt).toContain("Current request:\n\ndraw a poster");
+      expect(plan.args).toContain("--dangerously-bypass-approvals-and-sandbox");
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });

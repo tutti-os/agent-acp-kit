@@ -83,6 +83,8 @@ export type {
   AgentDetectionDiagnostic,
   AgentEvent,
   AgentModelOption,
+  AgentPermissionSelection,
+  AgentPermissionSemantic,
   AgentRunInput,
   AgentRunMessage,
   AgentRunParams,

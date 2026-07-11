@@ -1,7 +1,7 @@
 import type { DetectContext } from "../core/detection.js";
 import type { LocalAgentRuntime } from "../runtime/create-runtime.js";
 import type { TuttiCliJsonRequest } from "./cli-json-runner.js";
-import { loadTuttiAgentComposerOptions } from "./composer-options.js";
+import { loadTuttiAgentComposerOptionsWithCatalog } from "./composer-options.js";
 import { loadTuttiAgentProviderCatalog } from "./provider-catalog.js";
 
 export interface TuttiResolvedAgentProviderCatalogModel {
@@ -73,10 +73,12 @@ export async function resolveTuttiAgentProviderCatalog(
 
   const providers = await Promise.all(catalog.providers.map(async (provider) => {
     const detection = detected.get(provider.providerId);
+    const authReady = provider.providerId === "claude-code"
+      ? detection?.authState === "ok"
+      : detection?.authState !== "missing" && detection?.authState !== "expired";
     const localReady = Boolean(detection) &&
       detection?.supported !== false &&
-      detection?.authState !== "missing" &&
-      detection?.authState !== "expired";
+      authReady;
     const available = provider.runtimeSupported &&
       provider.availability.status === "available" &&
       (managedInvocation || localReady);
@@ -88,10 +90,13 @@ export async function resolveTuttiAgentProviderCatalog(
     let defaultModelId: string | undefined;
 
     if (available && input.includeComposerModels !== false) {
-      const composer = await loadTuttiAgentComposerOptions({
-        ...integration,
-        providerId: provider.providerId,
-      });
+      const composer = await loadTuttiAgentComposerOptionsWithCatalog(
+        {
+          ...integration,
+          providerId: provider.providerId,
+        },
+        catalog,
+      );
       const composerModels = composer.modelConfig.options.map((model) => ({
         id: model.value,
         label: model.label,

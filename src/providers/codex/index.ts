@@ -19,6 +19,7 @@ import {
   prepareManagedAgentInvocationDetectContext,
 } from "../../core/managed-invocation.js";
 import { normalizeMcpServerConfigs } from "../../core/mcp.js";
+import { resolveAgentPermissionSelection } from "../../core/permissions.js";
 import { materializeSkills } from "../../skills/materialize.js";
 import { cleanupPaths } from "../../skills/cleanup.js";
 import { skillPromptLabel } from "../../skills/prompt-injection.js";
@@ -678,6 +679,10 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "codex">["buildLaunchPlan"]>[0],
   ) {
     params = applyManagedAgentInvocationToRunParams("codex", params);
+    params = {
+      ...params,
+      permission: resolveAgentPermissionSelection(params.permission),
+    };
     const managed = Boolean(params.managedAgentInvocation);
     const codexEnv = params.env;
     const projectRootMarker = managed

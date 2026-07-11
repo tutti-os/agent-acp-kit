@@ -1,3 +1,6 @@
+import type { AgentPermissionSemantic } from "../core/permissions.js";
+import { isAgentPermissionSemantic } from "../core/permissions.js";
+
 export type TuttiAgentIntegrationSource = "tutti-cli" | "standalone";
 
 export type TuttiAgentAvailabilityStatus =
@@ -45,7 +48,7 @@ export interface TuttiAgentPermissionMode {
   id: string;
   label: string;
   description?: string;
-  semantic?: string;
+  semantic: AgentPermissionSemantic;
 }
 
 export interface TuttiAgentPermissionConfig {
@@ -148,7 +151,7 @@ function isPermissionConfig(value: unknown) {
         typeof mode.id === "string" &&
         typeof mode.label === "string" &&
         (mode.description === undefined || typeof mode.description === "string") &&
-        (mode.semantic === undefined || typeof mode.semantic === "string"),
+        isAgentPermissionSemantic(mode.semantic),
     );
 }
 

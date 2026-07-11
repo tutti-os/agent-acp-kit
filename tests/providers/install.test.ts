@@ -96,7 +96,7 @@ describe("agent provider install", () => {
     writeExecutable(
       dir,
       "claude",
-      "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then exit 0; fi\nexit 0",
+      "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then echo '{\"loggedIn\":true}'; exit 0; fi\nexit 0",
     );
 
     const result = await installAgentProvider("claude", {
@@ -125,7 +125,7 @@ describe("agent provider install", () => {
         writeExecutable(
           dir,
           "claude",
-          "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then exit 0; fi\nexit 0",
+          "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then echo '{\"loggedIn\":true}'; exit 0; fi\nexit 0",
         );
       }),
     });
@@ -150,6 +150,26 @@ describe("agent provider install", () => {
       reason: "auth_required",
       cli: { installed: true },
       adapter: { installed: false },
+    });
+  });
+
+  it("does not treat a zero-exit logged-out Claude status as ready", async () => {
+    const dir = tempPath("agent-acp-kit-install-claude-logged-out-");
+    writeExecutable(
+      dir,
+      "claude",
+      "if [ \"$1\" = \"auth\" ] && [ \"$2\" = \"status\" ]; then echo '{\"loggedIn\":false}'; exit 0; fi\nexit 0",
+    );
+
+    await expect(
+      getAgentProviderInstallStatus("claude", {
+        env: { PATH: dir },
+        commandResolver: commandResolver(dir),
+      }),
+    ).resolves.toMatchObject({
+      availability: "auth_required",
+      reason: "auth_required",
+      auth: { ok: false, required: true },
     });
   });
 });

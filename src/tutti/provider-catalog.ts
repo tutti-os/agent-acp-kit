@@ -146,7 +146,7 @@ async function loadStandaloneProviderCatalog(
       providerId,
       displayName: descriptor.displayName,
       availability: runtimeSupported
-        ? standaloneAvailability(byProvider.get(providerId))
+        ? standaloneAvailability(providerId, byProvider.get(providerId))
         : {
             status: "unavailable",
             reasonCode: "managed_provider_unsupported",
@@ -172,6 +172,7 @@ async function loadStandaloneProviderCatalog(
 }
 
 function standaloneAvailability(
+  providerId: string,
   detection: Awaited<ReturnType<LocalAgentRuntime<string, string>["detect"]>>[number]["result"] | undefined,
 ): TuttiAgentProviderAvailability {
   if (!detection) {
@@ -195,6 +196,9 @@ function standaloneAvailability(
     return { status: "unavailable", reasonCode: "auth_expired", detail: "Authentication has expired." };
   }
   if (detection.authState === "unknown") {
+    if (providerId !== "claude-code") {
+      return { status: "available", reasonCode: "", detail: "" };
+    }
     return { status: "unknown", reasonCode: "auth_unknown", detail: "Authentication status is unknown." };
   }
   return { status: "available", reasonCode: "", detail: "" };

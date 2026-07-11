@@ -161,6 +161,9 @@ import {
 const runtime = createDefaultLocalAgentRuntime();
 const catalog = await resolveTuttiAgentProviderCatalog({ runtime });
 const providerId = catalog.defaultProvider;
+if (!providerId) {
+  throw new Error("No local Agent provider is currently available.");
+}
 const composer = await loadTuttiAgentComposerOptions({
   runtime,
   providerId,
@@ -343,6 +346,25 @@ empty `models` array when model discovery fails, but include the redacted stderr
 tail in diagnostics so hosts can log or surface the actual probe failure.
 
 Hosts should not hardcode Codex or Claude model lists above this package. If a UI needs additional custom models, keep that UI behavior in the host and pass the chosen id into `AgentRunInput.model`.
+
+## Permissions
+
+Runs accept an optional provider-neutral permission selection. Pass both the
+semantic returned by the composer and its provider mode id when available:
+
+```ts
+permission: {
+  modeId: selectedMode.id,
+  semantic: selectedMode.semantic,
+}
+```
+
+The SDK maps this policy to each provider. Workspace App runs default to
+`full-access` when the host omits `permission`: Codex uses its unrestricted
+sandbox mode, Claude uses `bypassPermissions`, and ACP requests are approved.
+An App can pass an explicit narrower semantic for a run. For ACP, every
+non-`full-access` semantic cancels permission requests because the protocol
+adapter cannot safely infer a tool's risk from a provider-specific option id.
 
 ## Managed Agent Invocation
 

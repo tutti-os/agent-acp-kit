@@ -2,6 +2,21 @@ import type { AgentRunParams, ProviderLaunchPlan } from "../../core/provider-plu
 import { applyManagedAgentInvocationToLaunchPlan } from "../../core/managed-invocation.js";
 import { clampCodexReasoning } from "./reasoning.js";
 
+function codexPermissionArgs(
+  permission: AgentRunParams<"local-agent", "codex">["permission"],
+) {
+  if (permission?.semantic === "full-access") {
+    return ["--dangerously-bypass-approvals-and-sandbox"];
+  }
+  if (permission?.semantic === "ask-before-write") {
+    return ["--sandbox", "read-only", "-c", 'approval_policy="on-request"'];
+  }
+  if (permission?.semantic === "locked-down") {
+    return ["--sandbox", "read-only", "-c", 'approval_policy="never"'];
+  }
+  return ["--sandbox", "workspace-write", "-c", 'approval_policy="on-request"'];
+}
+
 function resolveProviderResumeId(
   resume: AgentRunParams<"local-agent", "codex">["resume"],
 ) {
@@ -21,7 +36,7 @@ export function buildCodexLaunchPlan(
     "--disable",
     "plugins",
     "--ignore-rules",
-    "--dangerously-bypass-approvals-and-sandbox",
+    ...codexPermissionArgs(params.permission),
   );
   if (!resumeId && !managed) {
     args.push("-C", params.cwd);

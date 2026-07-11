@@ -17,6 +17,7 @@ describe("createLocalAgentRuntime", () => {
   });
 
   it("accepts provider aliases only at input and lists canonical ids", async () => {
+    const permissions: AgentRunParams["permission"][] = [];
     const provider: LocalAgentProviderPlugin<"local-agent", "canonical"> = {
       id: "canonical",
       aliases: ["legacy"],
@@ -32,6 +33,7 @@ describe("createLocalAgentRuntime", () => {
         throw new Error("not used");
       },
       async *run(params) {
+        permissions.push(params.permission);
         yield { type: "done", status: "completed", sessionId: String(params.runtimeProvider) };
       },
     };
@@ -49,6 +51,20 @@ describe("createLocalAgentRuntime", () => {
       events.push(event);
     }
     expect(events[0]).toMatchObject({ type: "done", sessionId: "canonical" });
+    expect(permissions).toEqual([{ semantic: "full-access" }]);
+    for await (const _event of runtime.run({
+      runId: "narrow-permission",
+      provider: "canonical",
+      cwd: process.cwd(),
+      prompt: "hello",
+      permission: { semantic: "locked-down" },
+    })) {
+      // Drain the provider stream.
+    }
+    expect(permissions).toEqual([
+      { semantic: "full-access" },
+      { semantic: "locked-down" },
+    ]);
   });
 
   it("rejects duplicate provider ids and aliases during construction", () => {
