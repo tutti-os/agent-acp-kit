@@ -96,5 +96,7 @@ describe("public api", () => {
     expect(tutti.loadTuttiAgentComposerOptions).toBeTypeOf("function");
     expect(tutti.parseTuttiAgentSkillBundle).toBeTypeOf("function");
     expect(tutti.resolveTuttiCliCommand).toBeTypeOf("function");
+    expect(tutti.projectTuttiCliChildProcess).toBeTypeOf("function");
+    expect(tutti.redactTuttiCliChildProcessText).toBeTypeOf("function");
   });
 });

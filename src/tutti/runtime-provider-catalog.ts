@@ -36,7 +36,6 @@ export interface TuttiResolvedAgentProviderCatalog {
 export interface ResolveTuttiAgentProviderCatalogInput
   extends Omit<TuttiCliJsonRequest, "args"> {
   runtime: Pick<LocalAgentRuntime<string, string>, "detect" | "listProviders">;
-  detectContext?: DetectContext;
   includeComposerModels?: boolean;
 }
 

@@ -148,6 +148,7 @@ Tutti apps keep platform integration behind `@tutti-os/agent-acp-kit/tutti` and 
 
 ```ts
 import {
+  createManagedAgentDetectContextFromHeaders,
   createDefaultLocalAgentRuntime,
   createManagedAgentRunContextFromHeaders,
 } from "@tutti-os/agent-acp-kit";
@@ -159,7 +160,8 @@ import {
 } from "@tutti-os/agent-acp-kit/tutti";
 
 const runtime = createDefaultLocalAgentRuntime();
-const catalog = await resolveTuttiAgentProviderCatalog({ runtime });
+const detectContext = createManagedAgentDetectContextFromHeaders(headers);
+const catalog = await resolveTuttiAgentProviderCatalog({ runtime, detectContext });
 const providerId = catalog.defaultProvider;
 if (!providerId) {
   throw new Error("No local Agent provider is currently available.");
@@ -168,11 +170,13 @@ const composer = await loadTuttiAgentComposerOptions({
   runtime,
   providerId,
   cwd: appLocalCwd,
+  detectContext,
 });
 const skills = await loadTuttiAgentSkillContext({
   provider: providerId,
   agentSessionId: runId,
   cwd: appLocalCwd,
+  detectContext,
 });
 const runContext = await createManagedAgentRunContextFromHeaders(headers, {
   providerId,
@@ -181,6 +185,15 @@ const runContext = await createManagedAgentRunContextFromHeaders(headers, {
 ```
 
 There is no app-facing mode switch. If `TUTTI_CLI` is present, the facade uses versioned Tutti CLI JSON for enabled provider visibility, composer options, and dynamic skills. If it is absent, catalog/composer automatically use runtime discovery and skill context is empty with `source: "standalone"`. A configured CLI that fails or returns an unsupported schema produces `TuttiIntegrationError`; it never silently falls back.
+
+Managed hosts pass the same request-scoped `detectContext` object unchanged to
+catalog, composer, and skill helpers. The Tutti facade projects its existing
+managed invocation credential only when it creates the immediate CLI child;
+intermediate app code must not extract the credential, copy it to
+`process.env`, or substitute `ManagedAgentRunContext` for `detectContext`.
+App-owned non-Agent Tutti children use `projectTuttiCliChildProcess` at their
+own child boundary and pass returned output through
+`redactTuttiCliChildProcessText` before logging or returning errors.
 
 Use `resolveTuttiAgentProviderCatalog` for an app-facing provider picker: it combines platform visibility, one shared runtime detection, authentication readiness, and lazy composer models. Use the lower-level `loadTuttiAgentProviderCatalog` only when the raw versioned platform catalog is the required contract.
 

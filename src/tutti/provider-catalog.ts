@@ -22,7 +22,6 @@ import { providerAuthAvailability } from "./provider-readiness.js";
 export interface LoadTuttiAgentProviderCatalogInput
   extends Omit<TuttiCliJsonRequest, "args"> {
   runtime: LocalAgentRuntime<string, string>;
-  detectContext?: DetectContext;
 }
 
 export async function loadTuttiAgentProviderCatalog(

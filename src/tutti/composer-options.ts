@@ -1,4 +1,5 @@
 import type { LocalAgentRuntime } from "../runtime/create-runtime.js";
+import type { DetectContext } from "../core/detection.js";
 import { isAgentPermissionSemantic } from "../core/permissions.js";
 import type {
   TuttiAgentComposerConfig,
@@ -66,7 +67,12 @@ export async function loadTuttiAgentComposerOptionsWithCatalog(
     });
     return parseTuttiAgentComposerOptions(payload, providerId, "tutti-cli");
   }
-  return await standaloneComposerOptions(input.runtime, providerId, input.model);
+  return await standaloneComposerOptions(
+    input.runtime,
+    providerId,
+    input.model,
+    input.detectContext,
+  );
 }
 
 export function parseTuttiAgentComposerOptions(
@@ -102,8 +108,9 @@ async function standaloneComposerOptions(
   runtime: LocalAgentRuntime<string, string>,
   providerId: string,
   selectedModel?: string,
+  detectContext?: DetectContext,
 ): Promise<TuttiAgentComposerOptions> {
-  const detection = (await runtime.detect()).find(
+  const detection = (await runtime.detect(detectContext)).find(
     (entry) => String(entry.provider) === providerId,
   )?.result;
   const options = (detection?.models ?? []).map((model) => ({
