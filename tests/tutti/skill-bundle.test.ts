@@ -12,7 +12,7 @@ describe("Tutti skill bundle helpers", () => {
   it("loads and validates the Tutti CLI skill bundle", async () => {
     const calls: Array<{
       args: string[];
-      options: { cwd?: string; maxBuffer: number; signal?: AbortSignal; timeoutMs: number };
+      options: Parameters<TuttiCliJsonRunner>[1];
     }> = [];
     const runTuttiCli: TuttiCliJsonRunner = async (args, options) => {
       calls.push({ args, options });
@@ -44,20 +44,25 @@ describe("Tutti skill bundle helpers", () => {
       maxBuffer: 456,
     });
 
-    expect(calls).toEqual([
-      {
-        args: [
-          "--json",
-          "agent",
-          "tutti-cli-skill-bundle",
-          "--provider",
-          "codex",
-          "--agent-session-id",
-          "run-1",
-        ],
-        options: { cwd: "/workspace", maxBuffer: 456, timeoutMs: 123 },
-      },
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args).toEqual([
+      "--json",
+      "agent",
+      "tutti-cli-skill-bundle",
+      "--provider",
+      "codex",
+      "--agent-session-id",
+      "run-1",
     ]);
+    expect(calls[0]?.options).toMatchObject({
+      cwd: "/workspace",
+      maxBuffer: 456,
+      timeoutMs: 123,
+    });
+    expect(calls[0]?.options.redactionSecrets).toEqual([]);
+    expect(calls[0]?.options.env).not.toHaveProperty(
+      "TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL",
+    );
     expect(context.skills).toHaveLength(1);
     expect(context.source).toBe("tutti-cli");
     expect(context.skillManifest).toBe(context.skills);
@@ -96,6 +101,27 @@ describe("Tutti skill bundle helpers", () => {
       "--computer-use",
     ]);
     expect(calls[0]?.signal).toBe(controller.signal);
+  });
+
+  it("forwards detectContext to the CLI child projection", async () => {
+    const detectContext = {
+      managedAgentInvocation: { credential: "request-secret", cwd: "/workspace" },
+      redactionSecrets: ["existing-secret"],
+    };
+    await loadTuttiAgentSkillBundle({
+      detectContext,
+      provider: "codex",
+      runTuttiCli: async (_args, options) => {
+        expect(options.env?.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).toBe(
+          "request-secret",
+        );
+        expect(options.redactionSecrets).toEqual([
+          "existing-secret",
+          "request-secret",
+        ]);
+        return { schemaVersion: 1, provider: "codex", skills: [] };
+      },
+    });
   });
 
   it("checks provider and session echo values", async () => {

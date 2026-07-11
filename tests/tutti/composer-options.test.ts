@@ -105,6 +105,31 @@ describe("Tutti composer options", () => {
     });
   });
 
+  it("reuses the same detectContext for every standalone detection", async () => {
+    const contexts: unknown[] = [];
+    const standaloneRuntime = runtime();
+    const baseDetect = standaloneRuntime.detect;
+    standaloneRuntime.detect = async (context) => {
+      contexts.push(context);
+      return await baseDetect(context);
+    };
+    const detectContext = {
+      managedAgentInvocation: { credential: "request-secret", cwd: "/workspace" },
+      redactionSecrets: ["request-secret"],
+    };
+
+    await loadTuttiAgentComposerOptions({
+      detectContext,
+      env: {},
+      runtime: standaloneRuntime,
+      providerId: "codex",
+    });
+
+    expect(contexts).toHaveLength(2);
+    expect(contexts[0]).toBe(detectContext);
+    expect(contexts[1]).toBe(detectContext);
+  });
+
   it("preserves the selected standalone model", async () => {
     const options = await loadTuttiAgentComposerOptions({
       env: {},

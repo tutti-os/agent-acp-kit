@@ -6,7 +6,7 @@ import {
   hasConfiguredTuttiCli,
   runTuttiCliJson,
   TuttiIntegrationError,
-  type TuttiCliJsonRunner,
+  type TuttiCliJsonRequest,
 } from "./cli-json-runner.js";
 import type { TuttiAgentIntegrationSource } from "./contracts.js";
 import { canonicalTuttiProviderId } from "./internal.js";
@@ -15,11 +15,19 @@ export {
   TuttiIntegrationError,
   resolveTuttiCliCommand,
 } from "./cli-json-runner.js";
+export {
+  projectTuttiCliChildProcess,
+  redactTuttiCliChildProcessText,
+} from "./child-process.js";
 export type {
   ResolveTuttiCliCommandInput,
   TuttiCliJsonRunner,
   TuttiIntegrationErrorCode,
 } from "./cli-json-runner.js";
+export type {
+  ProjectTuttiCliChildProcessInput,
+  TuttiCliChildProcessProjection,
+} from "./child-process.js";
 export {
   loadTuttiAgentProviderCatalog,
   parseTuttiAgentProviderCatalog,
@@ -65,19 +73,12 @@ export interface TuttiAgentSkillContext extends TuttiAgentSkillBundle {
   skillManifest: SkillMaterializationRecord[];
 }
 
-export interface LoadTuttiAgentSkillBundleInput {
+export interface LoadTuttiAgentSkillBundleInput
+  extends Omit<TuttiCliJsonRequest, "args"> {
   agentSessionId?: string | null;
-  command?: string | null;
-  commandEnvNames?: string[];
-  cwd?: string | null;
-  env?: NodeJS.ProcessEnv;
-  maxBuffer?: number;
   provider: string;
   browserUse?: boolean;
   computerUse?: boolean;
-  runTuttiCli?: TuttiCliJsonRunner;
-  signal?: AbortSignal;
-  timeoutMs?: number;
 }
 
 export type LoadTuttiAgentSkillContextInput = LoadTuttiAgentSkillBundleInput;
@@ -97,6 +98,7 @@ export async function loadTuttiAgentSkillBundle(
     args,
     command: input.command,
     commandEnvNames: input.commandEnvNames,
+    detectContext: input.detectContext,
     ...(cwd ? { cwd } : {}),
     env: input.env,
     maxBuffer,

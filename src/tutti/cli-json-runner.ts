@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 
+import type { DetectContext } from "../core/detection.js";
+import { projectTuttiCliChildProcess } from "./child-process.js";
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BUFFER = 1024 * 1024;
 
@@ -28,7 +31,9 @@ export type TuttiCliJsonRunner = (
   args: string[],
   options: {
     cwd?: string;
+    env: Readonly<NodeJS.ProcessEnv>;
     maxBuffer: number;
+    redactionSecrets: readonly string[];
     signal?: AbortSignal;
     timeoutMs: number;
   },
@@ -55,6 +60,7 @@ export interface TuttiCliJsonRequest {
   command?: string | null;
   commandEnvNames?: string[];
   cwd?: string | null;
+  detectContext?: DetectContext;
   env?: NodeJS.ProcessEnv;
   maxBuffer?: number;
   runTuttiCli?: TuttiCliJsonRunner;
@@ -74,8 +80,14 @@ export async function runTuttiCliJson(
   input: TuttiCliJsonRequest,
 ): Promise<unknown> {
   const cwd = normalizeOptionalString(input.cwd);
+  const child = projectTuttiCliChildProcess({
+    baseEnv: input.env,
+    detectContext: input.detectContext,
+  });
   const options = {
     ...(cwd ? { cwd } : {}),
+    env: child.env,
+    redactionSecrets: child.redactionSecrets,
     maxBuffer: input.maxBuffer ?? DEFAULT_MAX_BUFFER,
     ...(input.signal ? { signal: input.signal } : {}),
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -91,18 +103,15 @@ export async function runTuttiCliJson(
               env: input.env,
               envNames: input.commandEnvNames,
             }),
-          env: input.env ?? process.env,
           ...options,
         });
     if (typeof payload !== "string") return payload;
     try {
       return JSON.parse(payload || "{}");
-    } catch (error) {
+    } catch {
       throw new TuttiIntegrationError(
         "invalid_response",
         "Tutti CLI returned invalid JSON.",
-        {},
-        { cause: error },
       );
     }
   } catch (error) {
@@ -125,7 +134,7 @@ async function execTuttiCli(input: {
   args: string[];
   command: string;
   cwd?: string;
-  env: NodeJS.ProcessEnv;
+  env: Readonly<NodeJS.ProcessEnv>;
   maxBuffer: number;
   signal?: AbortSignal;
   timeoutMs: number;

@@ -67,6 +67,8 @@ import {
 import {
   loadTuttiAgentProviderCatalog,
   loadTuttiAgentSkillContext,
+  projectTuttiCliChildProcess,
+  redactTuttiCliChildProcessText,
   resolveTuttiAgentProviderCatalog,
 } from "@tutti-os/agent-acp-kit/tutti";
 import { isTuttiAgentProviderCatalog } from "@tutti-os/agent-acp-kit/tutti/contracts";
@@ -92,9 +94,37 @@ const runtime = createLocalAgentRuntime({
     }),
   }],
 });
+const detectContext = {
+  managedAgentInvocation: { credential: "packed-secret", cwd: process.cwd() },
+  redactionSecrets: ["packed-existing"],
+};
+const projection = projectTuttiCliChildProcess({
+  baseEnv: {
+    TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL: "ambient-canonical",
+    TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL: "ambient-legacy",
+  },
+  detectContext,
+});
+if (projection.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL) {
+  throw new Error("canonical ambient credential was not removed");
+}
+if (projection.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL !== "packed-secret") {
+  throw new Error("request credential projection failed");
+}
+if (!Object.isFrozen(projection.env) || !projection.redactionSecrets.includes("packed-secret")) {
+  throw new Error("projection immutability/redaction failed");
+}
+if (redactTuttiCliChildProcessText("value=packed-secret", projection.redactionSecrets) !== "value=[REDACTED]") {
+  throw new Error("packed redaction helper failed");
+}
 const catalog = await loadTuttiAgentProviderCatalog({
+  detectContext,
   runtime,
-  runTuttiCli: async () => ({
+  runTuttiCli: async (_args, options) => {
+    if (options.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL !== "packed-secret") {
+      throw new Error("packed facade lost detectContext");
+    }
+    return ({
     schemaVersion: 2,
     defaultProviderId: "packed",
     providers: [{
@@ -103,7 +133,8 @@ const catalog = await loadTuttiAgentProviderCatalog({
       agentTargetId: "local:packed",
       availability: { status: "available", reasonCode: "", detail: "" },
     }],
-  }),
+    });
+  },
 });
 if (!isTuttiAgentProviderCatalog(catalog)) throw new Error("catalog contract failed");
 const resolvedCatalog = await resolveTuttiAgentProviderCatalog({
