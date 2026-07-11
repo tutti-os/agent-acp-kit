@@ -19,7 +19,12 @@ import path from "node:path";
 
 const PROXY_KEYS = ["HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"] as const;
 const NPM_PREFIX_TIMEOUT_MS = 2_000;
-const LOCAL_AGENT_HOME_ENV_KEYS = ["CLAUDE_CONFIG_DIR", "CODEX_HOME"] as const;
+const LOCAL_AGENT_HOME_ENV_KEYS = [
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "TUTTI_AGENT_HOME",
+] as const;
+const LOCAL_AGENT_NESTED_SESSION_ENV_KEYS = ["CLAUDECODE"] as const;
 
 export type LocalAgentProcessEnvOptions = {
   stripLocalAgentHomeEnv?: boolean;
@@ -151,6 +156,7 @@ export async function buildLocalAgentProcessEnv(
   options: LocalAgentProcessEnvOptions = {},
 ): Promise<Record<string, string>> {
   const env = mergeProcessEnv(baseEnv);
+  deleteEnvKeysCaseInsensitive(env, LOCAL_AGENT_NESTED_SESSION_ENV_KEYS);
   if (options.stripLocalAgentHomeEnv) {
     deleteEnvKeysCaseInsensitive(env, LOCAL_AGENT_HOME_ENV_KEYS);
   }

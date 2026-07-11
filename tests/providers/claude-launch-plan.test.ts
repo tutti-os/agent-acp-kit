@@ -48,10 +48,39 @@ describe("buildClaudeLaunchPlan", () => {
         "/repo/skills",
         "--add-dir",
         "/repo/design-system",
-        "--permission-mode",
-        "bypassPermissions",
       ],
     });
+  });
+
+  it("maps provider-neutral permission selections", () => {
+    const base = {
+      runId: "run-permission",
+      cwd: "/tmp/project",
+      prompt: "update the project",
+    } as const;
+
+    expect(buildClaudeLaunchPlan(base).args).not.toContain("--permission-mode");
+    expect(
+      buildClaudeLaunchPlan({
+        ...base,
+        permission: { modeId: "acceptEdits", semantic: "accept-edits" },
+      }).args,
+    ).toEqual(expect.arrayContaining(["--permission-mode", "acceptEdits"]));
+    expect(
+      buildClaudeLaunchPlan({
+        ...base,
+        permission: { modeId: "bypassPermissions", semantic: "full-access" },
+      }).args,
+    ).toEqual(expect.arrayContaining(["--permission-mode", "bypassPermissions"]));
+    expect(
+      buildClaudeLaunchPlan({
+        ...base,
+        permission: {
+          modeId: "bypassPermissions",
+          semantic: "ask-before-write",
+        },
+      }).args,
+    ).not.toContain("--permission-mode");
   });
 
   it("injects managed invocation env and cwd into Claude launch plans", () => {
@@ -95,8 +124,6 @@ describe("buildClaudeLaunchPlan", () => {
       "sonnet",
       "--resume",
       "claude-session-1",
-      "--permission-mode",
-      "bypassPermissions",
     ]);
   });
 
@@ -147,6 +174,9 @@ describe("buildClaudeLaunchPlan", () => {
 
       const configIndex = plan.args.indexOf("--mcp-config");
       expect(configIndex).toBeGreaterThan(-1);
+      expect(plan.args).toEqual(
+        expect.arrayContaining(["--permission-mode", "bypassPermissions"]),
+      );
       const configPath = plan.args[configIndex + 1];
       expect(configPath).toContain(cwd);
       await expect(readFile(configPath, "utf8")).resolves.toBe(

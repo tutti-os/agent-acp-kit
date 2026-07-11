@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
-import { detectClaude } from "../../src/providers/claude/detect.js";
+import {
+  detectClaude,
+  detectClaudeAuthState,
+} from "../../src/providers/claude/detect.js";
 
 const claudeSdk = vi.hoisted(() => ({
   query: vi.fn(),
@@ -96,6 +99,12 @@ if (process.argv[2] === "--version" &&
   console.log("claude 2.0.0");
   process.exit(0);
 }
+if (process.argv[2] === "auth" && process.argv[3] === "status" &&
+  fs.realpathSync(process.cwd()) === expectedCwd &&
+  process.env.${MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV} === expectedCredential) {
+  console.log(JSON.stringify({ loggedIn: true, authMethod: "managed" }));
+  process.exit(0);
+}
 process.exit(9);
 `,
     );
@@ -182,7 +191,7 @@ process.exit(1);
     const openClaude = join(dir, "openclaude");
     writeFileSync(
       openClaude,
-      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"openclaude 0.9.0\"; exit 0; fi\nexit 1\n",
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"openclaude 0.9.0\"; exit 0; fi\nif [ \"$1\" = \"auth\" ]; then echo '{\"loggedIn\":true}'; exit 0; fi\nexit 1\n",
     );
     chmodSync(openClaude, 0o755);
     const close = vi.fn();
@@ -251,5 +260,62 @@ process.exit(1);
       },
     });
     expect(close).toHaveBeenCalled();
+  });
+
+  it("reports an installed but logged-out Claude CLI as missing auth", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-logged-out-"));
+    const configDir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-home-"));
+    tempDirs.push(dir, configDir);
+    const claudeBin = join(dir, "claude");
+    writeFileSync(
+      claudeBin,
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 2.1.0'; exit 0; fi\nif [ \"$1\" = \"auth\" ]; then echo '{\"loggedIn\":false,\"authMethod\":\"none\"}'; exit 1; fi\nexit 1\n",
+    );
+    chmodSync(claudeBin, 0o755);
+
+    const detection = await detectClaude({
+      env: { PATH: dir, CLAUDE_CONFIG_DIR: configDir },
+    });
+
+    expect(detection).toMatchObject({
+      authState: "missing",
+      executablePath: claudeBin,
+      supported: true,
+      version: "claude 2.1.0",
+    });
+    expect(claudeSdk.query).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a nonzero auth command claims a positive login", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-auth-failed-"));
+    tempDirs.push(dir);
+    const claudeBin = join(dir, "claude");
+    writeFileSync(
+      claudeBin,
+      "#!/bin/sh\necho '{\"loggedIn\":true}'\nexit 1\n",
+    );
+    chmodSync(claudeBin, 0o755);
+
+    await expect(detectClaudeAuthState({ executablePath: claudeBin }))
+      .resolves.toBe("unknown");
+  });
+
+  it("reports expired Claude credentials and does not probe models", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-expired-"));
+    const configDir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-home-"));
+    tempDirs.push(dir, configDir);
+    const claudeBin = join(dir, "claude");
+    writeFileSync(
+      claudeBin,
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 2.1.0'; exit 0; fi\nif [ \"$1\" = \"auth\" ]; then echo '{\"loggedIn\":true,\"expiresAt\":\"2000-01-01T00:00:00.000Z\"}'; exit 0; fi\nexit 1\n",
+    );
+    chmodSync(claudeBin, 0o755);
+
+    const detection = await detectClaude({
+      env: { PATH: dir, CLAUDE_CONFIG_DIR: configDir },
+    });
+
+    expect(detection.authState).toBe("expired");
+    expect(claudeSdk.query).not.toHaveBeenCalled();
   });
 });

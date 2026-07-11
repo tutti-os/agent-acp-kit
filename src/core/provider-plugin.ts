@@ -4,6 +4,7 @@ import type { AgentEvent } from "./events.js";
 import type { LaunchPlan, TransportKind } from "./launch-plan.js";
 import type { ManagedAgentInvocation } from "./managed-invocation.js";
 import type { LocalAgentMcpServerConfig } from "./mcp.js";
+import type { AgentPermissionSelection } from "./permissions.js";
 import type { SkillMaterializationRecord } from "./skills.js";
 import type { RawAgentStream } from "./transport.js";
 
@@ -86,6 +87,7 @@ export type AgentRunParams<
   history?: AgentRunMessage[];
   model?: string;
   reasoning?: string;
+  permission?: AgentPermissionSelection;
   runtimeKind?: TKind;
   runtimeProvider?: TProvider;
   extraAllowedDirs?: string[];
@@ -121,6 +123,8 @@ export type LocalAgentProviderPlugin<
   id: TProvider;
   /** Legacy input ids accepted by the runtime. Catalogs always expose `id`. */
   aliases?: readonly string[];
+  /** Require a positive auth probe before catalogs advertise this provider. */
+  requiresKnownAuth?: boolean;
   displayName: string;
   kind: TKind;
   detect(context?: DetectContext): Promise<AgentDetection | null>;

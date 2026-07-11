@@ -2,16 +2,47 @@ import type { AgentRunParams, ProviderLaunchPlan } from "../../core/provider-plu
 import { applyManagedAgentInvocationToLaunchPlan } from "../../core/managed-invocation.js";
 import { clampCodexReasoning } from "./reasoning.js";
 
+function codexPermissionArgs(
+  permission: AgentRunParams<"local-agent", string>["permission"],
+) {
+  if (permission?.semantic === "full-access") {
+    return ["--dangerously-bypass-approvals-and-sandbox"];
+  }
+  if (permission?.semantic === "ask-before-write") {
+    return [
+      "-c",
+      'sandbox_mode="read-only"',
+      "-c",
+      'approval_policy="on-request"',
+    ];
+  }
+  if (permission?.semantic === "locked-down") {
+    return [
+      "-c",
+      'sandbox_mode="read-only"',
+      "-c",
+      'approval_policy="never"',
+    ];
+  }
+  return [
+    "-c",
+    'sandbox_mode="workspace-write"',
+    "-c",
+    'approval_policy="on-request"',
+  ];
+}
+
 function resolveProviderResumeId(
-  resume: AgentRunParams<"local-agent", "codex">["resume"],
+  resume: AgentRunParams<"local-agent", string>["resume"],
 ) {
   if (!resume || resume.mode === "fresh") return undefined;
   return (resume.providerSessionId ?? resume.resumeToken)?.trim() || undefined;
 }
 
 export function buildCodexLaunchPlan(
-  params: AgentRunParams<"local-agent", "codex">,
+  params: AgentRunParams<"local-agent", string>,
   executablePath = "codex",
+  providerId = "codex",
 ): ProviderLaunchPlan {
   const resumeId = resolveProviderResumeId(params.resume);
   const managed = Boolean(params.managedAgentInvocation);
@@ -21,7 +52,7 @@ export function buildCodexLaunchPlan(
     "--disable",
     "plugins",
     "--ignore-rules",
-    "--dangerously-bypass-approvals-and-sandbox",
+    ...codexPermissionArgs(params.permission),
   );
   if (!resumeId && !managed) {
     args.push("-C", params.cwd);
@@ -66,11 +97,12 @@ export function buildCodexLaunchPlan(
         resume: { mode: "fresh" },
       },
       executablePath,
+      providerId,
     );
   }
 
   return applyManagedAgentInvocationToLaunchPlan(
-    "codex",
+    providerId,
     plan,
     params.managedAgentInvocation,
   );

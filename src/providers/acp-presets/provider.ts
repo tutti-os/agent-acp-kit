@@ -1,6 +1,9 @@
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
 import { createClaudeProvider } from "../claude/index.js";
-import { createCodexProvider } from "../codex/index.js";
+import {
+  createCodexProvider,
+  createTuttiAgentProvider,
+} from "../codex/index.js";
 import { createGenericAcpProvider } from "../generic-acp/provider.js";
 
 export type AcpProviderSpec = {
@@ -114,6 +117,7 @@ export type AcpProviderId = (typeof ACP_PROVIDER_SPECS)[number]["id"];
 export const DEFAULT_LOCAL_AGENT_PROVIDER_IDS = [
   "codex",
   "claude-code",
+  "tutti-agent",
   ...ACP_PROVIDER_SPECS.map((provider) => provider.id),
 ] as const;
 
@@ -189,6 +193,7 @@ export function createDefaultLocalAgentProviderPlugins(): LocalAgentProviderPlug
   return [
     createCodexProvider(),
     createClaudeProvider(),
+    createTuttiAgentProvider(),
     ...ACP_PROVIDER_SPECS.map((provider) => createKnownAcpProvider(provider.id)),
   ];
 }

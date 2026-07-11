@@ -8,6 +8,7 @@ import {
   prepareManagedAgentInvocationDetectContext,
 } from "../../core/managed-invocation.js";
 import { resolveCommandExecutable } from "../../process/command-resolver.js";
+import { resolveAgentPermissionSelection } from "../../core/permissions.js";
 import { composePromptWithSystem } from "../../skills/prompt-injection.js";
 import { runAcpTransport } from "../../transports/acp/acp-client.js";
 import { detectAcpModels } from "../../transports/acp/acp-models.js";
@@ -99,6 +100,10 @@ export function createGenericAcpProvider(input: {
     },
     async buildLaunchPlan(params) {
       params = applyManagedAgentInvocationToRunParams(input.providerId, params);
+      params = {
+        ...params,
+        permission: resolveAgentPermissionSelection(params.permission),
+      };
       const prompt = composePromptWithSystem({
         prompt: params.prompt,
         ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
@@ -110,6 +115,7 @@ export function createGenericAcpProvider(input: {
         ...(params.env ? { env: params.env } : {}),
         ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
         ...(params.model ? { model: params.model } : {}),
+        ...(params.permission ? { permission: params.permission } : {}),
         ...(params.resume ? { resume: params.resume } : {}),
         ...(params.timeoutMs ? { timeoutMs: params.timeoutMs } : {}),
         prompt,
@@ -133,6 +139,7 @@ export function createGenericAcpProvider(input: {
       yield* runAcpTransport(plan, {
         ...paramsWithoutMcpServers,
         ...(plan.mcpServers ? { mcpServers: plan.mcpServers } : {}),
+        permission: resolveAgentPermissionSelection(plan.permission),
         cwd: plan.cwd,
         prompt: plan.prompt,
       });

@@ -9,6 +9,7 @@ import {
   type TuttiCliJsonRunner,
 } from "./cli-json-runner.js";
 import type { TuttiAgentIntegrationSource } from "./contracts.js";
+import { canonicalTuttiProviderId } from "./internal.js";
 
 export {
   TuttiIntegrationError,
@@ -130,6 +131,31 @@ export function parseTuttiAgentSkillBundle(
   if (!isRecord(payload)) {
     throw invalidSkillBundle("Tutti skill bundle response is not an object");
   }
+  if (payload.schemaVersion !== 1) {
+    throw new TuttiIntegrationError(
+      "unsupported_schema",
+      "Tutti skill bundle schema is unsupported.",
+      {
+        schemaVersion:
+          typeof payload.schemaVersion === "number" ? payload.schemaVersion : -1,
+      },
+    );
+  }
+  const rawProvider = normalizeUnknownString(payload.provider);
+  if (!rawProvider) {
+    throw invalidSkillBundle(
+      "Tutti skill bundle response does not contain a valid provider",
+    );
+  }
+  const provider = canonicalTuttiProviderId(rawProvider);
+  if (
+    payload.agentSessionId !== undefined &&
+    !normalizeUnknownString(payload.agentSessionId)
+  ) {
+    throw invalidSkillBundle(
+      "Tutti skill bundle response contains an invalid agentSessionId",
+    );
+  }
   if (!Array.isArray(payload.skills)) {
     throw invalidSkillBundle("Tutti skill bundle response does not contain a skills array");
   }
@@ -140,14 +166,10 @@ export function parseTuttiAgentSkillBundle(
 
   return {
     source: "tutti-cli",
-    ...(typeof payload.schemaVersion === "number" ?
-      { schemaVersion: payload.schemaVersion }
-    : {}),
-    ...(typeof payload.provider === "string" ?
-      { provider: payload.provider }
-    : {}),
-    ...(typeof payload.agentSessionId === "string" ?
-      { agentSessionId: payload.agentSessionId }
+    schemaVersion: 1,
+    provider,
+    ...(normalizeUnknownString(payload.agentSessionId) ?
+      { agentSessionId: normalizeUnknownString(payload.agentSessionId) }
     : {}),
     ...(typeof payload.cliCommand === "string" ?
       { cliCommand: payload.cliCommand }
@@ -173,7 +195,7 @@ function createTuttiAgentSkillBundleArgs(
     "agent",
     "tutti-cli-skill-bundle",
     "--provider",
-    input.provider,
+    canonicalTuttiProviderId(input.provider),
     ...(agentSessionId ? ["--agent-session-id", agentSessionId] : []),
     ...(input.browserUse ? ["--browser-use"] : []),
     ...(input.computerUse ? ["--computer-use"] : []),
@@ -184,20 +206,22 @@ function assertTuttiAgentSkillBundleMatchesInput(
   bundle: TuttiAgentSkillBundle,
   input: LoadTuttiAgentSkillBundleInput,
 ) {
-  if (bundle.provider && bundle.provider !== input.provider) {
+  const expectedProvider = canonicalTuttiProviderId(input.provider);
+  if (bundle.provider !== expectedProvider) {
     throw invalidSkillBundle(
-      `Tutti skill bundle provider mismatch: expected ${input.provider}, got ${bundle.provider}`,
+      `Tutti skill bundle provider mismatch: expected ${expectedProvider}, got ${bundle.provider}`,
     );
   }
 
   const expectedAgentSessionId = normalizeOptionalString(input.agentSessionId);
   if (
     expectedAgentSessionId &&
-    bundle.agentSessionId &&
     bundle.agentSessionId !== expectedAgentSessionId
   ) {
     throw invalidSkillBundle(
-      `Tutti skill bundle session mismatch: expected ${expectedAgentSessionId}, got ${bundle.agentSessionId}`,
+      bundle.agentSessionId
+        ? `Tutti skill bundle session mismatch: expected ${expectedAgentSessionId}, got ${bundle.agentSessionId}`
+        : `Tutti skill bundle response does not contain agentSessionId ${expectedAgentSessionId}`,
     );
   }
 }
@@ -278,6 +302,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeOptionalString(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizeUnknownString(value: unknown) {
+  return typeof value === "string" ? normalizeOptionalString(value) : undefined;
 }
 
 function invalidSkillBundle(message: string) {

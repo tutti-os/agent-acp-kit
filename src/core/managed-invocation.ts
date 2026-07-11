@@ -25,7 +25,7 @@ export const TUTTI_APP_DATA_DIR_ENV = "TUTTI_APP_DATA_DIR";
 export const MANAGED_AGENT_INVOCATION_PROVIDER_IDS = [
   "codex",
   "claude-code",
-  "nexight",
+  "tutti-agent",
 ] as const;
 
 export type ManagedAgentInvocationProviderId =

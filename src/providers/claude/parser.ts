@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../../core/events.js";
 
 type ClaudeParserState = {
+  assistantTextEmitted: boolean;
   toolsById: Map<string, ToolIdentity>;
 };
 
@@ -141,6 +142,7 @@ function toolResultFromBlock(
 function mapCompleteMessage(
   item: Record<string, unknown>,
   state: ClaudeParserState,
+  emitAssistantText: boolean,
 ): AgentEvent[] {
   const blocks = getContentBlocks(item);
   if (!blocks) return [];
@@ -148,7 +150,10 @@ function mapCompleteMessage(
   const events: AgentEvent[] = [];
   for (const block of blocks) {
     if (block.type === "text" && typeof block.text === "string") {
-      events.push({ type: "text_delta", text: block.text });
+      if (emitAssistantText) {
+        if (block.text) state.assistantTextEmitted = true;
+        events.push({ type: "text_delta", text: block.text });
+      }
       continue;
     }
     const toolCall = toolCallFromBlock(block, state);
@@ -178,6 +183,7 @@ function mapStreamEvent(
   if (event.type === "content_block_delta") {
     const delta = toRecord(event.delta);
     if (delta?.type === "text_delta" && typeof delta.text === "string") {
+      if (delta.text) state.assistantTextEmitted = true;
       return [{ type: "text_delta", text: delta.text }];
     }
   }
@@ -186,6 +192,7 @@ function mapStreamEvent(
 
 export function createClaudeEventMapper() {
   const state: ClaudeParserState = {
+    assistantTextEmitted: false,
     toolsById: new Map(),
   };
 
@@ -198,6 +205,9 @@ export function createClaudeEventMapper() {
       type === "text_delta" ||
       type === "thinking_delta"
     ) {
+      if (type === "text_delta" && typeof item.text === "string" && item.text) {
+        state.assistantTextEmitted = true;
+      }
       return [item as AgentEvent];
     }
     if (type === "tool_call") {
@@ -234,10 +244,41 @@ export function createClaudeEventMapper() {
       return mapStreamEvent(item, state);
     }
     if (type === "assistant" && typeof item.text === "string") {
+      if (item.text) state.assistantTextEmitted = true;
       return parseClaudeStreamEvent(item, state);
     }
     if (type === "assistant" || type === "user") {
-      return mapCompleteMessage(item, state);
+      return mapCompleteMessage(item, state, type === "assistant");
+    }
+    if (type === "result") {
+      if (item.is_error === true) {
+        const errors = Array.isArray(item.errors)
+          ? item.errors
+              .filter((error): error is string =>
+                typeof error === "string" && Boolean(error.trim())
+              )
+              .map((error) => error.trim())
+          : [];
+        return [{
+          type: "error",
+          code: "claude_error",
+          message:
+            errors.length > 0
+              ? errors.join("; ")
+              : typeof item.result === "string" && item.result.trim()
+              ? item.result
+              : "Claude run failed",
+        }];
+      }
+      if (
+        !state.assistantTextEmitted &&
+        typeof item.result === "string" &&
+        item.result.trim()
+      ) {
+        state.assistantTextEmitted = true;
+        return [{ type: "text_delta", text: item.result }];
+      }
+      return [];
     }
     return parseClaudeStreamEvent(item, state);
   };
@@ -245,7 +286,7 @@ export function createClaudeEventMapper() {
 
 export function parseClaudeStreamEvent(
   item: Record<string, unknown>,
-  state: ClaudeParserState = { toolsById: new Map() },
+  state: ClaudeParserState = { assistantTextEmitted: false, toolsById: new Map() },
 ): AgentEvent[] {
   const type = typeof item.type === "string" ? item.type : "";
   if (type === "assistant" && typeof item.text === "string") {

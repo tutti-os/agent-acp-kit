@@ -174,6 +174,19 @@ describe("injectSystemProxyEnv", () => {
 });
 
 describe("buildLocalAgentProcessEnv", () => {
+  it("removes Claude's nested-session marker from child agent environments", async () => {
+    const env = await buildLocalAgentProcessEnv({
+      PATH: "/usr/bin",
+      CLAUDECODE: "1",
+      ClaudeCode: "mixed-case-marker",
+      CLAUDE_CONFIG_DIR: "/tmp/claude-config",
+    });
+
+    expect(env).not.toHaveProperty("CLAUDECODE");
+    expect(env).not.toHaveProperty("ClaudeCode");
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/tmp/claude-config");
+  });
+
   it("adds common local agent binary directories without duplicating existing PATH entries", async () => {
     const env = await buildLocalAgentProcessEnv({
       PATH: "/usr/bin:/opt/homebrew/bin",
@@ -216,16 +229,20 @@ describe("buildLocalAgentProcessEnv", () => {
         PATH: "/usr/bin",
         CLAUDE_CONFIG_DIR: "/tmp/claude-config",
         CODEX_HOME: "/tmp/codex-home",
+        TUTTI_AGENT_HOME: "/tmp/tutti-agent-home",
         Claude_Config_Dir: "/tmp/mixed-claude-config",
         Codex_Home: "/tmp/mixed-codex-home",
+        Tutti_Agent_Home: "/tmp/mixed-tutti-agent-home",
       },
       { stripLocalAgentHomeEnv: true },
     );
 
     expect(env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
     expect(env).not.toHaveProperty("CODEX_HOME");
+    expect(env).not.toHaveProperty("TUTTI_AGENT_HOME");
     expect(env).not.toHaveProperty("Claude_Config_Dir");
     expect(env).not.toHaveProperty("Codex_Home");
+    expect(env).not.toHaveProperty("Tutti_Agent_Home");
   });
 
   it("appends unique PATH entries in order", () => {

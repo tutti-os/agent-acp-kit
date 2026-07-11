@@ -27,6 +27,7 @@ describe("buildAcpSessionNewParams", () => {
             name: "remote",
             url: "http://127.0.0.1:3000/mcp",
             headers: { Authorization: "Bearer x" },
+            env: { MUST_NOT_REACH_ACP_HTTP: "secret" },
           },
         ],
       }),
@@ -45,7 +46,6 @@ describe("buildAcpSessionNewParams", () => {
           name: "remote",
           url: "http://127.0.0.1:3000/mcp",
           headers: { Authorization: "Bearer x" },
-          env: [],
         },
       ],
     });

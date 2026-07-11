@@ -7,7 +7,10 @@ import {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
   MANAGED_AGENT_MCP_ATTACHMENT_ENV,
 } from "../../src/core/managed-invocation.js";
-import { createCodexProvider } from "../../src/providers/codex/index.js";
+import {
+  createCodexProvider,
+  createTuttiAgentProvider,
+} from "../../src/providers/codex/index.js";
 import { buildCodexLaunchPlan } from "../../src/providers/codex/launch-plan.js";
 
 describe("buildCodexLaunchPlan", () => {
@@ -23,7 +26,72 @@ describe("buildCodexLaunchPlan", () => {
     });
   });
 
-  it("uses trusted local execution, stdin delivery, cwd pinning, and repeatable add-dir flags", () => {
+  it("builds managed Tutti Agent fresh and resume plans without Codex identity leakage", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "tutti-agent-managed-plan-"));
+    try {
+      const provider = createTuttiAgentProvider();
+      const fresh = await provider.buildLaunchPlan({
+        runId: "run-tutti-agent-fresh",
+        cwd,
+        prompt: "draw a poster",
+        model: "tutti-agent:gpt-5.4",
+        managedAgentInvocation: {
+          credential: "managed-tutti-agent-secret",
+          cwd,
+        },
+      });
+
+      expect(fresh.command).toBe("tutti-agent");
+      expect(fresh.env).toMatchObject({
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]:
+          "managed-tutti-agent-secret",
+        TUTTI_AGENT_HOME: join(cwd, ".tutti-agent"),
+      });
+      expect(fresh.args).toEqual(
+        expect.arrayContaining(["--model", "gpt-5.4"]),
+      );
+      expect(fresh.args).toContain(
+        "--dangerously-bypass-approvals-and-sandbox",
+      );
+
+      const resumed = await provider.buildLaunchPlan({
+        runId: "run-tutti-agent-resume",
+        cwd,
+        prompt: "continue",
+        model: "codex:gpt-5",
+        permission: { semantic: "auto", modeId: "auto" },
+        resume: {
+          mode: "provider",
+          providerSessionId: "tutti-session-1",
+        },
+        managedAgentInvocation: {
+          credential: "managed-tutti-agent-secret",
+          cwd,
+        },
+      });
+
+      expect(resumed.command).toBe("tutti-agent");
+      expect(resumed.args).toEqual(
+        expect.arrayContaining([
+          "exec",
+          "resume",
+          'sandbox_mode="workspace-write"',
+          "--model",
+          "codex:gpt-5",
+          "tutti-session-1",
+          "-",
+        ]),
+      );
+      expect(resumed.args).not.toContain(
+        "--dangerously-bypass-approvals-and-sandbox",
+      );
+      expect(resumed.fallbackPlan?.command).toBe("tutti-agent");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the safe auto policy, stdin delivery, cwd pinning, and repeatable add-dir flags", () => {
     expect(
       buildCodexLaunchPlan({
         runId: "run-1",
@@ -34,7 +102,6 @@ describe("buildCodexLaunchPlan", () => {
     ).toEqual({
       command: "codex",
       cwd: "/tmp/project",
-      env: undefined,
       prompt: "draw a poster",
       promptInput: "stdin",
       args: [
@@ -44,7 +111,10 @@ describe("buildCodexLaunchPlan", () => {
         "--disable",
         "plugins",
         "--ignore-rules",
-        "--dangerously-bypass-approvals-and-sandbox",
+        "-c",
+        'sandbox_mode="workspace-write"',
+        "-c",
+        'approval_policy="on-request"',
         "-C",
         "/tmp/project",
         "--add-dir",
@@ -53,6 +123,43 @@ describe("buildCodexLaunchPlan", () => {
         "/tmp/codex/generated_images",
       ],
     });
+  });
+
+  it("maps provider-neutral permission selections to Codex launch arguments", () => {
+    const base = {
+      runId: "run-permission",
+      cwd: "/tmp/project",
+      prompt: "update the project",
+    } as const;
+
+    expect(
+      buildCodexLaunchPlan({
+        ...base,
+        permission: { modeId: "read-only", semantic: "ask-before-write" },
+      }).args,
+    ).toEqual(expect.arrayContaining([
+      "-c",
+      'sandbox_mode="read-only"',
+      "-c",
+      'approval_policy="on-request"',
+    ]));
+
+    const fullAccessArgs = buildCodexLaunchPlan({
+      ...base,
+      permission: { modeId: "full-access", semantic: "full-access" },
+    }).args;
+    expect(fullAccessArgs).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(fullAccessArgs).not.toContain("--sandbox");
+
+    expect(
+      buildCodexLaunchPlan({
+        ...base,
+        permission: {
+          modeId: "full-access",
+          semantic: "ask-before-write",
+        },
+      }).args,
+    ).not.toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
   it("injects managed invocation env and cwd into Codex launch plans", () => {
@@ -119,7 +226,10 @@ describe("buildCodexLaunchPlan", () => {
       "--disable",
       "plugins",
       "--ignore-rules",
-      "--dangerously-bypass-approvals-and-sandbox",
+      "-c",
+      'sandbox_mode="workspace-write"',
+      "-c",
+      'approval_policy="on-request"',
       "-C",
       "/tmp/project",
       "--model",
@@ -156,7 +266,10 @@ describe("buildCodexLaunchPlan", () => {
         "--disable",
         "plugins",
         "--ignore-rules",
-        "--dangerously-bypass-approvals-and-sandbox",
+        "-c",
+        'sandbox_mode="workspace-write"',
+        "-c",
+        'approval_policy="on-request"',
         "--model",
         "gpt-5.4",
         "-c",
@@ -177,7 +290,10 @@ describe("buildCodexLaunchPlan", () => {
         "--disable",
         "plugins",
         "--ignore-rules",
-        "--dangerously-bypass-approvals-and-sandbox",
+        "-c",
+        'sandbox_mode="workspace-write"',
+        "-c",
+        'approval_policy="on-request"',
         "-C",
         "/tmp/project",
         "--model",
@@ -209,7 +325,10 @@ describe("buildCodexLaunchPlan", () => {
       "--disable",
       "plugins",
       "--ignore-rules",
-      "--dangerously-bypass-approvals-and-sandbox",
+      "-c",
+      'sandbox_mode="workspace-write"',
+      "-c",
+      'approval_policy="on-request"',
       "codex-token-1",
       "-",
     ]);
@@ -263,6 +382,7 @@ describe("buildCodexLaunchPlan", () => {
 
       expect(plan.prompt).toMatch(/^Host system rules\n\n/);
       expect(plan.prompt).toContain("Current request:\n\ndraw a poster");
+      expect(plan.args).toContain("--dangerously-bypass-approvals-and-sandbox");
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });

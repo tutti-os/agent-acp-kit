@@ -29,7 +29,7 @@ describe("public api", () => {
     expect(runtime.MANAGED_AGENT_INVOCATION_PROVIDER_IDS).toEqual([
       "codex",
       "claude-code",
-      "nexight",
+      "tutti-agent",
     ]);
     expect(runtime.isManagedAgentInvocationProviderId("nextop")).toBe(false);
     expect(runtime.AGENT_PROVIDER_INSTALL_SPECS.codex.cliBinary).toBe("codex");
@@ -37,6 +37,7 @@ describe("public api", () => {
     expect(runtime.DEFAULT_LOCAL_AGENT_PROVIDER_IDS).toEqual([
       "codex",
       "claude-code",
+      "tutti-agent",
       "devin",
       "hermes",
       "kimi",
@@ -49,6 +50,8 @@ describe("public api", () => {
       "qoder",
       "qwen",
     ]);
+    expect(runtime.createTuttiAgentProvider).toBeTypeOf("function");
+    expect(runtime.tuttiAgentProvider.id).toBe("tutti-agent");
     expect(runtime.createDevinProvider).toBeTypeOf("function");
     expect(runtime.devinProvider.id).toBe("devin");
     expect(runtime.createHermesProvider).toBeTypeOf("function");

@@ -60,6 +60,109 @@ describe("parseClaudeStreamEvent", () => {
     ]);
   });
 
+  it("uses a successful result as the final text only when no assistant text was emitted", async () => {
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "user",
+          message: {
+            content: [{ type: "text", text: "Original user prompt." }],
+          },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "Final answer after user input.",
+        },
+      ]),
+    ).resolves.toEqual([
+      { type: "text_delta", text: "Final answer after user input." },
+    ]);
+
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "Fallback final answer.",
+        },
+      ]),
+    ).resolves.toEqual([
+      { type: "text_delta", text: "Fallback final answer." },
+    ]);
+
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "assistant",
+          message: {
+            content: [{ type: "text", text: "Streamed final answer." }],
+          },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "Streamed final answer.",
+        },
+      ]),
+    ).resolves.toEqual([
+      { type: "text_delta", text: "Streamed final answer." },
+    ]);
+
+    await expect(
+      collectClaudeEvents([
+        { type: "text_delta", text: "Already normalized." },
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "Already normalized.",
+        },
+      ]),
+    ).resolves.toEqual([
+      { type: "text_delta", text: "Already normalized." },
+    ]);
+  });
+
+  it("maps failed Claude result envelopes to normalized errors", async () => {
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: true,
+          result: "Authentication expired.",
+        },
+      ]),
+    ).resolves.toEqual([
+      {
+        type: "error",
+        code: "claude_error",
+        message: "Authentication expired.",
+      },
+    ]);
+
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: true,
+          errors: ["Authentication expired.", "Please sign in again."],
+        },
+      ]),
+    ).resolves.toEqual([
+      {
+        type: "error",
+        code: "claude_error",
+        message: "Authentication expired.; Please sign in again.",
+      },
+    ]);
+  });
+
   it("maps user tool_result blocks and preserves the previous tool name", async () => {
     await expect(
       collectClaudeEvents([

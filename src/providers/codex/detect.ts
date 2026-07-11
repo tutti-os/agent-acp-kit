@@ -10,10 +10,56 @@ import { resolveCommandExecutable } from "../../process/command-resolver.js";
 
 const execFileAsync = promisify(execFile);
 const CODEX_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
+const CODEX_AUTH_STATUS_TIMEOUT_MS = 5_000;
 const CODEX_MODEL_DISCOVERY_MAX_BUFFER = 8 * 1024 * 1024;
 const CODEX_DEFAULT_MODELS: AgentModelOption[] = [
   { id: "default", label: "Default (CLI config)" },
 ];
+
+function authStatusText(value: unknown) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const record = value as {
+    stdout?: unknown;
+    stderr?: unknown;
+    message?: unknown;
+  };
+  return [record.stdout, record.stderr, record.message]
+    .filter((item): item is string => typeof item === "string")
+    .join("\n");
+}
+
+async function detectCodexAuthState(options: {
+  authStatusTimeoutMs?: number;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  executablePath: string;
+}) {
+  try {
+    const result = await execFileAsync(
+      options.executablePath,
+      ["login", "status"],
+      {
+        ...(options.cwd ? { cwd: options.cwd } : {}),
+        env: options.env,
+        timeout: options.authStatusTimeoutMs ?? CODEX_AUTH_STATUS_TIMEOUT_MS,
+      },
+    );
+    const text = authStatusText(result).toLowerCase();
+    if (text.includes("not logged in") || text.includes("logged out")) {
+      return "missing" as const;
+    }
+    return text.includes("logged in")
+      ? ("ok" as const)
+      : ("unknown" as const);
+  } catch (error) {
+    const text = authStatusText(error).toLowerCase();
+    if (text.includes("not logged in") || text.includes("logged out")) {
+      return "missing" as const;
+    }
+    return "unknown" as const;
+  }
+}
 
 function parseSemver(version: string) {
   const match = version.match(/(\d+)\.(\d+)\.(\d+)/);
@@ -279,15 +325,22 @@ export async function discoverCodexModels(options: {
 }
 
 export async function detectCodex(options?: {
+  authStatusTimeoutMs?: number;
   command?: string;
   cwd?: string;
+  defaultHomeDirName?: string;
   env?: NodeJS.ProcessEnv;
+  homeEnvKey?: string;
   minimumVersion?: string;
   overridePath?: string;
+  probeAuthStatus?: boolean;
 }) {
   const command = options?.command ?? "codex";
-  const configDir = (options?.env?.CODEX_HOME || process.env.CODEX_HOME || "").trim()
-    || path.join(homedir(), ".codex");
+  const homeEnvKey = options?.homeEnvKey ?? "CODEX_HOME";
+  const environment = options?.env ?? process.env;
+  const configDir =
+    (environment[homeEnvKey] ?? "").trim() ||
+    path.join(homedir(), options?.defaultHomeDirName ?? ".codex");
   let executablePath: string;
   try {
     executablePath = await resolveCommandExecutable({
@@ -337,13 +390,26 @@ export async function detectCodex(options?: {
   }
   const version = stdout.trim() || "unknown";
   const supported = isVersionAtLeast(version, options?.minimumVersion);
-  const models = await discoverCodexModels({
-    ...(options?.cwd ? { cwd: options.cwd } : {}),
-    ...(options?.env ? { env: options.env } : {}),
-    executablePath,
-  });
+  const authState = options?.probeAuthStatus
+    ? await detectCodexAuthState({
+        ...(options.authStatusTimeoutMs !== undefined
+          ? { authStatusTimeoutMs: options.authStatusTimeoutMs }
+          : {}),
+        ...(options?.cwd ? { cwd: options.cwd } : {}),
+        ...(options?.env ? { env: options.env } : {}),
+        executablePath,
+      })
+    : ("unknown" as const);
+  const models =
+    authState === "missing"
+      ? CODEX_DEFAULT_MODELS
+      : await discoverCodexModels({
+          ...(options?.cwd ? { cwd: options.cwd } : {}),
+          ...(options?.env ? { env: options.env } : {}),
+          executablePath,
+        });
   return {
-    authState: "unknown" as const,
+    authState,
     configDir,
     executablePath,
     models,

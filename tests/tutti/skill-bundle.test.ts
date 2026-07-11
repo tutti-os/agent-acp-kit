@@ -83,7 +83,7 @@ describe("Tutti skill bundle helpers", () => {
       signal: controller.signal,
       runTuttiCli: async (args, options) => {
         calls.push({ args, signal: options.signal });
-        return { provider: "codex", skills: [] };
+        return { schemaVersion: 1, provider: "codex", skills: [] };
       },
     });
     expect(calls[0]?.args).toEqual([
@@ -104,13 +104,14 @@ describe("Tutti skill bundle helpers", () => {
         agentSessionId: "expected-run",
         provider: "codex",
         runTuttiCli: async () => ({
+          schemaVersion: 1,
           provider: "claude",
           agentSessionId: "expected-run",
           skills: [],
         }),
       }),
     ).rejects.toThrow(
-      "Tutti skill bundle provider mismatch: expected codex, got claude",
+      "Tutti skill bundle provider mismatch: expected codex, got claude-code",
     );
 
     await expect(
@@ -118,6 +119,7 @@ describe("Tutti skill bundle helpers", () => {
         agentSessionId: "expected-run",
         provider: "codex",
         runTuttiCli: async () => ({
+          schemaVersion: 1,
           provider: "codex",
           agentSessionId: "other-run",
           skills: [],
@@ -128,10 +130,36 @@ describe("Tutti skill bundle helpers", () => {
     );
   });
 
+  it("accepts legacy Claude only at ingress and exposes canonical output", async () => {
+    const calls: string[][] = [];
+    const bundle = await loadTuttiAgentSkillBundle({
+      provider: "claude",
+      runTuttiCli: async (args) => {
+        calls.push(args);
+        return { schemaVersion: 1, provider: "claude", skills: [] };
+      },
+    });
+    expect(calls[0]).toEqual([
+      "--json",
+      "agent",
+      "tutti-cli-skill-bundle",
+      "--provider",
+      "claude-code",
+    ]);
+    expect(bundle.provider).toBe("claude-code");
+    expect(parseTuttiAgentSkillBundle({
+      schemaVersion: 1,
+      provider: "claude",
+      skills: [],
+    }).provider).toBe("claude-code");
+  });
+
   it("parses skill bundle JSON strictly", () => {
     expect(
       parseTuttiAgentSkillBundle(
         JSON.stringify({
+          schemaVersion: 1,
+          provider: "codex",
           skills: [
             {
               skillId: "tutti/cli",
@@ -146,12 +174,38 @@ describe("Tutti skill bundle helpers", () => {
       ).skills,
     ).toHaveLength(1);
 
-    expect(() => parseTuttiAgentSkillBundle({ skills: [{}] })).toThrow(
+    expect(() => parseTuttiAgentSkillBundle({
+      schemaVersion: 1,
+      provider: "codex",
+      skills: [{}],
+    })).toThrow(
       "Tutti skill bundle contains an invalid skill record at index 0",
     );
     expect(() => parseTuttiAgentSkillBundle("not json")).toThrow(
       "Tutti skill bundle response is not valid JSON",
     );
+  });
+
+  it("rejects missing or unsupported identity fields with typed errors", async () => {
+    expect(() => parseTuttiAgentSkillBundle({ provider: "codex", skills: [] }))
+      .toThrow(expect.objectContaining({ code: "unsupported_schema" }));
+    expect(() => parseTuttiAgentSkillBundle({
+      schemaVersion: 2,
+      provider: "codex",
+      skills: [],
+    })).toThrow(expect.objectContaining({ code: "unsupported_schema" }));
+    expect(() => parseTuttiAgentSkillBundle({ schemaVersion: 1, skills: [] }))
+      .toThrow(expect.objectContaining({ code: "invalid_response" }));
+
+    await expect(loadTuttiAgentSkillBundle({
+      agentSessionId: "expected-run",
+      provider: "codex",
+      runTuttiCli: async () => ({
+        schemaVersion: 1,
+        provider: "codex",
+        skills: [],
+      }),
+    })).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("resolves app-specific Tutti CLI env vars before the default", () => {

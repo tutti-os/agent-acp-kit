@@ -9,6 +9,7 @@ import { resolveCommandExecutable } from "../../process/command-resolver.js";
 
 const execFileAsync = promisify(execFile);
 const CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS = 8_000;
+const CLAUDE_AUTH_STATUS_TIMEOUT_MS = 8_000;
 const CLAUDE_DEFAULT_MODELS: AgentModelOption[] = [
   { id: "default", label: "Default (CLI config)" },
 ];
@@ -16,6 +17,90 @@ const CLAUDE_DEFAULT_MODELS: AgentModelOption[] = [
 function resolveClaudeConfigDir(env?: NodeJS.ProcessEnv) {
   const configured = env?.CLAUDE_CONFIG_DIR?.trim();
   return configured || path.join(homedir(), ".claude");
+}
+
+function readNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseClaudeAuthState(stdout: string) {
+  let payload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(stdout) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return "unknown" as const;
+    }
+    payload = parsed as Record<string, unknown>;
+  } catch {
+    return "unknown" as const;
+  }
+
+  const status = readNonEmptyString(payload.status)?.toLowerCase();
+  const message = [payload.error, payload.message, payload.reason]
+    .map(readNonEmptyString)
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+  const expiresAt = readNonEmptyString(
+    payload.expiresAt ?? payload.expires_at ?? payload.expiration,
+  );
+  const expiryTime = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+
+  if (
+    status === "expired" ||
+    message.includes("expired") ||
+    (Number.isFinite(expiryTime) && expiryTime <= Date.now())
+  ) {
+    return "expired" as const;
+  }
+  if (payload.loggedIn === true || payload.authenticated === true) {
+    return "ok" as const;
+  }
+  if (
+    payload.loggedIn === false ||
+    payload.authenticated === false ||
+    status === "missing" ||
+    status === "logged_out" ||
+    status === "unauthenticated"
+  ) {
+    return "missing" as const;
+  }
+  return "unknown" as const;
+}
+
+export async function detectClaudeAuthState(input: {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  executablePath: string;
+}) {
+  try {
+    const { stdout } = await execFileAsync(
+      input.executablePath,
+      ["auth", "status"],
+      {
+        ...(input.cwd ? { cwd: input.cwd } : {}),
+        env: input.env,
+        timeout: CLAUDE_AUTH_STATUS_TIMEOUT_MS,
+      },
+    );
+    return parseClaudeAuthState(stdout);
+  } catch (error) {
+    const stdout =
+      error && typeof error === "object" && "stdout" in error
+        ? (error as { stdout?: unknown }).stdout
+        : undefined;
+    const parsed = parseClaudeAuthState(
+      typeof stdout === "string"
+        ? stdout
+        : Buffer.isBuffer(stdout)
+          ? stdout.toString("utf8")
+          : "",
+    );
+    // A failed status command cannot establish a positive login, but current
+    // Claude versions intentionally exit 1 with JSON for missing credentials.
+    if (parsed === "missing" || parsed === "expired") return parsed;
+    return "unknown" as const;
+  }
 }
 
 type ClaudeSdkModelInfo = {
@@ -173,19 +258,27 @@ export async function detectClaude(options?: {
     };
   }
 
+  const authState = await detectClaudeAuthState({
+    ...(options?.cwd ? { cwd: options.cwd } : {}),
+    ...(options?.env ? { env: options.env } : {}),
+    executablePath,
+  });
+
   let models = fallbackModels;
-  try {
-    models = await discoverClaudeSdkModels({
-      cwd: options?.cwd ?? process.cwd(),
-      ...(options?.env ? { env: options.env } : {}),
-      executablePath,
-    });
-  } catch {
-    models = fallbackModels;
+  if (authState === "ok") {
+    try {
+      models = await discoverClaudeSdkModels({
+        cwd: options?.cwd ?? process.cwd(),
+        ...(options?.env ? { env: options.env } : {}),
+        executablePath,
+      });
+    } catch {
+      models = fallbackModels;
+    }
   }
 
   return {
-    authState: "unknown" as const,
+    authState,
     configDir,
     executablePath,
     models,

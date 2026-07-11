@@ -20,6 +20,15 @@ export type {
   RuntimeLease,
   RuntimeProvider,
 } from "./provider-plugin.js";
+export type {
+  AgentPermissionSelection,
+  AgentPermissionSemantic,
+} from "./permissions.js";
+export {
+  DEFAULT_AGENT_PERMISSION_SELECTION,
+  isAgentPermissionSemantic,
+  resolveAgentPermissionSelection,
+} from "./permissions.js";
 export type { DetectionResult, DetectContext } from "./detection.js";
 export type { LaunchPlan, TransportKind } from "./launch-plan.js";
 export type {

@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { resolveCommandExecutable } from "../process/command-resolver.js";
 import { buildLocalAgentProcessEnv } from "../process/env.js";
+import { detectClaudeAuthState } from "./claude/detect.js";
 
 export type InstallableAgentProviderId = "codex" | "claude-code";
 type InstallableAgentProviderInput = InstallableAgentProviderId | "claude";
@@ -98,7 +99,6 @@ export type AgentProviderInstallOptions = {
 };
 
 const DEFAULT_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
-const AUTH_CHECK_TIMEOUT_MS = 5_000;
 
 export const AGENT_PROVIDER_INSTALL_SPECS = {
   codex: {
@@ -145,33 +145,6 @@ async function codexAuthOk(env: NodeJS.ProcessEnv) {
   }
 }
 
-async function runShortCommand(input: {
-  command: string;
-  args: string[];
-  env: NodeJS.ProcessEnv;
-  timeoutMs: number;
-}) {
-  return new Promise<boolean>((resolve) => {
-    const child = spawn(input.command, input.args, {
-      env: input.env,
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    const timeout = setTimeout(() => {
-      if (!child.killed) child.kill("SIGTERM");
-      resolve(false);
-    }, input.timeoutMs);
-
-    child.once("error", () => {
-      clearTimeout(timeout);
-      resolve(false);
-    });
-    child.once("close", (code) => {
-      clearTimeout(timeout);
-      resolve(code === 0);
-    });
-  });
-}
-
 async function providerAuthOk(
   provider: InstallableAgentProviderId,
   cliPath: string | undefined,
@@ -179,12 +152,10 @@ async function providerAuthOk(
 ) {
   if (provider === "codex") return codexAuthOk(env);
   if (provider === "claude-code" && cliPath) {
-    return runShortCommand({
-      command: cliPath,
-      args: ["auth", "status"],
+    return (await detectClaudeAuthState({
+      executablePath: cliPath,
       env,
-      timeoutMs: AUTH_CHECK_TIMEOUT_MS,
-    });
+    })) === "ok";
   }
   return false;
 }

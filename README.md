@@ -161,6 +161,9 @@ import {
 const runtime = createDefaultLocalAgentRuntime();
 const catalog = await resolveTuttiAgentProviderCatalog({ runtime });
 const providerId = catalog.defaultProvider;
+if (!providerId) {
+  throw new Error("No local Agent provider is currently available.");
+}
 const composer = await loadTuttiAgentComposerOptions({
   runtime,
   providerId,
@@ -181,7 +184,7 @@ There is no app-facing mode switch. If `TUTTI_CLI` is present, the facade uses v
 
 Use `resolveTuttiAgentProviderCatalog` for an app-facing provider picker: it combines platform visibility, one shared runtime detection, authentication readiness, and lazy composer models. Use the lower-level `loadTuttiAgentProviderCatalog` only when the raw versioned platform catalog is the required contract.
 
-Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at SDK input ingress and is never returned. `nexight` and `tutti-agent` are distinct providers and are never aliases.
+Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at SDK input ingress and is never returned. The first-party Tutti provider is `tutti-agent`; historical `nexight` must not be registered or exposed as a new App runtime provider.
 
 Frontend code can import DTO types and guards without Node dependencies:
 
@@ -198,6 +201,7 @@ import {
 | --- | --- | --- | --- |
 | Codex | Supported | `codex exec --json` JSONL | Dynamic model discovery via `codex debug models`; per-run `CODEX_HOME` with copied auth and sanitized config; same-provider resume via `codex exec resume --json <session> -` |
 | Claude Code (`claude-code`) | Supported | `claude -p --output-format stream-json` | Canonical provider ID is `claude-code`; legacy `claude` input is accepted internally; supports fallback model hints, custom model pass-through, and same-provider resume via `--resume <session>` |
+| Tutti Agent (`tutti-agent`) | Supported | `tutti-agent exec --json` JSONL | First-party canonical provider; local runs copy credentials into a temporary `TUTTI_AGENT_HOME`, while managed runs use the managed run directory supplied by Tutti; authentication is probed with `tutti-agent login status`; no Nexight runtime alias |
 | Devin for Terminal | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `DEVIN_ACP_BIN` |
 | Hermes | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `HERMES_ACP_BIN` |
 | Kimi | Experimental | ACP JSON-RPC | Shared generic ACP transport; command override `KIMI_ACP_BIN` |
@@ -344,6 +348,27 @@ tail in diagnostics so hosts can log or surface the actual probe failure.
 
 Hosts should not hardcode Codex or Claude model lists above this package. If a UI needs additional custom models, keep that UI behavior in the host and pass the chosen id into `AgentRunInput.model`.
 
+## Permissions
+
+Runs accept an optional provider-neutral permission selection. Pass both the
+semantic returned by the composer and its provider mode id when available:
+
+```ts
+permission: {
+  modeId: selectedMode.id,
+  semantic: selectedMode.semantic,
+}
+```
+
+The SDK maps this policy to each provider. Workspace App runs default to
+`full-access` when the host omits `permission`: Codex uses its unrestricted
+sandbox mode, Claude uses `bypassPermissions`, and ACP requests select a
+recognized permissive option when the peer offers one (otherwise the request
+is cancelled).
+An App can pass an explicit narrower semantic for a run. For ACP, every
+non-`full-access` semantic cancels permission requests because the protocol
+adapter cannot safely infer a tool's risk from a provider-specific option id.
+
 ## Managed Agent Invocation
 
 Hosts that run inside a managed reverse-exec environment can pass a per-operation
@@ -401,11 +426,10 @@ one under the managed cwd. Hosts that do not need a custom Codex home can use
 the run context returned by `createManagedAgentRunContextFromHeaders()` without
 passing any Codex-home path.
 
-Managed invocation is intentionally limited to provider ids `codex`, `claude`,
-and `nexight`. There is no `nextop` alias. Codex and Claude are built-in
-providers; `nexight` can be supplied by a host-owned provider plugin when the
-host has a defined Nexight transport contract. The SDK expects managed CLI
-shims to be available on `PATH` and does not hardcode shim paths.
+Managed invocation is intentionally limited to provider ids `codex`,
+`claude-code`, and `tutti-agent`. There is no `nextop` or `nexight` ingress
+alias. All three are built-in providers. The SDK expects managed CLI shims to
+be available on `PATH` and does not hardcode shim paths.
 
 In managed hosts, avoid alternate credential paths. Do not read a browser JSB
 credential and forward it in the request body, do not store managed credentials

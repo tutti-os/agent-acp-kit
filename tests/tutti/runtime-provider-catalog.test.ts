@@ -8,7 +8,12 @@ function runtime(): LocalAgentRuntime<string, string> {
     async cancel() {},
     listProviders: () => [
       { id: "codex", displayName: "Codex", kind: "local-agent" },
-      { id: "claude-code", displayName: "Claude Code", kind: "local-agent" },
+      {
+        id: "claude-code",
+        displayName: "Claude Code",
+        kind: "local-agent",
+        requiresKnownAuth: true,
+      },
     ],
     detect: vi.fn(async () => [
       {
@@ -92,6 +97,7 @@ describe("Tutti app-facing provider catalog", () => {
     });
 
     expect(localRuntime.detect).toHaveBeenCalledTimes(1);
+    expect(calls.filter((args) => args.includes("providers"))).toHaveLength(1);
     expect(calls.filter((args) => args.includes("composer-options"))).toHaveLength(1);
     expect(result.defaultProvider).toBe("codex");
     expect(result.providers).toMatchObject([
@@ -128,5 +134,73 @@ describe("Tutti app-facing provider catalog", () => {
     });
 
     expect(result.providers[0]).toMatchObject({ provider: "codex", available: true });
+  });
+
+  it("applies provider-owned auth policy to CLI catalog runtime readiness", async () => {
+    const localRuntime = runtime();
+    localRuntime.listProviders = () => [
+      {
+        id: "strict-agent",
+        displayName: "Strict Agent",
+        kind: "local-agent",
+        requiresKnownAuth: true,
+      },
+      { id: "cursor", displayName: "Cursor", kind: "local-agent" },
+    ];
+    localRuntime.detect = vi.fn(async () => [
+      {
+        provider: "strict-agent",
+        displayName: "Strict Agent",
+        result: {
+          authState: "unknown",
+          executablePath: "claude",
+          supported: true,
+          version: "1",
+        },
+      },
+      {
+        provider: "cursor",
+        displayName: "Cursor",
+        result: {
+          authState: "unknown",
+          executablePath: "cursor-agent",
+          supported: true,
+          version: "1",
+        },
+      },
+    ]);
+
+    const result = await resolveTuttiAgentProviderCatalog({
+      includeComposerModels: false,
+      runtime: localRuntime,
+      runTuttiCli: async () => ({
+        schemaVersion: 2,
+        defaultProviderId: "strict-agent",
+        providers: [
+          {
+            providerId: "strict-agent",
+            displayName: "Strict Agent",
+            availability: { status: "available", reasonCode: "", detail: "" },
+          },
+          {
+            providerId: "cursor",
+            displayName: "Cursor",
+            availability: { status: "available", reasonCode: "", detail: "" },
+          },
+        ],
+      }),
+    });
+
+    expect(result.providers).toMatchObject([{
+      provider: "strict-agent",
+      authState: "unknown",
+      available: false,
+      reason: "Authentication status is unknown.",
+    }, {
+      provider: "cursor",
+      authState: "unknown",
+      available: true,
+    }]);
+    expect(result.defaultProvider).toBe("cursor");
   });
 });

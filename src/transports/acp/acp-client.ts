@@ -27,6 +27,10 @@ function pushSessionUpdateEvents(queue: AgentEvent[], params: unknown) {
               typeof (content as Record<string, unknown>).text === "string"
             ? String((content as Record<string, unknown>).text)
           : undefined;
+  if (text && kind === "agent_thought_chunk") {
+    queue.push({ type: "thinking", text });
+    return;
+  }
   if (text && /reason|thinking/i.test(kind)) {
     queue.push({ type: "thinking_delta", text });
     return;
@@ -217,11 +221,14 @@ export async function* runAcpTransport(
     }
 
     if (message.method === "session/request_permission") {
-      const params = (message.params ?? {}) as {
+      const requestParams = (message.params ?? {}) as {
         options?: Array<{ kind?: string; optionId?: string }>;
       };
       if (message.id !== undefined) {
-        const selectedOptionId = choosePermissionOutcome(params.options ?? []);
+        const selectedOptionId = choosePermissionOutcome(
+          requestParams.options ?? [],
+          params.permission,
+        );
         sendJsonRpc(processHandle.child.stdin, {
           jsonrpc: "2.0",
           id: message.id,

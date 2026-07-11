@@ -19,6 +19,7 @@ import {
   prepareManagedAgentInvocationDetectContext,
 } from "../../core/managed-invocation.js";
 import { normalizeMcpServerConfigs } from "../../core/mcp.js";
+import { resolveAgentPermissionSelection } from "../../core/permissions.js";
 import { materializeSkills } from "../../skills/materialize.js";
 import { cleanupPaths } from "../../skills/cleanup.js";
 import { skillPromptLabel } from "../../skills/prompt-injection.js";
@@ -35,10 +36,13 @@ function escapeTomlString(value: string) {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
-function normalizeCodexModel(model: string | undefined) {
-  if (model === "codex:gpt-5") return "gpt-5.4";
-  if (model === "codex:gpt-5-mini") return "gpt-5.4-mini";
-  if (model?.startsWith("codex:")) return model.slice("codex:".length);
+function normalizeCodexModel(model: string | undefined, providerId = "codex") {
+  if (providerId === "codex" && model === "codex:gpt-5") return "gpt-5.4";
+  if (providerId === "codex" && model === "codex:gpt-5-mini") {
+    return "gpt-5.4-mini";
+  }
+  const prefix = `${providerId}:`;
+  if (model?.startsWith(prefix)) return model.slice(prefix.length);
   return model;
 }
 
@@ -104,6 +108,7 @@ function buildCodexPrompt(input: {
   history?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   skills: Array<{ slug: string; deliveryMode: string; materializedPath?: string; content?: string }>;
   systemPrompt?: string;
+  runtimeName?: string;
 }) {
   const materializedSkills = input.skills.filter(
     (skill) => skill.deliveryMode === "materialized-files" && skill.materializedPath,
@@ -142,7 +147,7 @@ function buildCodexPrompt(input: {
 
   return [
     input.systemPrompt?.trim(),
-    "You are a local Codex runtime.",
+    `You are a local ${input.runtimeName ?? "Codex"} runtime.`,
     "Prefer available MCP tools instead of faking external side effects.",
     "Do not claim a tool action happened unless the tool actually succeeded.",
     materializedSkillSection,
@@ -603,13 +608,19 @@ async function ensureCodexProjectRootMarker(cwd: string) {
 
 async function materializeCodexHome(params: {
   cwd: string;
+  defaultHomeDirName: string;
+  displayName: string;
+  homeEnvKey: string;
   managed: boolean;
   mcpServers?: Parameters<typeof normalizeMcpServerConfigs>[0];
   env?: Record<string, string>;
   model?: string;
+  runHomeDirName: string;
 }) {
   if (params.managed) {
-    const runHome = params.env?.CODEX_HOME?.trim() || join(params.cwd, ".codex");
+    const runHome =
+      params.env?.[params.homeEnvKey]?.trim() ||
+      join(params.cwd, params.runHomeDirName);
     await mkdir(runHome, { recursive: true });
     const mergedConfig = mergeCodexConfigToml({
       ...(params.model ? { model: params.model } : {}),
@@ -625,19 +636,24 @@ async function materializeCodexHome(params: {
 
   const normalizedServers = normalizeMcpServerConfigs(params.mcpServers ?? []);
   const sourceHome =
-    params.env?.CODEX_HOME ??
-    process.env.CODEX_HOME ??
-    join(homedir(), ".codex");
+    params.env?.[params.homeEnvKey] ??
+    process.env[params.homeEnvKey] ??
+    join(homedir(), params.defaultHomeDirName);
   let runHome: string;
   const tempRoot = resolveTempDir(params.env);
   await mkdir(tempRoot, { recursive: true });
-  runHome = await mkdtemp(join(tempRoot, "agent-acp-kit-codex-home-"));
+  runHome = await mkdtemp(
+    join(
+      tempRoot,
+      `agent-acp-kit-${params.runHomeDirName.replace(/^\./, "")}-home-`,
+    ),
+  );
 
   try {
     await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
   } catch {
     throw new Error(
-      `Codex auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
+      `${params.displayName} auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
     );
   }
 
@@ -668,16 +684,30 @@ async function materializeCodexHome(params: {
   return runHome;
 }
 
-export function createCodexProvider(): LocalAgentProviderPlugin<
-  "local-agent",
-  "codex"
-> {
+type CodexCompatibleProviderOptions<TProvider extends string> = {
+  command: string;
+  defaultHomeDirName: string;
+  displayName: string;
+  homeEnvKey: string;
+  providerId: TProvider;
+  requiresKnownAuth: boolean;
+  runHomeDirName: string;
+  runtimeName: string;
+};
+
+function createCodexCompatibleProvider<TProvider extends string>(
+  options: CodexCompatibleProviderOptions<TProvider>,
+): LocalAgentProviderPlugin<"local-agent", TProvider> {
   const cleanupByRunId = new Map<string, string[]>();
 
   async function prepareLaunchPlan(
-    params: Parameters<LocalAgentProviderPlugin<"local-agent", "codex">["buildLaunchPlan"]>[0],
+    params: Parameters<LocalAgentProviderPlugin<"local-agent", TProvider>["buildLaunchPlan"]>[0],
   ) {
-    params = applyManagedAgentInvocationToRunParams("codex", params);
+    params = applyManagedAgentInvocationToRunParams(options.providerId, params);
+    params = {
+      ...params,
+      permission: resolveAgentPermissionSelection(params.permission),
+    };
     const managed = Boolean(params.managedAgentInvocation);
     const codexEnv = params.env;
     const projectRootMarker = managed
@@ -693,8 +723,9 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
       ...(params.history ? { history: params.history } : {}),
       skills: materialized,
       ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
+      runtimeName: options.runtimeName,
     });
-    const normalizedModel = normalizeCodexModel(params.model);
+    const normalizedModel = normalizeCodexModel(params.model, options.providerId);
     const redactionSecrets = managed
       ? []
       : collectMcpRedactionSecrets(
@@ -702,10 +733,14 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
         );
     const codexHome = await materializeCodexHome({
       cwd: params.cwd,
+      defaultHomeDirName: options.defaultHomeDirName,
+      displayName: options.displayName,
+      homeEnvKey: options.homeEnvKey,
       managed,
       ...(codexEnv ? { env: codexEnv } : {}),
       ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
       ...(normalizedModel ? { model: normalizedModel } : {}),
+      runHomeDirName: options.runHomeDirName,
     });
     const cleanupTargets = [
       ...materialized
@@ -720,20 +755,24 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     }
 
     const { env: _env, ...paramsWithoutEnv } = params;
-    const plan = buildCodexLaunchPlan({
-      ...paramsWithoutEnv,
-      ...(codexEnv ? { env: codexEnv } : {}),
-      ...(codexHome
-        ? {
-            env: {
-              ...(codexEnv ?? {}),
-              CODEX_HOME: codexHome,
-            },
-          }
-        : {}),
-      ...(normalizedModel ? { model: normalizedModel } : {}),
-      prompt,
-    });
+    const plan = buildCodexLaunchPlan(
+      {
+        ...paramsWithoutEnv,
+        ...(codexEnv ? { env: codexEnv } : {}),
+        ...(codexHome
+          ? {
+              env: {
+                ...(codexEnv ?? {}),
+                [options.homeEnvKey]: codexHome,
+              },
+            }
+          : {}),
+        ...(normalizedModel ? { model: normalizedModel } : {}),
+        prompt,
+      },
+      options.command,
+      options.providerId,
+    );
 
     if (redactionSecrets.length === 0) {
       return plan;
@@ -753,18 +792,23 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
     await cleanupPaths(cleanupTargets);
   }
 
-  const plugin: LocalAgentProviderPlugin<"local-agent", "codex"> = {
-    id: "codex",
-    displayName: "Codex CLI",
+  const plugin: LocalAgentProviderPlugin<"local-agent", TProvider> = {
+    id: options.providerId,
+    displayName: options.displayName,
+    requiresKnownAuth: options.requiresKnownAuth,
     kind: "local-agent",
     async detect(context) {
       const detectionContext = prepareManagedAgentInvocationDetectContext(
-        "codex",
+        options.providerId,
         context,
       );
       return detectCodex({
+        command: options.command,
+        defaultHomeDirName: options.defaultHomeDirName,
         ...(detectionContext?.cwd ? { cwd: detectionContext.cwd } : {}),
         ...(detectionContext?.env ? { env: detectionContext.env } : {}),
+        homeEnvKey: options.homeEnvKey,
+        probeAuthStatus: options.requiresKnownAuth,
       });
     },
     capabilities() {
@@ -826,4 +870,31 @@ export function createCodexProvider(): LocalAgentProviderPlugin<
   return plugin;
 }
 
+export function createCodexProvider() {
+  return createCodexCompatibleProvider({
+    command: "codex",
+    defaultHomeDirName: ".codex",
+    displayName: "Codex CLI",
+    homeEnvKey: "CODEX_HOME",
+    providerId: "codex",
+    requiresKnownAuth: false,
+    runHomeDirName: ".codex",
+    runtimeName: "Codex",
+  });
+}
+
+export function createTuttiAgentProvider() {
+  return createCodexCompatibleProvider({
+    command: "tutti-agent",
+    defaultHomeDirName: ".tutti-agent",
+    displayName: "Tutti Agent",
+    homeEnvKey: "TUTTI_AGENT_HOME",
+    providerId: "tutti-agent",
+    requiresKnownAuth: true,
+    runHomeDirName: ".tutti-agent",
+    runtimeName: "Tutti Agent",
+  });
+}
+
 export const codexProvider = createCodexProvider();
+export const tuttiAgentProvider = createTuttiAgentProvider();
