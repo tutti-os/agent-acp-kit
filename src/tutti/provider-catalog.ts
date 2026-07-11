@@ -17,6 +17,7 @@ import {
   isRecord,
   optionalString,
 } from "./internal.js";
+import { providerAuthAvailability } from "./provider-readiness.js";
 
 export interface LoadTuttiAgentProviderCatalogInput
   extends Omit<TuttiCliJsonRequest, "args"> {
@@ -146,7 +147,10 @@ async function loadStandaloneProviderCatalog(
       providerId,
       displayName: descriptor.displayName,
       availability: runtimeSupported
-        ? standaloneAvailability(providerId, byProvider.get(providerId))
+          ? standaloneAvailability(
+              byProvider.get(providerId),
+              descriptor.requiresKnownAuth === true,
+            )
         : {
             status: "unavailable",
             reasonCode: "managed_provider_unsupported",
@@ -172,8 +176,8 @@ async function loadStandaloneProviderCatalog(
 }
 
 function standaloneAvailability(
-  providerId: string,
   detection: Awaited<ReturnType<LocalAgentRuntime<string, string>["detect"]>>[number]["result"] | undefined,
+  requiresKnownAuth: boolean,
 ): TuttiAgentProviderAvailability {
   if (!detection) {
     return {
@@ -189,18 +193,11 @@ function standaloneAvailability(
       detail: detection.unsupportedReason ?? "Provider runtime is unsupported.",
     };
   }
-  if (detection.authState === "missing") {
-    return { status: "unavailable", reasonCode: "auth_required", detail: "Authentication is required." };
-  }
-  if (detection.authState === "expired") {
-    return { status: "unavailable", reasonCode: "auth_expired", detail: "Authentication has expired." };
-  }
-  if (detection.authState === "unknown") {
-    if (providerId !== "claude-code") {
-      return { status: "available", reasonCode: "", detail: "" };
-    }
-    return { status: "unknown", reasonCode: "auth_unknown", detail: "Authentication status is unknown." };
-  }
+  const authAvailability = providerAuthAvailability(
+    detection.authState,
+    requiresKnownAuth,
+  );
+  if (authAvailability) return authAvailability;
   return { status: "available", reasonCode: "", detail: "" };
 }
 

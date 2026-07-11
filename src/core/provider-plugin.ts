@@ -123,6 +123,8 @@ export type LocalAgentProviderPlugin<
   id: TProvider;
   /** Legacy input ids accepted by the runtime. Catalogs always expose `id`. */
   aliases?: readonly string[];
+  /** Require a positive auth probe before catalogs advertise this provider. */
+  requiresKnownAuth?: boolean;
   displayName: string;
   kind: TKind;
   detect(context?: DetectContext): Promise<AgentDetection | null>;

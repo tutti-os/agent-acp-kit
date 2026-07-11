@@ -9,6 +9,7 @@ import {
   type TuttiCliJsonRunner,
 } from "./cli-json-runner.js";
 import type { TuttiAgentIntegrationSource } from "./contracts.js";
+import { canonicalTuttiProviderId } from "./internal.js";
 
 export {
   TuttiIntegrationError,
@@ -140,12 +141,13 @@ export function parseTuttiAgentSkillBundle(
       },
     );
   }
-  const provider = normalizeUnknownString(payload.provider);
-  if (!provider) {
+  const rawProvider = normalizeUnknownString(payload.provider);
+  if (!rawProvider) {
     throw invalidSkillBundle(
       "Tutti skill bundle response does not contain a valid provider",
     );
   }
+  const provider = canonicalTuttiProviderId(rawProvider);
   if (
     payload.agentSessionId !== undefined &&
     !normalizeUnknownString(payload.agentSessionId)
@@ -193,7 +195,7 @@ function createTuttiAgentSkillBundleArgs(
     "agent",
     "tutti-cli-skill-bundle",
     "--provider",
-    input.provider,
+    canonicalTuttiProviderId(input.provider),
     ...(agentSessionId ? ["--agent-session-id", agentSessionId] : []),
     ...(input.browserUse ? ["--browser-use"] : []),
     ...(input.computerUse ? ["--computer-use"] : []),
@@ -204,9 +206,10 @@ function assertTuttiAgentSkillBundleMatchesInput(
   bundle: TuttiAgentSkillBundle,
   input: LoadTuttiAgentSkillBundleInput,
 ) {
-  if (bundle.provider !== input.provider) {
+  const expectedProvider = canonicalTuttiProviderId(input.provider);
+  if (bundle.provider !== expectedProvider) {
     throw invalidSkillBundle(
-      `Tutti skill bundle provider mismatch: expected ${input.provider}, got ${bundle.provider}`,
+      `Tutti skill bundle provider mismatch: expected ${expectedProvider}, got ${bundle.provider}`,
     );
   }
 

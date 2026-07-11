@@ -64,6 +64,25 @@ describe("parseClaudeStreamEvent", () => {
     await expect(
       collectClaudeEvents([
         {
+          type: "user",
+          message: {
+            content: [{ type: "text", text: "Original user prompt." }],
+          },
+        },
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "Final answer after user input.",
+        },
+      ]),
+    ).resolves.toEqual([
+      { type: "text_delta", text: "Final answer after user input." },
+    ]);
+
+    await expect(
+      collectClaudeEvents([
+        {
           type: "result",
           subtype: "success",
           is_error: false,
@@ -123,6 +142,23 @@ describe("parseClaudeStreamEvent", () => {
         type: "error",
         code: "claude_error",
         message: "Authentication expired.",
+      },
+    ]);
+
+    await expect(
+      collectClaudeEvents([
+        {
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: true,
+          errors: ["Authentication expired.", "Please sign in again."],
+        },
+      ]),
+    ).resolves.toEqual([
+      {
+        type: "error",
+        code: "claude_error",
+        message: "Authentication expired.; Please sign in again.",
       },
     ]);
   });

@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
-import { detectClaude } from "../../src/providers/claude/detect.js";
+import {
+  detectClaude,
+  detectClaudeAuthState,
+} from "../../src/providers/claude/detect.js";
 
 const claudeSdk = vi.hoisted(() => ({
   query: vi.fn(),
@@ -266,7 +269,7 @@ process.exit(1);
     const claudeBin = join(dir, "claude");
     writeFileSync(
       claudeBin,
-      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 2.1.0'; exit 0; fi\nif [ \"$1\" = \"auth\" ]; then echo '{\"loggedIn\":false,\"authMethod\":\"none\"}'; exit 0; fi\nexit 1\n",
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'claude 2.1.0'; exit 0; fi\nif [ \"$1\" = \"auth\" ]; then echo '{\"loggedIn\":false,\"authMethod\":\"none\"}'; exit 1; fi\nexit 1\n",
     );
     chmodSync(claudeBin, 0o755);
 
@@ -281,6 +284,20 @@ process.exit(1);
       version: "claude 2.1.0",
     });
     expect(claudeSdk.query).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a nonzero auth command claims a positive login", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-auth-failed-"));
+    tempDirs.push(dir);
+    const claudeBin = join(dir, "claude");
+    writeFileSync(
+      claudeBin,
+      "#!/bin/sh\necho '{\"loggedIn\":true}'\nexit 1\n",
+    );
+    chmodSync(claudeBin, 0o755);
+
+    await expect(detectClaudeAuthState({ executablePath: claudeBin }))
+      .resolves.toBe("unknown");
   });
 
   it("reports expired Claude credentials and does not probe models", async () => {

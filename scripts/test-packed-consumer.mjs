@@ -18,10 +18,14 @@ try {
     path.join(fixture, "package.json"),
     JSON.stringify({ name: "agent-acp-kit-consumer", private: true, type: "module" }),
   );
-  execFileSync("npm", ["install", "--ignore-scripts", tarball, "typescript@5.9.3"], {
+  execFileSync(
+    "npm",
+    ["install", "--ignore-scripts", tarball, "typescript@5.9.3", "@types/node@22"],
+    {
     cwd: fixture,
     stdio: "inherit",
-  });
+    },
+  );
   writeFileSync(
     path.join(fixture, "type-smoke.ts"),
     `
@@ -43,7 +47,6 @@ export function composerPermissionToRun(
       "--target", "ES2022",
       "--module", "NodeNext",
       "--moduleResolution", "NodeNext",
-      "--skipLibCheck",
       "type-smoke.ts",
     ],
     { cwd: fixture, stdio: "inherit" },

@@ -12,8 +12,8 @@ export type AgentPermissionSemantic =
  * is retained so hosts can round-trip the composer's exact selection.
  */
 export type AgentPermissionSelection = {
-  semantic: AgentPermissionSemantic;
-  modeId?: string;
+  readonly semantic: AgentPermissionSemantic;
+  readonly modeId?: string;
 };
 
 /**

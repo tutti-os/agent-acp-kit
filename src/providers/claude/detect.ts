@@ -84,7 +84,21 @@ export async function detectClaudeAuthState(input: {
       },
     );
     return parseClaudeAuthState(stdout);
-  } catch {
+  } catch (error) {
+    const stdout =
+      error && typeof error === "object" && "stdout" in error
+        ? (error as { stdout?: unknown }).stdout
+        : undefined;
+    const parsed = parseClaudeAuthState(
+      typeof stdout === "string"
+        ? stdout
+        : Buffer.isBuffer(stdout)
+          ? stdout.toString("utf8")
+          : "",
+    );
+    // A failed status command cannot establish a positive login, but current
+    // Claude versions intentionally exit 1 with JSON for missing credentials.
+    if (parsed === "missing" || parsed === "expired") return parsed;
     return "unknown" as const;
   }
 }

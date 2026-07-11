@@ -204,6 +204,7 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
   const plugin: LocalAgentProviderPlugin<"local-agent", "claude-code"> = {
     id: "claude-code",
     aliases: ["claude"],
+    requiresKnownAuth: true,
     displayName: "Claude Code",
     kind: "local-agent",
     async detect(context) {

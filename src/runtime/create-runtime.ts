@@ -50,7 +50,12 @@ export type LocalAgentRuntime<
       result: Awaited<ReturnType<LocalAgentProviderPlugin<TKind, TProvider>["detect"]>>;
     }>
   >;
-  listProviders(): Array<{ id: TProvider; displayName: string; kind: TKind }>;
+  listProviders(): Array<{
+    id: TProvider;
+    displayName: string;
+    kind: TKind;
+    requiresKnownAuth?: boolean;
+  }>;
   run(input: AgentRunInput<TKind, TProvider>): AsyncGenerator<AgentEvent>;
 };
 
@@ -224,6 +229,7 @@ export function createLocalAgentRuntime<
         id: provider.id,
         displayName: provider.displayName,
         kind: provider.kind,
+        ...(provider.requiresKnownAuth ? { requiresKnownAuth: true } : {}),
       }));
     },
 

@@ -7,7 +7,12 @@ import {
 } from "../../src/tutti/index.js";
 
 function fakeRuntime(input: {
-  providers?: Array<{ id: string; displayName: string; kind: string }>;
+  providers?: Array<{
+    id: string;
+    displayName: string;
+    kind: string;
+    requiresKnownAuth?: boolean;
+  }>;
   detections?: Array<Record<string, unknown>>;
 } = {}): LocalAgentRuntime<string, string> {
   return {
@@ -15,7 +20,12 @@ function fakeRuntime(input: {
     listProviders: () =>
       input.providers ?? [
         { id: "codex", displayName: "Codex", kind: "local-agent" },
-        { id: "claude-code", displayName: "Claude Code", kind: "local-agent" },
+        {
+          id: "claude-code",
+          displayName: "Claude Code",
+          kind: "local-agent",
+          requiresKnownAuth: true,
+        },
       ],
     detect: async () =>
       (input.detections ?? [
@@ -93,6 +103,47 @@ describe("Tutti provider catalog", () => {
       { providerId: "codex", availability: { status: "available" } },
       { providerId: "claude-code", availability: { status: "unavailable" } },
     ]);
+  });
+
+  it("uses provider-owned policy for unknown standalone authentication", async () => {
+    const catalog = await loadTuttiAgentProviderCatalog({
+      env: {},
+      runtime: fakeRuntime({
+        providers: [
+          {
+            id: "strict-agent",
+            displayName: "Strict Agent",
+            kind: "local-agent",
+            requiresKnownAuth: true,
+          },
+          { id: "relaxed-acp", displayName: "Relaxed ACP", kind: "local-agent" },
+        ],
+        detections: ["strict-agent", "relaxed-acp"].map((provider) => ({
+          provider,
+          displayName: provider,
+          result: {
+            authState: "unknown",
+            executablePath: provider,
+            supported: true,
+            version: "1",
+          },
+        })),
+      }),
+    });
+    expect(catalog.providers).toMatchObject([
+      {
+        providerId: "strict-agent",
+        availability: {
+          status: "unknown",
+          reasonCode: "auth_unknown",
+        },
+      },
+      {
+        providerId: "relaxed-acp",
+        availability: { status: "available" },
+      },
+    ]);
+    expect(catalog.defaultProviderId).toBe("relaxed-acp");
   });
 
   it("canonicalizes the legacy Claude ingress without exposing an alias", async () => {

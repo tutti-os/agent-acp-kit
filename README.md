@@ -361,7 +361,9 @@ permission: {
 
 The SDK maps this policy to each provider. Workspace App runs default to
 `full-access` when the host omits `permission`: Codex uses its unrestricted
-sandbox mode, Claude uses `bypassPermissions`, and ACP requests are approved.
+sandbox mode, Claude uses `bypassPermissions`, and ACP requests select a
+recognized permissive option when the peer offers one (otherwise the request
+is cancelled).
 An App can pass an explicit narrower semantic for a run. For ACP, every
 non-`full-access` semantic cancels permission requests because the protocol
 adapter cannot safely infer a tool's risk from a provider-specific option id.

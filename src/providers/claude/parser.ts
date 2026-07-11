@@ -142,6 +142,7 @@ function toolResultFromBlock(
 function mapCompleteMessage(
   item: Record<string, unknown>,
   state: ClaudeParserState,
+  emitAssistantText: boolean,
 ): AgentEvent[] {
   const blocks = getContentBlocks(item);
   if (!blocks) return [];
@@ -149,8 +150,10 @@ function mapCompleteMessage(
   const events: AgentEvent[] = [];
   for (const block of blocks) {
     if (block.type === "text" && typeof block.text === "string") {
-      if (block.text) state.assistantTextEmitted = true;
-      events.push({ type: "text_delta", text: block.text });
+      if (emitAssistantText) {
+        if (block.text) state.assistantTextEmitted = true;
+        events.push({ type: "text_delta", text: block.text });
+      }
       continue;
     }
     const toolCall = toolCallFromBlock(block, state);
@@ -245,15 +248,24 @@ export function createClaudeEventMapper() {
       return parseClaudeStreamEvent(item, state);
     }
     if (type === "assistant" || type === "user") {
-      return mapCompleteMessage(item, state);
+      return mapCompleteMessage(item, state, type === "assistant");
     }
     if (type === "result") {
       if (item.is_error === true) {
+        const errors = Array.isArray(item.errors)
+          ? item.errors
+              .filter((error): error is string =>
+                typeof error === "string" && Boolean(error.trim())
+              )
+              .map((error) => error.trim())
+          : [];
         return [{
           type: "error",
           code: "claude_error",
           message:
-            typeof item.result === "string" && item.result.trim()
+            errors.length > 0
+              ? errors.join("; ")
+              : typeof item.result === "string" && item.result.trim()
               ? item.result
               : "Claude run failed",
         }];

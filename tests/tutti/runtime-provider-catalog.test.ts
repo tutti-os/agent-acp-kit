@@ -8,7 +8,12 @@ function runtime(): LocalAgentRuntime<string, string> {
     async cancel() {},
     listProviders: () => [
       { id: "codex", displayName: "Codex", kind: "local-agent" },
-      { id: "claude-code", displayName: "Claude Code", kind: "local-agent" },
+      {
+        id: "claude-code",
+        displayName: "Claude Code",
+        kind: "local-agent",
+        requiresKnownAuth: true,
+      },
     ],
     detect: vi.fn(async () => [
       {
@@ -131,16 +136,21 @@ describe("Tutti app-facing provider catalog", () => {
     expect(result.providers[0]).toMatchObject({ provider: "codex", available: true });
   });
 
-  it("requires known-good Claude auth while preserving unknown auth for ACP providers", async () => {
+  it("applies provider-owned auth policy to CLI catalog runtime readiness", async () => {
     const localRuntime = runtime();
     localRuntime.listProviders = () => [
-      { id: "claude-code", displayName: "Claude Code", kind: "local-agent" },
+      {
+        id: "strict-agent",
+        displayName: "Strict Agent",
+        kind: "local-agent",
+        requiresKnownAuth: true,
+      },
       { id: "cursor", displayName: "Cursor", kind: "local-agent" },
     ];
     localRuntime.detect = vi.fn(async () => [
       {
-        provider: "claude-code",
-        displayName: "Claude Code",
+        provider: "strict-agent",
+        displayName: "Strict Agent",
         result: {
           authState: "unknown",
           executablePath: "claude",
@@ -161,15 +171,31 @@ describe("Tutti app-facing provider catalog", () => {
     ]);
 
     const result = await resolveTuttiAgentProviderCatalog({
-      env: {},
       includeComposerModels: false,
       runtime: localRuntime,
+      runTuttiCli: async () => ({
+        schemaVersion: 2,
+        defaultProviderId: "strict-agent",
+        providers: [
+          {
+            providerId: "strict-agent",
+            displayName: "Strict Agent",
+            availability: { status: "available", reasonCode: "", detail: "" },
+          },
+          {
+            providerId: "cursor",
+            displayName: "Cursor",
+            availability: { status: "available", reasonCode: "", detail: "" },
+          },
+        ],
+      }),
     });
 
     expect(result.providers).toMatchObject([{
-      provider: "claude-code",
+      provider: "strict-agent",
       authState: "unknown",
       available: false,
+      reason: "Authentication status is unknown.",
     }, {
       provider: "cursor",
       authState: "unknown",

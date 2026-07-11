@@ -3,6 +3,10 @@ import type { LocalAgentRuntime } from "../runtime/create-runtime.js";
 import type { TuttiCliJsonRequest } from "./cli-json-runner.js";
 import { loadTuttiAgentComposerOptionsWithCatalog } from "./composer-options.js";
 import { loadTuttiAgentProviderCatalog } from "./provider-catalog.js";
+import {
+  isDetectedProviderAuthReady,
+  localProviderReadinessReason,
+} from "./provider-readiness.js";
 
 export interface TuttiResolvedAgentProviderCatalogModel {
   id: string;
@@ -69,13 +73,19 @@ export async function resolveTuttiAgentProviderCatalog(
   const detected = new Map(
     detections.map((item) => [String(item.provider), item.result]),
   );
+  const descriptors = new Map(
+    input.runtime.listProviders().map((provider) => [String(provider.id), provider]),
+  );
   const managedInvocation = Boolean(input.detectContext?.managedAgentInvocation);
 
   const providers = await Promise.all(catalog.providers.map(async (provider) => {
     const detection = detected.get(provider.providerId);
-    const authReady = provider.providerId === "claude-code"
-      ? detection?.authState === "ok"
-      : detection?.authState !== "missing" && detection?.authState !== "expired";
+    const requiresKnownAuth =
+      descriptors.get(provider.providerId)?.requiresKnownAuth === true;
+    const authReady = isDetectedProviderAuthReady(
+      detection?.authState,
+      requiresKnownAuth,
+    );
     const localReady = Boolean(detection) &&
       detection?.supported !== false &&
       authReady;
@@ -120,7 +130,7 @@ export async function resolveTuttiAgentProviderCatalog(
       ...(!available ? {
         reason: provider.availability.detail ||
           detection?.unsupportedReason ||
-          localReadinessReason(detection),
+          localProviderReadinessReason(detection, requiresKnownAuth),
       } : {}),
     } satisfies TuttiResolvedAgentProviderCatalogEntry;
   }));
@@ -162,13 +172,4 @@ function resolveAuthState(
   if (reasonCode === "auth_required") return "missing" as const;
   if (reasonCode === "auth_expired") return "expired" as const;
   return detected ?? "unknown";
-}
-
-function localReadinessReason(
-  detection: Awaited<ReturnType<LocalAgentRuntime<string, string>["detect"]>>[number]["result"] | undefined,
-) {
-  if (!detection) return "Provider runtime was not detected.";
-  if (detection.authState === "missing") return "Authentication is required.";
-  if (detection.authState === "expired") return "Authentication has expired.";
-  return "Provider is not available.";
 }
