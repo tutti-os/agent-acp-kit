@@ -5,7 +5,9 @@ import type {
 } from "../core/capabilities.js";
 import { getRuntimeTarget, getRuntimeTargetKey } from "../core/registry.js";
 import type {
+  AgentDetection,
   AgentRunParams,
+  DetectedProvider,
   LocalAgentProviderAdapter,
   LocalAgentProviderPlugin,
   RuntimeKindSelector,
@@ -32,6 +34,7 @@ import {
   hasManagedAgentInvocation,
   prepareManagedAgentInvocationDetectContext,
 } from "../core/managed-invocation.js";
+import { selectRuntimeDetectionStrategy } from "./detection-strategy.js";
 
 type ProviderDetectionResult<
   TKind extends string,
@@ -43,13 +46,7 @@ export type LocalAgentRuntime<
   TProvider extends string = string,
 > = {
   cancel(runId: string): Promise<void>;
-  detect(context?: DetectContext): Promise<
-    Array<{
-      provider: TProvider;
-      displayName: string;
-      result: Awaited<ReturnType<LocalAgentProviderPlugin<TKind, TProvider>["detect"]>>;
-    }>
-  >;
+  detect(context?: DetectContext): Promise<Array<DetectedProvider<TProvider>>>;
   listProviders(): Array<{
     id: TProvider;
     displayName: string;
@@ -58,6 +55,15 @@ export type LocalAgentRuntime<
   }>;
   run(input: AgentRunInput<TKind, TProvider>): AsyncGenerator<AgentEvent>;
 };
+
+export type ManagedProviderDetector<TProvider extends string = string> = (input: {
+  context: DetectContext;
+  descriptors: Array<{
+    id: TProvider;
+    displayName: string;
+    requiresKnownAuth: boolean;
+  }>;
+}) => Promise<Array<DetectedProvider<TProvider>>>;
 
 function createRuntimeAbortSignal(
   inputSignal: AbortSignal | undefined,
@@ -95,6 +101,8 @@ export function createLocalAgentRuntime<
 >(options: {
   providers: LocalAgentProviderPlugin<TKind, TProvider>[];
   transports?: Transport[];
+  /** Internal production wiring used by createDefaultLocalAgentRuntime(). */
+  detectManagedProviders?: ManagedProviderDetector<TProvider>;
 }): LocalAgentRuntime<TKind, TProvider> {
   const providers = new Map<string, LocalAgentProviderPlugin<TKind, TProvider>>();
   const canonicalProviderIds = new Set<string>();
@@ -169,6 +177,25 @@ export function createLocalAgentRuntime<
     },
 
     async detect(context) {
+      const strategy = selectRuntimeDetectionStrategy(context);
+      if (strategy === "tutti-managed") {
+        const descriptors = options.providers.map((provider) => ({
+          id: provider.id,
+          displayName: provider.displayName,
+          requiresKnownAuth: provider.requiresKnownAuth === true,
+        }));
+        if (!options.detectManagedProviders) {
+          return descriptors.map((descriptor) => ({
+            provider: descriptor.id,
+            displayName: descriptor.displayName,
+            supported: false,
+            authState: "unknown",
+            reason: "Managed provider catalog is unavailable.",
+            models: [],
+          }));
+        }
+        return await options.detectManagedProviders({ context: context!, descriptors });
+      }
       if (context?.refresh) {
         detectionCache.clear();
       }
@@ -179,11 +206,7 @@ export function createLocalAgentRuntime<
           const cacheable = !contextHasCacheKeyOverrides;
           const cached = cacheable ? detectionCache.get(cacheKey) : undefined;
           if (cacheable && cached !== undefined) {
-            return {
-              provider: provider.id,
-              displayName: provider.displayName,
-              result: cached,
-            };
+            return projectStandaloneDetection(provider, cached);
           }
 
           const providerContext = prepareManagedAgentInvocationDetectContext(
@@ -215,11 +238,7 @@ export function createLocalAgentRuntime<
           if (cacheable) {
             detectionCache.set(cacheKey, result);
           }
-          return {
-            provider: provider.id,
-            displayName: provider.displayName,
-            result,
-          };
+          return projectStandaloneDetection(provider, result);
         }),
       );
     },
@@ -295,6 +314,46 @@ export function createLocalAgentRuntime<
       }
     },
   };
+}
+
+function projectStandaloneDetection<
+  TKind extends string,
+  TProvider extends string,
+>(
+  provider: LocalAgentProviderPlugin<TKind, TProvider>,
+  result: ProviderDetectionResult<TKind, TProvider>,
+): DetectedProvider<TProvider> {
+  const authState = result?.authState ?? "unknown";
+  const authReady = !provider.requiresKnownAuth || authState === "ok";
+  const supported = Boolean(result) && result?.supported !== false && authReady;
+  const usesDefaultModel = supported && (result?.models?.length ?? 0) === 0;
+  const models = usesDefaultModel
+    ? [{ id: "default", label: "Default" }]
+    : (result?.models ?? []);
+  return {
+    provider: provider.id,
+    displayName: provider.displayName,
+    supported,
+    authState,
+    models,
+    ...(usesDefaultModel ? { defaultModelId: "default" } : {}),
+    ...(!supported
+      ? { reason: result?.unsupportedReason ?? standaloneUnavailableReason(result, provider.requiresKnownAuth === true) }
+      : {}),
+  };
+}
+
+function standaloneUnavailableReason(
+  result: AgentDetection | null,
+  requiresKnownAuth: boolean,
+) {
+  if (!result) return "Provider runtime was not detected.";
+  if (requiresKnownAuth && result.authState !== "ok") {
+    if (result.authState === "missing") return "Provider authentication is required.";
+    if (result.authState === "expired") return "The provider session has expired.";
+    return "Authentication status is unknown.";
+  }
+  return "Provider runtime is unsupported.";
 }
 
 function normalizeAgentEvent(event: AgentEvent): AgentEvent {

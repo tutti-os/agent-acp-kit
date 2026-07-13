@@ -112,7 +112,7 @@ async function standaloneComposerOptions(
 ): Promise<TuttiAgentComposerOptions> {
   const detection = (await runtime.detect(detectContext)).find(
     (entry) => String(entry.provider) === providerId,
-  )?.result;
+  );
   const options = (detection?.models ?? []).map((model) => ({
     id: model.id,
     value: model.id,

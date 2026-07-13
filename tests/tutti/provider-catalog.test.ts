@@ -32,12 +32,17 @@ function fakeRuntime(input: {
         {
           provider: "codex",
           displayName: "Codex",
-          result: { authState: "ok", executablePath: "codex", version: "1" },
+          authState: "ok",
+          supported: true,
+          models: [],
         },
         {
           provider: "claude-code",
           displayName: "Claude Code",
-          result: null,
+          authState: "unknown",
+          supported: false,
+          reason: "Provider runtime was not detected.",
+          models: [],
         },
       ]) as Awaited<ReturnType<LocalAgentRuntime<string, string>["detect"]>>,
     run: (() => {
@@ -121,12 +126,10 @@ describe("Tutti provider catalog", () => {
         detections: ["strict-agent", "relaxed-acp"].map((provider) => ({
           provider,
           displayName: provider,
-          result: {
-            authState: "unknown",
-            executablePath: provider,
-            supported: true,
-            version: "1",
-          },
+          authState: "unknown",
+          supported: provider === "relaxed-acp",
+          models: [],
+          ...(provider === "strict-agent" ? { reason: "Authentication status is unknown." } : {}),
         })),
       }),
     });
@@ -134,8 +137,8 @@ describe("Tutti provider catalog", () => {
       {
         providerId: "strict-agent",
         availability: {
-          status: "unknown",
-          reasonCode: "auth_unknown",
+          status: "unavailable",
+          reasonCode: "provider_unsupported",
         },
       },
       {
@@ -235,12 +238,16 @@ describe("Tutti provider catalog", () => {
           {
             provider: "opencode",
             displayName: "OpenCode",
-            result: { authState: "ok", executablePath: "opencode", version: "1" },
+            authState: "ok",
+            supported: true,
+            models: [],
           },
           {
             provider: "codex",
             displayName: "Codex",
-            result: { authState: "ok", executablePath: "codex", version: "1" },
+            authState: "ok",
+            supported: true,
+            models: [],
           },
         ],
       }),

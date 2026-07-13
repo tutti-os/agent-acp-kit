@@ -17,7 +17,6 @@ import {
   isRecord,
   optionalString,
 } from "./internal.js";
-import { providerAuthAvailability } from "./provider-readiness.js";
 
 export interface LoadTuttiAgentProviderCatalogInput
   extends Omit<TuttiCliJsonRequest, "args"> {
@@ -135,7 +134,7 @@ async function loadStandaloneProviderCatalog(
   const descriptors = runtime.listProviders();
   const detections = await runtime.detect(detectContext);
   const byProvider = new Map(
-    detections.map((detection) => [String(detection.provider), detection.result]),
+    detections.map((detection) => [String(detection.provider), detection]),
   );
   const providers = descriptors.map((descriptor) => {
     const providerId = String(descriptor.id);
@@ -175,8 +174,8 @@ async function loadStandaloneProviderCatalog(
 }
 
 function standaloneAvailability(
-  detection: Awaited<ReturnType<LocalAgentRuntime<string, string>["detect"]>>[number]["result"] | undefined,
-  requiresKnownAuth: boolean,
+  detection: Awaited<ReturnType<LocalAgentRuntime<string, string>["detect"]>>[number] | undefined,
+  _requiresKnownAuth: boolean,
 ): TuttiAgentProviderAvailability {
   if (!detection) {
     return {
@@ -185,18 +184,13 @@ function standaloneAvailability(
       detail: "Provider runtime was not detected.",
     };
   }
-  if (detection.supported === false) {
+  if (!detection.supported) {
     return {
       status: "unavailable",
       reasonCode: "provider_unsupported",
-      detail: detection.unsupportedReason ?? "Provider runtime is unsupported.",
+      detail: detection.reason ?? "Provider runtime is unsupported.",
     };
   }
-  const authAvailability = providerAuthAvailability(
-    detection.authState,
-    requiresKnownAuth,
-  );
-  if (authAvailability) return authAvailability;
   return { status: "available", reasonCode: "", detail: "" };
 }
 

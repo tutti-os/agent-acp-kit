@@ -102,9 +102,10 @@ const runtime = createLocalAgentRuntime({
 const detections = await runtime.detect();
 console.log(detections.map((item) => ({
   provider: item.provider,
-  supported: item.result?.supported !== false,
-  models: item.result?.models,
-  reason: item.result?.unsupportedReason,
+  supported: item.supported,
+  authState: item.authState,
+  models: item.models,
+  reason: item.reason,
 })));
 
 for await (const event of runtime.run({
@@ -153,25 +154,19 @@ import {
   createManagedAgentRunContextFromHeaders,
 } from "@tutti-os/agent-acp-kit";
 import {
-  loadTuttiAgentComposerOptions,
-  loadTuttiAgentProviderCatalog,
   loadTuttiAgentSkillContext,
-  resolveTuttiAgentProviderCatalog,
 } from "@tutti-os/agent-acp-kit/tutti";
 
 const runtime = createDefaultLocalAgentRuntime();
 const detectContext = createManagedAgentDetectContextFromHeaders(headers);
-const catalog = await resolveTuttiAgentProviderCatalog({ runtime, detectContext });
-const providerId = catalog.defaultProvider;
+const providers = await runtime.detect(detectContext);
+const providerId = (
+  providers.find((provider) => provider.isDefault && provider.supported) ??
+  providers.find((provider) => provider.supported)
+)?.provider;
 if (!providerId) {
   throw new Error("No local Agent provider is currently available.");
 }
-const composer = await loadTuttiAgentComposerOptions({
-  runtime,
-  providerId,
-  cwd: appLocalCwd,
-  detectContext,
-});
 const skills = await loadTuttiAgentSkillContext({
   provider: providerId,
   agentSessionId: runId,
@@ -184,18 +179,35 @@ const runContext = await createManagedAgentRunContextFromHeaders(headers, {
 });
 ```
 
-There is no app-facing mode switch. If `TUTTI_CLI` is present, the facade uses versioned Tutti CLI JSON for enabled provider visibility, composer options, and dynamic skills. If it is absent, catalog/composer automatically use runtime discovery and skill context is empty with `source: "standalone"`. A configured CLI that fails or returns an unsupported schema produces `TuttiIntegrationError`; it never silently falls back.
+There is no app-facing mode switch. `runtime.detect(detectContext)` is the only
+high-level discovery API. A managed context uses versioned Tutti CLI provider
+and composer JSON without running Provider plugin probes. A standalone context
+uses Provider plugin detection. Both return the same flat `DetectedProvider[]`.
+Managed results mark the schema-v2 `defaultProviderId` entry with
+`isDefault: true`; callers must also require `supported: true` before selecting
+it. Standalone results omit `isDefault` because there is no Tutti global
+default.
+
+Apps that wrap a Provider plugin can preserve that customization without
+reimplementing managed detection:
+
+```ts
+const runtime = createDefaultLocalAgentRuntime({
+  providers: customProviderPlugins,
+});
+```
+
+The default factory always owns managed strategy injection. Consumer apps must
+not import or wire the internal managed detector themselves.
 
 Managed hosts pass the same request-scoped `detectContext` object unchanged to
-catalog, composer, and skill helpers. The Tutti facade projects its existing
+runtime detection and skill helpers. The kit projects its existing
 managed invocation credential only when it creates the immediate CLI child;
 intermediate app code must not extract the credential, copy it to
 `process.env`, or substitute `ManagedAgentRunContext` for `detectContext`.
 App-owned non-Agent Tutti children use `projectTuttiCliChildProcess` at their
 own child boundary and pass returned output through
 `redactTuttiCliChildProcessText` before logging or returning errors.
-
-Use `resolveTuttiAgentProviderCatalog` for an app-facing provider picker: it combines platform visibility, one shared runtime detection, authentication readiness, and lazy composer models. Use the lower-level `loadTuttiAgentProviderCatalog` only when the raw versioned platform catalog is the required contract.
 
 Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs, or map provider IDs. Provider IDs are canonical outputs. Claude Code is `claude-code`; legacy `claude` remains accepted only at SDK input ingress and is never returned. The first-party Tutti provider is `tutti-agent`; historical `nexight` must not be registered or exposed as a new App runtime provider.
 
@@ -354,10 +366,9 @@ Provider behavior differs:
 - Claude Code: returns fallback hints such as `sonnet`, `opus`, `haiku`, and known full ids, then adds configured custom ids from the Claude settings file when present. Custom model ids can be passed through.
 - ACP providers: attempt model discovery through ACP session lifecycle when the peer supports it.
 
-Detection results may include `diagnostics` with redacted provider details when
-non-fatal discovery work fails. For example, ACP providers keep returning an
-empty `models` array when model discovery fails, but include the redacted stderr
-tail in diagnostics so hosts can log or surface the actual probe failure.
+Provider plugin diagnostics remain internal to standalone projection. The
+public result intentionally contains only provider identity, `supported`,
+`authState`, models/default model, and an optional display-only `reason`.
 
 Hosts should not hardcode Codex or Claude model lists above this package. If a UI needs additional custom models, keep that UI behavior in the host and pass the chosen id into `AgentRunInput.model`.
 

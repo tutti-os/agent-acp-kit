@@ -71,6 +71,19 @@ export type AgentDetection<TModel extends AgentModelOption = AgentModelOption> =
   version: string;
 };
 
+/** Stable app-facing provider discovery result returned by runtime.detect(). */
+export type DetectedProvider<TProvider extends string = string> = {
+  provider: TProvider;
+  displayName: string;
+  supported: boolean;
+  authState: "ok" | "missing" | "expired" | "unknown";
+  models: AgentModelOption[];
+  defaultModelId?: string;
+  /** Present only for the Tutti-managed catalog entry selected by defaultProviderId. */
+  isDefault?: true;
+  reason?: string;
+};
+
 export type AgentRunMessage = {
   role: "user" | "assistant" | "system";
   content: string;
