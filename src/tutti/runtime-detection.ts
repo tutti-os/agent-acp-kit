@@ -1,7 +1,11 @@
 import type { DetectContext } from "../core/detection.js";
 import type { AgentModelOption, DetectedProvider } from "../core/provider-plugin.js";
 import { isManagedAgentInvocationProviderId } from "../core/managed-invocation.js";
-import { runTuttiCliJson, type TuttiCliJsonRunner } from "./cli-json-runner.js";
+import {
+  runTuttiCliJson,
+  TuttiIntegrationError,
+  type TuttiCliJsonRunner,
+} from "./cli-json-runner.js";
 import { parseTuttiAgentComposerOptions } from "./composer-options.js";
 import { canonicalTuttiProviderId, isRecord, optionalString } from "./internal.js";
 
@@ -14,7 +18,7 @@ type Descriptor<TProvider extends string> = {
   requiresKnownAuth: boolean;
 };
 
-export async function detectManagedProviders<TProvider extends string>(input: {
+export async function detectTuttiManagedProviders<TProvider extends string>(input: {
   context: DetectContext;
   descriptors: Descriptor<TProvider>[];
   runTuttiCli?: TuttiCliJsonRunner;
@@ -35,15 +39,15 @@ export async function detectManagedProviders<TProvider extends string>(input: {
       displayName: descriptor.displayName,
       supported: false,
       authState: "unknown",
-      reason: "Managed provider discovery is unavailable.",
+      reason: "Managed provider catalog is unavailable.",
       models: [],
     }));
   }
 
   const catalog = parseManagedCatalog(payload, input.descriptors);
-  return await Promise.all(catalog.map(async (entry) => {
-    if (!entry.supported) return entry;
-    try {
+  const eligible = catalog.filter((entry) => entry.supported);
+  const composerResults = await Promise.allSettled(
+    eligible.map(async (entry) => {
       const composerPayload = await runTuttiCliJson({
         args: ["--json", "agent", "composer-options", "--provider", entry.provider],
         cwd: input.context.cwd,
@@ -59,21 +63,32 @@ export async function detectManagedProviders<TProvider extends string>(input: {
         ...(model.description ? { description: model.description } : {}),
       }));
       const defaultModelId = composer.modelConfig.currentValue ||
-        composer.modelConfig.defaultValue || models[0]?.id || DEFAULT_MODEL.id;
+        composer.modelConfig.defaultValue || undefined;
+      if (models.length === 0) {
+        throw new Error("empty_model_catalog");
+      }
       return {
-        ...entry,
-        models: models.length > 0 ? models : [DEFAULT_MODEL],
-        defaultModelId,
+        models,
+        ...(defaultModelId ? { defaultModelId } : {}),
       };
-    } catch {
-      return {
-        ...entry,
-        models: [DEFAULT_MODEL],
-        defaultModelId: DEFAULT_MODEL.id,
-        reason: "Provider models could not be refreshed; the configured default remains available.",
-      };
+    }),
+  );
+  let eligibleIndex = 0;
+  return catalog.map((entry) => {
+    if (!entry.supported) return entry;
+    const composer = composerResults[eligibleIndex++]!;
+    if (composer.status === "fulfilled") {
+      return { ...entry, ...composer.value };
     }
-  }));
+    return {
+      ...entry,
+      models: [DEFAULT_MODEL],
+      defaultModelId: DEFAULT_MODEL.id,
+      reason: composer.reason instanceof TuttiIntegrationError && composer.reason.code === "cli_timeout"
+        ? "Model discovery timed out; using the configured default."
+        : "Model discovery failed; using the configured default.",
+    };
+  });
 }
 
 function parseManagedCatalog<TProvider extends string>(
@@ -119,7 +134,7 @@ function unavailableDescriptor<TProvider extends string>(
     displayName: descriptor.displayName,
     supported: false,
     authState: "unknown",
-    reason: "Managed provider discovery returned an unsupported response.",
+    reason: "Managed provider catalog is unavailable.",
     models: [],
   };
 }

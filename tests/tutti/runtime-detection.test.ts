@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { detectManagedProviders } from "../../src/tutti/runtime-detection.js";
+import { detectTuttiManagedProviders } from "../../src/tutti/runtime-detection.js";
 
 const context = {
   managedAgentInvocation: { credential: "secret", cwd: "/workspace" },
@@ -51,7 +51,7 @@ describe("managed runtime detection", () => {
       return await new Promise((resolve) => releases.set(provider, resolve));
     });
 
-    const pending = detectManagedProviders({ context, descriptors: [...descriptors], runTuttiCli });
+    const pending = detectTuttiManagedProviders({ context, descriptors: [...descriptors], runTuttiCli });
     await vi.waitFor(() => expect(releases.size).toBe(2));
     releases.get("codex")!(composer("codex"));
     releases.get("claude-code")!(composer("claude-code"));
@@ -66,7 +66,7 @@ describe("managed runtime detection", () => {
   });
 
   it("degrades only failed model enumeration and keeps the provider supported", async () => {
-    const result = await detectManagedProviders({
+    const result = await detectTuttiManagedProviders({
       context,
       descriptors: [...descriptors],
       runTuttiCli: async (args) => {
@@ -84,7 +84,7 @@ describe("managed runtime detection", () => {
   });
 
   it("does not fall back to standalone detection after a managed CLI failure", async () => {
-    const result = await detectManagedProviders({
+    const result = await detectTuttiManagedProviders({
       context,
       descriptors: [...descriptors],
       runTuttiCli: async () => { throw new Error("unavailable"); },
@@ -94,7 +94,7 @@ describe("managed runtime detection", () => {
       displayName: descriptor.displayName,
       supported: false,
       authState: "unknown",
-      reason: "Managed provider discovery is unavailable.",
+      reason: "Managed provider catalog is unavailable.",
       models: [],
     })));
   });
