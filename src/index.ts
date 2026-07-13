@@ -3,6 +3,7 @@ export {
 } from "./runtime/create-runtime.js";
 export type { LocalAgentRuntime } from "./runtime/create-runtime.js";
 export { createDefaultLocalAgentRuntime } from "./runtime/create-default-runtime.js";
+export type { DefaultLocalAgentRuntimeOptions } from "./runtime/create-default-runtime.js";
 
 export { createClaudeProvider, claudeProvider } from "./providers/claude/index.js";
 export {

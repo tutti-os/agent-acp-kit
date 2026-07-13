@@ -98,6 +98,9 @@ function parseManagedCatalog<TProvider extends string>(
   if (!isRecord(payload) || payload.schemaVersion !== 2 || !Array.isArray(payload.providers)) {
     return descriptors.map((descriptor) => unavailableDescriptor(descriptor));
   }
+  const defaultProviderId = canonicalTuttiProviderId(
+    optionalString(payload.defaultProviderId) ?? "",
+  );
   const descriptorById = new Map(
     descriptors.map((descriptor) => [canonicalTuttiProviderId(String(descriptor.id)), descriptor]),
   );
@@ -118,6 +121,7 @@ function parseManagedCatalog<TProvider extends string>(
       supported,
       authState: authStateFromReason(reasonCode),
       models: [],
+      ...(id === defaultProviderId ? { isDefault: true as const } : {}),
       ...(!supported
         ? { reason: optionalString(value.availability.detail) ?? "Provider is unavailable." }
         : {}),

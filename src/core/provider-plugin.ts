@@ -77,9 +77,11 @@ export type DetectedProvider<TProvider extends string = string> = {
   displayName: string;
   supported: boolean;
   authState: "ok" | "missing" | "expired" | "unknown";
-  reason?: string;
   models: AgentModelOption[];
   defaultModelId?: string;
+  /** Present only for the Tutti-managed catalog entry selected by defaultProviderId. */
+  isDefault?: true;
+  reason?: string;
 };
 
 export type AgentRunMessage = {

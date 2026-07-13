@@ -61,9 +61,10 @@ describe("managed runtime detection", () => {
     expect(calls.filter((args) => args.includes("providers"))).toHaveLength(1);
     expect(calls.filter((args) => args.includes("composer-options"))).toHaveLength(2);
     expect(result).toMatchObject([
-      { provider: "codex", supported: true, authState: "ok", defaultModelId: "codex-default" },
+      { provider: "codex", supported: true, authState: "ok", defaultModelId: "codex-default", isDefault: true },
       { provider: "claude-code", supported: true, authState: "ok", defaultModelId: "claude-code-default" },
     ]);
+    expect(result.filter((entry) => entry.isDefault)).toHaveLength(1);
   });
 
   it("degrades only failed model enumeration and keeps the provider supported", async () => {
@@ -82,6 +83,33 @@ describe("managed runtime detection", () => {
       models: [{ id: "default", label: "Default" }],
       defaultModelId: "default",
     });
+  });
+
+  it("canonicalizes and preserves an unavailable default provider", async () => {
+    const result = await detectTuttiManagedProviders({
+      context,
+      descriptors: [...descriptors],
+      runTuttiCli: async (args) => {
+        if (!args.includes("providers")) return composer(args.at(-1)!);
+        const payload = catalog();
+        payload.defaultProviderId = "claude";
+        payload.providers[1]!.providerId = "claude";
+        payload.providers[1]!.availability = {
+          status: "unavailable",
+          reasonCode: "auth_required",
+          detail: "Provider authentication is required.",
+        };
+        return payload;
+      },
+    });
+
+    expect(result[1]).toMatchObject({
+      provider: "claude-code",
+      supported: false,
+      authState: "missing",
+      isDefault: true,
+    });
+    expect(result.filter((entry) => entry.isDefault)).toHaveLength(1);
   });
 
   it("does not request composer options for an unavailable provider", async () => {
@@ -123,7 +151,11 @@ describe("managed runtime detection", () => {
       context,
       descriptors: [...descriptors],
       runTuttiCli: async (args) => {
-        if (args.includes("providers")) return catalog();
+        if (args.includes("providers")) {
+          const payload = catalog();
+          payload.defaultProviderId = "claude-code";
+          return payload;
+        }
         if (args.at(-1) === "claude-code") {
           throw new TuttiIntegrationError("cli_timeout", "timed out");
         }
@@ -133,6 +165,7 @@ describe("managed runtime detection", () => {
 
     expect(result[1]).toMatchObject({
       supported: true,
+      isDefault: true,
       reason: "Model discovery timed out; using the configured default.",
       models: [{ id: "default", label: "Default" }],
       defaultModelId: "default",

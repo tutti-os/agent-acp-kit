@@ -160,7 +160,10 @@ import {
 const runtime = createDefaultLocalAgentRuntime();
 const detectContext = createManagedAgentDetectContextFromHeaders(headers);
 const providers = await runtime.detect(detectContext);
-const providerId = providers.find((provider) => provider.supported)?.provider;
+const providerId = (
+  providers.find((provider) => provider.isDefault && provider.supported) ??
+  providers.find((provider) => provider.supported)
+)?.provider;
 if (!providerId) {
   throw new Error("No local Agent provider is currently available.");
 }
@@ -180,6 +183,22 @@ There is no app-facing mode switch. `runtime.detect(detectContext)` is the only
 high-level discovery API. A managed context uses versioned Tutti CLI provider
 and composer JSON without running Provider plugin probes. A standalone context
 uses Provider plugin detection. Both return the same flat `DetectedProvider[]`.
+Managed results mark the schema-v2 `defaultProviderId` entry with
+`isDefault: true`; callers must also require `supported: true` before selecting
+it. Standalone results omit `isDefault` because there is no Tutti global
+default.
+
+Apps that wrap a Provider plugin can preserve that customization without
+reimplementing managed detection:
+
+```ts
+const runtime = createDefaultLocalAgentRuntime({
+  providers: customProviderPlugins,
+});
+```
+
+The default factory always owns managed strategy injection. Consumer apps must
+not import or wire the internal managed detector themselves.
 
 Managed hosts pass the same request-scoped `detectContext` object unchanged to
 runtime detection and skill helpers. The kit projects its existing

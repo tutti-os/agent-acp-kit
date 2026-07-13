@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  createDefaultLocalAgentRuntime,
   createFakeProvider,
   createLocalAgentRuntime,
   type AgentEvent,
@@ -124,6 +125,25 @@ describe("createLocalAgentRuntime", () => {
       { type: "text_delta", text: "hello" },
       { type: "done", status: "completed", reason: "completed" },
     ]);
+  });
+
+  it("keeps managed detection when the default runtime uses custom providers", async () => {
+    const provider = createFakeProvider();
+    const detect = vi.spyOn(provider, "detect");
+    const runtime = createDefaultLocalAgentRuntime({ providers: [provider] });
+
+    await expect(runtime.detect({
+      env: { TUTTI_CLI: "/definitely/missing/tutti" },
+      managedAgentInvocation: { credential: "test-credential", cwd: "/workspace" },
+    })).resolves.toEqual([{
+      provider: "fake",
+      displayName: "Fake Local Agent",
+      supported: false,
+      authState: "unknown",
+      reason: "Managed provider catalog is unavailable.",
+      models: [],
+    }]);
+    expect(detect).not.toHaveBeenCalled();
   });
 
   it("forwards cancel to the active provider run", async () => {
