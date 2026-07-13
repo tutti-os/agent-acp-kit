@@ -21,6 +21,8 @@ import {
   optionalString,
 } from "./internal.js";
 
+const DEFAULT_TUTTI_COMPOSER_TIMEOUT_MS = 45_000;
+
 export interface LoadTuttiAgentComposerOptionsInput
   extends Omit<TuttiCliJsonRequest, "args"> {
   providerId: string;
@@ -64,6 +66,7 @@ export async function loadTuttiAgentComposerOptionsWithCatalog(
     const payload = await runTuttiCliJson({
       ...input,
       args: createComposerArgs(input, providerId),
+      timeoutMs: input.timeoutMs ?? DEFAULT_TUTTI_COMPOSER_TIMEOUT_MS,
     });
     return parseTuttiAgentComposerOptions(payload, providerId, "tutti-cli");
   }
