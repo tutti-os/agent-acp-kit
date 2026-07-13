@@ -62,12 +62,14 @@ const cliComposer = {
 describe("Tutti composer options", () => {
   it("validates the CLI catalog and loads canonical provider options", async () => {
     const calls: string[][] = [];
+    const timeouts: number[] = [];
     const options = await loadTuttiAgentComposerOptions({
       runtime: runtime(),
       providerId: "codex",
       cwd: "/workspace",
-      runTuttiCli: async (args) => {
+      runTuttiCli: async (args, runnerOptions) => {
         calls.push(args);
+        timeouts.push(runnerOptions.timeoutMs);
         return calls.length === 1 ? cliCatalog : cliComposer;
       },
     });
@@ -88,6 +90,23 @@ describe("Tutti composer options", () => {
       providerId: "codex",
       modelConfig: { currentValue: "gpt-5" },
     });
+    expect(timeouts).toEqual([10_000, 45_000]);
+  });
+
+  it("preserves a caller-provided timeout for catalog and composer", async () => {
+    const timeouts: number[] = [];
+    let call = 0;
+    await loadTuttiAgentComposerOptions({
+      runtime: runtime(),
+      providerId: "codex",
+      timeoutMs: 12_345,
+      runTuttiCli: async (_args, runnerOptions) => {
+        timeouts.push(runnerOptions.timeoutMs);
+        call += 1;
+        return call === 1 ? cliCatalog : cliComposer;
+      },
+    });
+    expect(timeouts).toEqual([12_345, 12_345]);
   });
 
   it("builds conservative standalone options without requiring mode", async () => {
