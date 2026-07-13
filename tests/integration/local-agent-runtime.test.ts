@@ -104,10 +104,8 @@ describe("createLocalAgentRuntime", () => {
       {
         provider: "fake",
         displayName: "Fake Local Agent",
-        result: {
-          authState: "ok",
-          supported: true,
-        },
+        authState: "ok",
+        supported: true,
       },
     ]);
 
@@ -310,8 +308,8 @@ describe("createLocalAgentRuntime", () => {
     });
 
     await expect(runtime.detect()).resolves.toMatchObject([
-      { provider: "ok", result: { authState: "ok" } },
-      { provider: "bad", result: null },
+      { provider: "ok", authState: "ok", supported: true },
+      { provider: "bad", authState: "unknown", supported: false },
     ]);
     await runtime.detect();
 
@@ -320,7 +318,7 @@ describe("createLocalAgentRuntime", () => {
     expect(detectOk).toHaveBeenCalledTimes(2);
   });
 
-  it("passes managed invocation env and cwd to supported provider detection without caching credentials", async () => {
+  it("never calls provider detection for managed discovery", async () => {
     vi.stubEnv("CODEX_HOME", "/tmp/user-codex-home");
     vi.stubEnv("CLAUDE_CONFIG_DIR", "/tmp/user-claude-config");
     const calls: Array<{
@@ -385,27 +383,8 @@ describe("createLocalAgentRuntime", () => {
       },
     });
 
-    expect(detect).toHaveBeenCalledTimes(2);
-    expect(calls).toEqual([
-      {
-        claudeConfigDir: "/tmp/user-claude-config",
-        codexHome: "/tmp/user-codex-home",
-        credential: "managed-detect-secret-1",
-        cwd: "/workspace/project",
-        home: process.env.HOME,
-        leaked: process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
-        path: expect.stringContaining("/opt/homebrew/bin"),
-      },
-      {
-        claudeConfigDir: "/tmp/user-claude-config",
-        codexHome: "/tmp/user-codex-home",
-        credential: "managed-detect-secret-2",
-        cwd: "/workspace/project/subdir",
-        home: process.env.HOME,
-        leaked: process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV],
-        path: expect.stringContaining("/opt/homebrew/bin"),
-      },
-    ]);
+    expect(detect).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
     expect(process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).not.toBe(
       "managed-detect-secret-1",
     );
@@ -460,7 +439,7 @@ describe("createLocalAgentRuntime", () => {
     expect(process.env.TUTTI_AGENT_HOME).toBe("/tmp/user-tutti-agent-home");
   });
 
-  it("does not forward managed invocation credentials to unsupported provider detection", async () => {
+  it("does not probe unsupported plugins during managed discovery", async () => {
     let receivedContext: unknown;
     const provider: LocalAgentProviderPlugin<"local-agent", "nextop"> = {
       id: "nextop",
@@ -503,14 +482,10 @@ describe("createLocalAgentRuntime", () => {
       },
     });
 
-    expect(receivedContext).toEqual({
-      env: {
-        KEEP: "1",
-      },
-    });
+    expect(receivedContext).toBeUndefined();
   });
 
-  it("does not forward managed invocation credentials to unsupported provider detection regardless of cwd", async () => {
+  it("does not probe unsupported plugins during managed discovery regardless of cwd", async () => {
     let receivedContext: unknown;
     const detect = vi.fn(async () => ({
       authState: "ok" as const,
@@ -550,7 +525,7 @@ describe("createLocalAgentRuntime", () => {
       },
     });
 
-    expect(detect).toHaveBeenCalledTimes(1);
+    expect(detect).not.toHaveBeenCalled();
     expect(receivedContext).toBeUndefined();
   });
 

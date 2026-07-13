@@ -86,6 +86,7 @@ export {
 export type {
   AgentDetection,
   AgentDetectionDiagnostic,
+  DetectedProvider,
   AgentEvent,
   AgentModelOption,
   AgentPermissionSelection,

@@ -10,6 +10,7 @@ export type {
   AgentDetection,
   AgentDetectionDiagnostic,
   AgentModelOption,
+  DetectedProvider,
   AgentRunMessage,
   AgentRunParams,
   LocalAgentProviderAdapter,

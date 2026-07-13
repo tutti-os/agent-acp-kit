@@ -38,17 +38,6 @@ export {
   parseTuttiAgentComposerOptions,
 } from "./composer-options.js";
 export type { LoadTuttiAgentComposerOptionsInput } from "./composer-options.js";
-export {
-  displayNameForAgentProvider,
-  findTuttiAgentCatalogProvider,
-  resolveTuttiAgentProviderCatalog,
-} from "./runtime-provider-catalog.js";
-export type {
-  ResolveTuttiAgentProviderCatalogInput,
-  TuttiResolvedAgentProviderCatalog,
-  TuttiResolvedAgentProviderCatalogEntry,
-  TuttiResolvedAgentProviderCatalogModel,
-} from "./runtime-provider-catalog.js";
 export * from "./contracts.js";
 
 const DEFAULT_TUTTI_SKILL_BUNDLE_TIMEOUT_MS = 10_000;

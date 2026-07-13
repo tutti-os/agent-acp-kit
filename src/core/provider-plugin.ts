@@ -71,6 +71,17 @@ export type AgentDetection<TModel extends AgentModelOption = AgentModelOption> =
   version: string;
 };
 
+/** Stable app-facing provider discovery result returned by runtime.detect(). */
+export type DetectedProvider<TProvider extends string = string> = {
+  provider: TProvider;
+  displayName: string;
+  supported: boolean;
+  authState: "ok" | "missing" | "expired" | "unknown";
+  reason?: string;
+  models: AgentModelOption[];
+  defaultModelId?: string;
+};
+
 export type AgentRunMessage = {
   role: "user" | "assistant" | "system";
   content: string;

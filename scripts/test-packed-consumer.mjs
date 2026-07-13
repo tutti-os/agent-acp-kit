@@ -35,13 +35,16 @@ try {
   writeFileSync(
     path.join(fixture, "type-smoke.ts"),
     `
-import type { AgentRunInput } from "@tutti-os/agent-acp-kit";
+import type { AgentRunInput, DetectedProvider } from "@tutti-os/agent-acp-kit";
 import type { TuttiAgentPermissionMode } from "@tutti-os/agent-acp-kit/tutti/contracts";
 
 export function composerPermissionToRun(
   mode: TuttiAgentPermissionMode,
 ): AgentRunInput["permission"] {
   return { modeId: mode.id, semantic: mode.semantic };
+}
+export function selectable(provider: DetectedProvider): boolean {
+  return provider.supported && provider.authState === "ok";
 }
 `,
   );
@@ -69,7 +72,6 @@ import {
   loadTuttiAgentSkillContext,
   projectTuttiCliChildProcess,
   redactTuttiCliChildProcessText,
-  resolveTuttiAgentProviderCatalog,
 } from "@tutti-os/agent-acp-kit/tutti";
 import { isTuttiAgentProviderCatalog } from "@tutti-os/agent-acp-kit/tutti/contracts";
 import { createFakeAcpPeerScript } from "@tutti-os/agent-acp-kit/testing";
@@ -137,21 +139,9 @@ const catalog = await loadTuttiAgentProviderCatalog({
   },
 });
 if (!isTuttiAgentProviderCatalog(catalog)) throw new Error("catalog contract failed");
-const resolvedCatalog = await resolveTuttiAgentProviderCatalog({
-  includeComposerModels: false,
-  runtime,
-  runTuttiCli: async () => ({
-    schemaVersion: 2,
-    defaultProviderId: "packed",
-    providers: [{
-      providerId: "packed",
-      displayName: "Packed",
-      availability: { status: "available", reasonCode: "", detail: "" },
-    }],
-  }),
-});
-if (resolvedCatalog.defaultProvider !== "packed") {
-  throw new Error("resolved catalog facade failed");
+const detected = await runtime.detect();
+if (detected[0]?.provider !== "packed" || detected[0]?.supported !== true || "result" in detected[0]) {
+  throw new Error("flat runtime detection contract failed");
 }
 const standaloneSkills = await loadTuttiAgentSkillContext({
   env: {},

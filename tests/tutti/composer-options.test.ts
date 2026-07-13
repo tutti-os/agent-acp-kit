@@ -13,12 +13,9 @@ function runtime(): LocalAgentRuntime<string, string> {
       {
         provider: "codex",
         displayName: "Codex",
-        result: {
-          authState: "ok",
-          executablePath: "codex",
-          version: "1",
-          models: [{ id: "gpt-5", label: "GPT-5", description: "Default" }],
-        },
+        authState: "ok",
+        supported: true,
+        models: [{ id: "gpt-5", label: "GPT-5", description: "Default" }],
       },
     ],
     run: (() => {
