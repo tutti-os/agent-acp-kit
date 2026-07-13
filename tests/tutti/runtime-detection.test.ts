@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { TuttiIntegrationError } from "../../src/tutti/cli-json-runner.js";
 import { detectTuttiManagedProviders } from "../../src/tutti/runtime-detection.js";
 
 const context = {
@@ -78,6 +79,61 @@ describe("managed runtime detection", () => {
     expect(result[1]).toMatchObject({
       provider: "claude-code",
       supported: true,
+      models: [{ id: "default", label: "Default" }],
+      defaultModelId: "default",
+    });
+  });
+
+  it("does not request composer options for an unavailable provider", async () => {
+    const runTuttiCli = vi.fn(async (args: string[]) => {
+      if (args.includes("providers")) {
+        const payload = catalog();
+        payload.providers[1]!.availability = {
+          status: "unavailable",
+          reasonCode: "auth_required",
+          detail: "Provider authentication is required.",
+        };
+        return payload;
+      }
+      return composer(args.at(-1)!);
+    });
+
+    const result = await detectTuttiManagedProviders({
+      context,
+      descriptors: [...descriptors],
+      runTuttiCli,
+    });
+
+    expect(
+      runTuttiCli.mock.calls
+        .filter(([args]) => args.includes("composer-options"))
+        .map(([args]) => args.at(-1)),
+    ).toEqual(["codex"]);
+    expect(result[1]).toMatchObject({
+      provider: "claude-code",
+      supported: false,
+      authState: "missing",
+      reason: "Provider authentication is required.",
+      models: [],
+    });
+  });
+
+  it("uses the exact timeout fallback without making the provider unsupported", async () => {
+    const result = await detectTuttiManagedProviders({
+      context,
+      descriptors: [...descriptors],
+      runTuttiCli: async (args) => {
+        if (args.includes("providers")) return catalog();
+        if (args.at(-1) === "claude-code") {
+          throw new TuttiIntegrationError("cli_timeout", "timed out");
+        }
+        return composer("codex");
+      },
+    });
+
+    expect(result[1]).toMatchObject({
+      supported: true,
+      reason: "Model discovery timed out; using the configured default.",
       models: [{ id: "default", label: "Default" }],
       defaultModelId: "default",
     });
