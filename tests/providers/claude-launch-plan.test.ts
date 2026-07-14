@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -194,6 +194,9 @@ describe("buildClaudeLaunchPlan", () => {
           },
         }),
       );
+      if (process.platform !== "win32") {
+        expect((await stat(configPath)).mode & 0o777).toBe(0o600);
+      }
       expect(plan.redactionSecrets).toEqual(["secret-token"]);
     } finally {
       await rm(cwd, { recursive: true, force: true });

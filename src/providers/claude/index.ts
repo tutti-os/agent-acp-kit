@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
@@ -115,8 +115,9 @@ async function materializeClaudeMcpConfig(params: {
   await writeFile(
     configPath,
     JSON.stringify(buildClaudeMcpConfig(normalizedServers)),
-    "utf8",
+    { encoding: "utf8", mode: 0o600 },
   );
+  await chmod(configPath, 0o600);
 
   return {
     cleanupTargets: [configPath],
