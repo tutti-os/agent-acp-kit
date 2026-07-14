@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER,
+  createManagedAgentDetectContextFromHeaders,
+} from "../../src/core/managed-invocation.js";
 import { TuttiIntegrationError } from "../../src/tutti/cli-json-runner.js";
 import { detectTuttiManagedProviders } from "../../src/tutti/runtime-detection.js";
 
@@ -41,7 +45,56 @@ function composer(provider: string) {
   };
 }
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("managed runtime detection", () => {
+  it("inherits the host process environment for header-created managed contexts", async () => {
+    vi.stubEnv("TUTTI_CLI", "/opt/tsh/app-runner-cli-shims/tutti");
+    vi.stubEnv("TSH_WORKSPACE_ID", "workspace-1");
+    vi.stubEnv("TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL", "ambient-secret");
+    vi.stubEnv(
+      "TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL",
+      "ambient-reverse-secret",
+    );
+    const managedContext = createManagedAgentDetectContextFromHeaders(
+      {
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: "request-secret",
+      },
+      { appDataDir: "/tmp/aimc-app-data" },
+    );
+    expect(managedContext?.env).toEqual({
+      TUTTI_APP_DATA_DIR: "/tmp/aimc-app-data",
+    });
+
+    const childEnvs: Array<Readonly<NodeJS.ProcessEnv>> = [];
+    await detectTuttiManagedProviders({
+      context: managedContext!,
+      descriptors: [...descriptors],
+      runTuttiCli: async (args, options) => {
+        childEnvs.push(options.env);
+        return args.includes("providers") ? catalog() : composer(args.at(-1)!);
+      },
+    });
+
+    expect(childEnvs).toHaveLength(3);
+    for (const env of childEnvs) {
+      expect(env).toMatchObject({
+        TUTTI_CLI: "/opt/tsh/app-runner-cli-shims/tutti",
+        TSH_WORKSPACE_ID: "workspace-1",
+        TUTTI_APP_DATA_DIR: "/tmp/aimc-app-data",
+        TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL: "request-secret",
+      });
+      expect(env).not.toHaveProperty(
+        "TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL",
+      );
+      expect(env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).not.toBe(
+        "ambient-secret",
+      );
+    }
+  });
+
   it("loads providers once and starts eligible composer requests concurrently", async () => {
     const calls: string[][] = [];
     const releases = new Map<string, (value: unknown) => void>();
