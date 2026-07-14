@@ -38,17 +38,8 @@ describe("public api", () => {
       "codex",
       "claude-code",
       "tutti-agent",
-      "devin",
-      "hermes",
-      "kimi",
-      "kiro",
-      "kilo",
-      "vibe",
-      "cursor",
-      "gemini",
       "opencode",
-      "qoder",
-      "qwen",
+      "cursor",
     ]);
     expect(runtime.createTuttiAgentProvider).toBeTypeOf("function");
     expect(runtime.tuttiAgentProvider.id).toBe("tutti-agent");

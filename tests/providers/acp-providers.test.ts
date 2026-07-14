@@ -114,7 +114,7 @@ setTimeout(() => process.exit(42), 10);
     }
   });
 
-  it("builds the default provider list with dedicated Codex and Claude plus ACP presets", () => {
+  it("builds the curated default provider list", () => {
     const providers = createDefaultLocalAgentProviderPlugins();
 
     expect(providers.map((provider) => provider.id)).toEqual(

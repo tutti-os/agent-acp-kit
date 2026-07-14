@@ -173,18 +173,46 @@ describe("managed runtime detection", () => {
   });
 
   it("does not fall back to standalone detection after a managed CLI failure", async () => {
-    const result = await detectTuttiManagedProviders({
-      context,
-      descriptors: [...descriptors],
-      runTuttiCli: async () => { throw new Error("unavailable"); },
-    });
-    expect(result).toEqual(descriptors.map((descriptor) => ({
-      provider: descriptor.id,
-      displayName: descriptor.displayName,
-      supported: false,
-      authState: "unknown",
-      reason: "Managed provider catalog is unavailable.",
-      models: [],
-    })));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const result = await detectTuttiManagedProviders({
+        context,
+        descriptors: [...descriptors],
+        runTuttiCli: async () => { throw new Error("unavailable"); },
+      });
+      expect(result).toEqual(descriptors.map((descriptor) => ({
+        provider: descriptor.id,
+        displayName: descriptor.displayName,
+        supported: false,
+        authState: "unknown",
+        reason: "Managed provider catalog is unavailable.",
+        models: [],
+      })));
+      expect(JSON.parse(String(warn.mock.calls[0]?.[0]))).toMatchObject({
+        event: "agent_acp_kit.managed_provider_catalog_unavailable",
+        command: "tutti --json agent providers",
+        errorCode: "cli_execution_failed",
+        descriptorCount: descriptors.length,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("logs unsupported catalog schemas before using the managed fallback", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await detectTuttiManagedProviders({
+        context,
+        descriptors: [...descriptors],
+        runTuttiCli: async () => ({ schemaVersion: 1, providers: [] }),
+      });
+      expect(JSON.parse(String(warn.mock.calls[0]?.[0]))).toMatchObject({
+        event: "agent_acp_kit.managed_provider_catalog_unavailable",
+        errorCode: "unsupported_schema",
+      });
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
