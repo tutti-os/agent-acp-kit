@@ -1,7 +1,10 @@
 import { execFile } from "node:child_process";
 
 import type { DetectContext } from "../core/detection.js";
-import { projectTuttiCliChildProcess } from "./child-process.js";
+import {
+  projectTuttiCliChildProcess,
+  redactTuttiCliChildProcessText,
+} from "./child-process.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BUFFER = 1024 * 1024;
@@ -136,6 +139,7 @@ async function execTuttiCli(input: {
   cwd?: string;
   env: Readonly<NodeJS.ProcessEnv>;
   maxBuffer: number;
+  redactionSecrets: readonly string[];
   signal?: AbortSignal;
   timeoutMs: number;
 }) {
@@ -159,7 +163,13 @@ async function execTuttiCli(input: {
       },
       (error, stdout, stderr) => {
         if (error) {
-          reject(toTuttiCliExecutionError(error, stdout, stderr, input.signal));
+          reject(toTuttiCliExecutionError(
+            error,
+            stdout,
+            stderr,
+            input.redactionSecrets,
+            input.signal,
+          ));
           return;
         }
         resolve(stdout);
@@ -172,15 +182,19 @@ function toTuttiCliExecutionError(
   error: { code?: string | number | null; killed?: boolean; signal?: string | null },
   stdout: string,
   stderr: string,
+  redactionSecrets: readonly string[],
   signal?: AbortSignal,
 ) {
-  if (signal?.aborted) {
-    return new TuttiIntegrationError("cli_aborted", "Tutti CLI request was aborted.");
-  }
   const details: Record<string, string | number | boolean> = {
     stdoutBytes: Buffer.byteLength(stdout),
     stderrBytes: Buffer.byteLength(stderr),
   };
+  if (stderr) {
+    details.stderr = redactTuttiCliChildProcessText(stderr, redactionSecrets);
+  }
+  if (signal?.aborted) {
+    return new TuttiIntegrationError("cli_aborted", "Tutti CLI request was aborted.", details);
+  }
   if (typeof error.code === "number" || typeof error.code === "string") {
     details.exitCode = error.code;
   }

@@ -118,14 +118,22 @@ describe("runTuttiCliJson", () => {
     });
   });
 
-  it("classifies timeout and abort without exposing process output", async () => {
+  it("classifies timeout and abort without exposing request credentials", async () => {
     const command = await executable(
       `process.stderr.write("managed-secret"); setInterval(() => {}, 1000);`,
     );
-    const timeout = await runTuttiCliJson({ command, args: [], timeoutMs: 20 })
-      .catch((error) => error);
+    const diagnosticsContext = {
+      managedAgentInvocation: { credential: "managed-secret", cwd: "/workspace" },
+    };
+    const timeout = await runTuttiCliJson({
+      command,
+      args: [],
+      timeoutMs: 20,
+      detectContext: diagnosticsContext,
+    }).catch((error) => error);
     expect(timeout).toMatchObject({ code: "cli_timeout" });
     expect(String(timeout)).not.toContain("managed-secret");
+    expect(timeout.details).toMatchObject({ stderrBytes: expect.any(Number) });
     expect(timeout.cause).toBeUndefined();
 
     const controller = new AbortController();
@@ -135,9 +143,11 @@ describe("runTuttiCliJson", () => {
       args: [],
       signal: controller.signal,
       timeoutMs: 5_000,
+      detectContext: diagnosticsContext,
     }).catch((error) => error);
     expect(aborted).toMatchObject({ code: "cli_aborted" });
     expect(String(aborted)).not.toContain("managed-secret");
+    expect(aborted.details).toMatchObject({ stderrBytes: expect.any(Number) });
     expect(aborted.cause).toBeUndefined();
 
     const failed = await runTuttiCliJson({
@@ -148,6 +158,39 @@ describe("runTuttiCliJson", () => {
     }).catch((error) => error);
     expect(failed).toMatchObject({ code: "cli_execution_failed" });
     expect(failed.cause).toBeUndefined();
+  });
+
+  it("keeps non-secret CLI stderr in failure diagnostics", async () => {
+    const command = await executable(
+      `process.stderr.write("app-cli returned 502\\n"); process.exit(1);`,
+    );
+    const error = await runTuttiCliJson({ command, args: [] }).catch((candidate) => candidate);
+
+    expect(error).toMatchObject({
+      code: "cli_execution_failed",
+      details: {
+        exitCode: 1,
+        stderr: "app-cli returned 502\n",
+      },
+    });
+  });
+
+  it("redacts managed credentials from CLI stderr diagnostics", async () => {
+    const credential = "request-secret-stderr";
+    const command = await executable(
+      `process.stderr.write(${JSON.stringify(`app-cli failed credential=${credential}`)}); process.exit(1);`,
+    );
+    const error = await runTuttiCliJson({
+      command,
+      args: [],
+      detectContext: { managedAgentInvocation: { credential, cwd: "/workspace" } },
+    }).catch((candidate) => candidate);
+
+    expect(error).toMatchObject({
+      code: "cli_execution_failed",
+      details: { stderr: "app-cli failed credential=[REDACTED]" },
+    });
+    expect(JSON.stringify(error)).not.toContain(credential);
   });
 
   it("classifies malformed JSON", async () => {
