@@ -545,10 +545,6 @@ Keep tool tokens run-scoped and short-lived. Do not pass broad application secre
 - `project-instructions`: injects instruction-style skill content.
 
 The package handles delivery and cleanup. The host remains the source of truth for skill selection, permission, and storage.
-Materialized skill files use mode `0660`: the host owner and the file's owning
-group can read and update them, while other users receive no access. The package
-enforces this mode after opening each file so a restrictive process umask does
-not break managed agents that execute under another workspace-group user.
 
 Hosts can also pass skill manifests produced by external commands. Tutti
 workspace apps can use the Tutti subpath helper to load dynamic CLI skills, then

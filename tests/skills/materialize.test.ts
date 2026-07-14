@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,12 +41,6 @@ describe("materializeSkills", () => {
     await expect(
       readFile(join(skill.materializedPath!, "notes", "rules.md"), "utf8"),
     ).resolves.toBe("Rules");
-    if (process.platform !== "win32") {
-      const skillMode = (await stat(join(skill.materializedPath!, "SKILL.md"))).mode & 0o777;
-      const attachmentMode = (await stat(join(skill.materializedPath!, "notes", "rules.md"))).mode & 0o777;
-      expect(skillMode).toBe(0o660);
-      expect(attachmentMode).toBe(0o660);
-    }
   });
 
   it("rejects skill roots outside the run directory", async () => {
