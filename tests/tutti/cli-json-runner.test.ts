@@ -1,9 +1,12 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runTuttiCliJson } from "../../src/tutti/cli-json-runner.js";
+import {
+  hasConfiguredTuttiCli,
+  runTuttiCliJson,
+} from "../../src/tutti/cli-json-runner.js";
 import {
   projectTuttiCliChildProcess,
   redactTuttiCliChildProcessText,
@@ -21,6 +24,7 @@ async function executable(source: string) {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(cleanup.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -66,6 +70,44 @@ describe("runTuttiCliJson", () => {
     expect(baseEnv.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).toBe(
       "ambient-legacy",
     );
+  });
+
+  it("inherits host env for managed requests with a partial context env", async () => {
+    const command = await executable(`process.stdout.write(JSON.stringify({
+      command: process.env.TUTTI_CLI,
+      workspace: process.env.TSH_WORKSPACE_ID,
+      appData: process.env.TUTTI_APP_DATA_DIR,
+      credential: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,
+    }));`);
+    vi.stubEnv("TUTTI_CLI", command);
+    vi.stubEnv("TSH_WORKSPACE_ID", "workspace-1");
+    const detectContext = {
+      env: { TUTTI_APP_DATA_DIR: "/tmp/aimc-app-data" },
+      managedAgentInvocation: {
+        credential: "request-secret",
+        cwd: "/tmp/aimc-app-data",
+      },
+    };
+
+    expect(hasConfiguredTuttiCli({
+      detectContext,
+      env: detectContext.env,
+    })).toBe(true);
+    await expect(runTuttiCliJson({
+      args: [],
+      detectContext,
+      env: detectContext.env,
+    })).resolves.toEqual({
+      command,
+      workspace: "workspace-1",
+      appData: "/tmp/aimc-app-data",
+      credential: "request-secret",
+    });
+  });
+
+  it("keeps explicit env authoritative for non-managed requests", () => {
+    vi.stubEnv("TUTTI_CLI", "/ambient/tutti");
+    expect(hasConfiguredTuttiCli({ env: {} })).toBe(false);
   });
 
   it("returns an immutable env and merged redaction secrets", () => {

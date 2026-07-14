@@ -71,11 +71,29 @@ export interface TuttiCliJsonRequest {
   timeoutMs?: number;
 }
 
+function resolveTuttiCliRequestEnv(
+  input: Pick<TuttiCliJsonRequest, "detectContext" | "env">,
+): NodeJS.ProcessEnv | undefined {
+  if (!input.detectContext?.managedAgentInvocation) {
+    return input.env;
+  }
+
+  // Managed contexts created from request headers intentionally carry only
+  // request-scoped values. Rehydrate the host environment only at the Tutti
+  // CLI boundary, while keeping explicit context and request overrides.
+  return {
+    ...process.env,
+    ...(input.detectContext.env ?? {}),
+    ...(input.env ?? {}),
+  };
+}
+
 export function hasConfiguredTuttiCli(input: Omit<TuttiCliJsonRequest, "args">) {
+  const env = resolveTuttiCliRequestEnv(input);
   return Boolean(
     input.runTuttiCli ||
       normalizeOptionalString(input.command) ||
-      resolveTuttiCliCommand({ env: input.env, envNames: input.commandEnvNames }),
+      resolveTuttiCliCommand({ env, envNames: input.commandEnvNames }),
   );
 }
 
@@ -83,8 +101,9 @@ export async function runTuttiCliJson(
   input: TuttiCliJsonRequest,
 ): Promise<unknown> {
   const cwd = normalizeOptionalString(input.cwd);
+  const env = resolveTuttiCliRequestEnv(input);
   const child = projectTuttiCliChildProcess({
-    baseEnv: input.env,
+    baseEnv: env,
     detectContext: input.detectContext,
   });
   const options = {
@@ -103,7 +122,7 @@ export async function runTuttiCliJson(
           command:
             normalizeOptionalString(input.command) ??
             resolveTuttiCliCommand({
-              env: input.env,
+              env,
               envNames: input.commandEnvNames,
             }),
           ...options,
