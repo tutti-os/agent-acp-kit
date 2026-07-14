@@ -146,8 +146,10 @@ Tutti integration rules:
 
 - Auto detection is the only app-facing behavior. Do not add app-provided `mode` or `required` switches.
 - Absence of `TUTTI_CLI` means standalone; a configured CLI failure is typed and must not fall back.
-- CLI catalog entries define visibility. Runtime registration may disable an entry but may not add one omitted by the CLI.
-- Provider aliases are input-only. Public catalog/runtime output is canonical, and `nexight` must never alias `tutti-agent`.
+- `loadTuttiAgentCatalog()` and exact `agentTargetId` values define app-facing selection. Runtime registration may disable an entry but may not add one omitted by the CLI.
+- Never collapse or deduplicate catalog entries by provider. Several exact agents may intentionally share one runtime provider.
+- Provider aliases are input-only runtime metadata. Public agent identity comes from the live catalog, and `nexight` must never alias `tutti-agent`.
+- Dual-stack fallback may use the old provider contract only when the CLI explicitly reports `agent list` as an unknown command and the old catalog proves one unambiguous exact target. Ordinary CLI failures must remain typed failures.
 - App identity, daemon URL/token, CLI argv, schema validation, timeout, and cancellation do not belong in consumer apps.
 
 For release readiness, run:

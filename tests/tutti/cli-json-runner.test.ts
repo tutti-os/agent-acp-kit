@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  hasConfiguredTuttiCli,
-  runTuttiCliJson,
-} from "../../src/tutti/cli-json-runner.js";
+import { hasConfiguredTuttiCli, runTuttiCliJson } from "../../src/tutti/cli-json-runner.js";
 import {
   projectTuttiCliChildProcess,
   redactTuttiCliChildProcessText,
@@ -55,21 +52,19 @@ describe("runTuttiCliJson", () => {
       redactionSecrets: ["existing-secret"],
     };
 
-    await expect(runTuttiCliJson({
-      command,
-      args: [],
-      env: baseEnv,
-      detectContext,
-    })).resolves.toEqual({
+    await expect(
+      runTuttiCliJson({
+        command,
+        args: [],
+        env: baseEnv,
+        detectContext,
+      }),
+    ).resolves.toEqual({
       base: "base",
       legacy: "request-secret",
     });
-    expect(baseEnv.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL).toBe(
-      "ambient-canonical",
-    );
-    expect(baseEnv.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).toBe(
-      "ambient-legacy",
-    );
+    expect(baseEnv.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL).toBe("ambient-canonical");
+    expect(baseEnv.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).toBe("ambient-legacy");
   });
 
   it("inherits host env for managed requests with a partial context env", async () => {
@@ -89,15 +84,19 @@ describe("runTuttiCliJson", () => {
       },
     };
 
-    expect(hasConfiguredTuttiCli({
-      detectContext,
-      env: detectContext.env,
-    })).toBe(true);
-    await expect(runTuttiCliJson({
-      args: [],
-      detectContext,
-      env: detectContext.env,
-    })).resolves.toEqual({
+    expect(
+      hasConfiguredTuttiCli({
+        detectContext,
+        env: detectContext.env,
+      }),
+    ).toBe(true);
+    await expect(
+      runTuttiCliJson({
+        args: [],
+        detectContext,
+        env: detectContext.env,
+      }),
+    ).resolves.toEqual({
       command,
       workspace: "workspace-1",
       appData: "/tmp/aimc-app-data",
@@ -130,14 +129,11 @@ describe("runTuttiCliJson", () => {
     expect(Object.isFrozen(projection.redactionSecrets)).toBe(true);
     expect(baseEnv).toEqual({ BASE_VALUE: "base" });
     expect(
-      redactTuttiCliChildProcessText(
-        "credential=request-secret",
-        projection.redactionSecrets,
-      ),
+      redactTuttiCliChildProcessText("credential=request-secret", projection.redactionSecrets),
     ).toBe("credential=[REDACTED]");
-    expect(
-      redactTuttiCliChildProcessText("token-long-secret", ["secret", "long-secret"]),
-    ).toBe("token-[REDACTED]");
+    expect(redactTuttiCliChildProcessText("token-long-secret", ["secret", "long-secret"])).toBe(
+      "token-[REDACTED]",
+    );
   });
 
   it("sanitizes ambient credentials for a custom runner without context", async () => {
@@ -148,12 +144,8 @@ describe("runTuttiCliJson", () => {
         TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL: "ambient-legacy",
       },
       runTuttiCli: async (_args, options) => {
-        expect(options.env).not.toHaveProperty(
-          "TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL",
-        );
-        expect(options.env).not.toHaveProperty(
-          "TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL",
-        );
+        expect(options.env).not.toHaveProperty("TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL");
+        expect(options.env).not.toHaveProperty("TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL");
         expect(options.redactionSecrets).toEqual([]);
         return {};
       },
@@ -215,6 +207,28 @@ describe("runTuttiCliJson", () => {
         stderr: "app-cli returned 502\n",
       },
     });
+  });
+
+  it("classifies only the exact missing agent-list command as protocol fallback", async () => {
+    const unsupported = await executable(
+      `process.stderr.write("unknown command: agent list\\n"); process.exit(2);`,
+    );
+    await expect(
+      runTuttiCliJson({
+        command: unsupported,
+        args: ["--json", "agent", "list"],
+      }),
+    ).rejects.toMatchObject({ code: "unsupported_command" });
+
+    const ordinaryFailure = await executable(
+      `process.stderr.write("tutti agent list: daemon unavailable\\n"); process.exit(1);`,
+    );
+    await expect(
+      runTuttiCliJson({
+        command: ordinaryFailure,
+        args: ["--json", "agent", "list"],
+      }),
+    ).rejects.toMatchObject({ code: "cli_execution_failed" });
   });
 
   it("redacts managed credentials from CLI stderr diagnostics", async () => {

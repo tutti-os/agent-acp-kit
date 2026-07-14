@@ -33,14 +33,9 @@ export type RuntimeKindSelectorInput<
 export type RuntimeKindSelector<
   TKind extends string = string,
   TProvider extends string = string,
-> = (
-  input: RuntimeKindSelectorInput<TKind, TProvider>,
-) => RuntimeTarget<TKind, TProvider>;
+> = (input: RuntimeKindSelectorInput<TKind, TProvider>) => RuntimeTarget<TKind, TProvider>;
 
-export type RuntimeLease<
-  TKind extends string = string,
-  TProvider extends string = string,
-> = {
+export type RuntimeLease<TKind extends string = string, TProvider extends string = string> = {
   runId: string;
   runtimeId: string;
   target: RuntimeTarget<TKind, TProvider>;
@@ -73,13 +68,15 @@ export type AgentDetection<TModel extends AgentModelOption = AgentModelOption> =
 
 /** Stable app-facing provider discovery result returned by runtime.detect(). */
 export type DetectedProvider<TProvider extends string = string> = {
+  /** Exact Agent Target associated with this managed runtime when unambiguous. */
+  agentTargetId?: string;
   provider: TProvider;
   displayName: string;
   supported: boolean;
   authState: "ok" | "missing" | "expired" | "unknown";
   models: AgentModelOption[];
   defaultModelId?: string;
-  /** Present only for the Tutti-managed catalog entry selected by defaultProviderId. */
+  /** Present only for the Tutti-managed catalog entry selected by the agent catalog. */
   isDefault?: true;
   reason?: string;
 };
@@ -89,10 +86,7 @@ export type AgentRunMessage = {
   content: string;
 };
 
-export type AgentRunParams<
-  TKind extends string = string,
-  TProvider extends string = string,
-> = {
+export type AgentRunParams<TKind extends string = string, TProvider extends string = string> = {
   runId: string;
   cwd: string;
   prompt: string;

@@ -36,15 +36,11 @@ import {
 } from "../core/managed-invocation.js";
 import { selectRuntimeDetectionStrategy } from "./detection-strategy.js";
 
-type ProviderDetectionResult<
-  TKind extends string,
-  TProvider extends string,
-> = Awaited<ReturnType<LocalAgentProviderPlugin<TKind, TProvider>["detect"]>>;
+type ProviderDetectionResult<TKind extends string, TProvider extends string> = Awaited<
+  ReturnType<LocalAgentProviderPlugin<TKind, TProvider>["detect"]>
+>;
 
-export type LocalAgentRuntime<
-  TKind extends string = string,
-  TProvider extends string = string,
-> = {
+export type LocalAgentRuntime<TKind extends string = string, TProvider extends string = string> = {
   cancel(runId: string): Promise<void>;
   detect(context?: DetectContext): Promise<Array<DetectedProvider<TProvider>>>;
   listProviders(): Array<{
@@ -190,11 +186,14 @@ export function createLocalAgentRuntime<
             displayName: descriptor.displayName,
             supported: false,
             authState: "unknown",
-            reason: "Managed provider catalog is unavailable.",
+            reason: "Managed agent catalog is unavailable.",
             models: [],
           }));
         }
-        return await options.detectManagedProviders({ context: context!, descriptors });
+        return await options.detectManagedProviders({
+          context: context!,
+          descriptors,
+        });
       }
       if (context?.refresh) {
         detectionCache.clear();
@@ -277,8 +276,9 @@ export function createLocalAgentRuntime<
           yield { type: "done", status: "canceled", reason: "cancelled" };
           return;
         }
-        const params: AgentRunParams<TKind, TProvider> =
-          applyManagedAgentInvocationToRunParams(String(provider.id), {
+        const params: AgentRunParams<TKind, TProvider> = applyManagedAgentInvocationToRunParams(
+          String(provider.id),
+          {
             ...input,
             env,
             permission: resolveAgentPermissionSelection(input.permission),
@@ -288,7 +288,8 @@ export function createLocalAgentRuntime<
                 ? input.runtimeProvider
                 : provider.id,
             signal,
-          });
+          },
+        );
         const adapter = provider.createAdapter?.();
         if (!adapter) {
           yield* normalizeAgentEvents(provider.run(params));
@@ -298,9 +299,7 @@ export function createLocalAgentRuntime<
         const plan = applyManagedAgentInvocationToLaunchPlan(
           String(provider.id),
           await adapter.buildLaunchPlan(params),
-          hasManagedAgentInvocation(params)
-            ? params.managedAgentInvocation
-            : undefined,
+          hasManagedAgentInvocation(params) ? params.managedAgentInvocation : undefined,
         );
         const rawStream = resolveTransport(plan).run(plan, signal);
         activeRuns.set(input.runId, {
@@ -316,10 +315,7 @@ export function createLocalAgentRuntime<
   };
 }
 
-function projectStandaloneDetection<
-  TKind extends string,
-  TProvider extends string,
->(
+function projectStandaloneDetection<TKind extends string, TProvider extends string>(
   provider: LocalAgentProviderPlugin<TKind, TProvider>,
   result: ProviderDetectionResult<TKind, TProvider>,
 ): DetectedProvider<TProvider> {
@@ -327,9 +323,7 @@ function projectStandaloneDetection<
   const authReady = !provider.requiresKnownAuth || authState === "ok";
   const supported = Boolean(result) && result?.supported !== false && authReady;
   const usesDefaultModel = supported && (result?.models?.length ?? 0) === 0;
-  const models = usesDefaultModel
-    ? [{ id: "default", label: "Default" }]
-    : (result?.models ?? []);
+  const models = usesDefaultModel ? [{ id: "default", label: "Default" }] : (result?.models ?? []);
   return {
     provider: provider.id,
     displayName: provider.displayName,
@@ -338,15 +332,16 @@ function projectStandaloneDetection<
     models,
     ...(usesDefaultModel ? { defaultModelId: "default" } : {}),
     ...(!supported
-      ? { reason: result?.unsupportedReason ?? standaloneUnavailableReason(result, provider.requiresKnownAuth === true) }
+      ? {
+          reason:
+            result?.unsupportedReason ??
+            standaloneUnavailableReason(result, provider.requiresKnownAuth === true),
+        }
       : {}),
   };
 }
 
-function standaloneUnavailableReason(
-  result: AgentDetection | null,
-  requiresKnownAuth: boolean,
-) {
+function standaloneUnavailableReason(result: AgentDetection | null, requiresKnownAuth: boolean) {
   if (!result) return "Provider runtime was not detected.";
   if (requiresKnownAuth && result.authState !== "ok") {
     if (result.authState === "missing") return "Provider authentication is required.";
@@ -361,9 +356,7 @@ function normalizeAgentEvent(event: AgentEvent): AgentEvent {
     return { type: "thinking_delta", text: event.text };
   }
   if (event.type === "tool_result") {
-    const status =
-      event.status ??
-      (event.isError || event.error ? "failed" : "completed");
+    const status = event.status ?? (event.isError || event.error ? "failed" : "completed");
     return {
       ...event,
       status,
@@ -383,11 +376,7 @@ function normalizeAgentEvent(event: AgentEvent): AgentEvent {
       status,
       reason:
         event.reason ??
-        (status === "canceled"
-          ? "cancelled"
-          : status === "failed"
-            ? "error"
-            : "completed"),
+        (status === "canceled" ? "cancelled" : status === "failed" ? "error" : "completed"),
     };
   }
   if (event.type === "status" && !event.status && event.stage) {
@@ -418,9 +407,7 @@ function createBuiltInJsonlTransport(): Transport {
       !hasThreadStarted(events) &&
       events.some(
         (event) =>
-          isRecord(event) &&
-          event.type === "error" &&
-          event.code === "process_exit_nonzero",
+          isRecord(event) && event.type === "error" && event.code === "process_exit_nonzero",
       )
     );
   }
@@ -459,30 +446,45 @@ function createBuiltInJsonlTransport(): Transport {
           code: "process_timeout",
           message: `Process timed out after ${plan.timeoutMs}ms.`,
         });
-        queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
+        queue.push({
+          type: "done",
+          status: "failed",
+          reason: "error",
+          exitCode: code,
+        });
       } else if (canceled) {
-        queue.push({ type: "done", status: "canceled", reason: "cancelled", exitCode: code });
+        queue.push({
+          type: "done",
+          status: "canceled",
+          reason: "cancelled",
+          exitCode: code,
+        });
       } else if (transportError) {
         queue.push({
           type: "error",
           code: "jsonl_parse_failed",
           message:
-            transportError instanceof Error
-              ? transportError.message
-              : String(transportError),
+            transportError instanceof Error ? transportError.message : String(transportError),
         });
-        queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
+        queue.push({
+          type: "done",
+          status: "failed",
+          reason: "error",
+          exitCode: code,
+        });
       } else if (code && code !== 0) {
         const stderrTail = processHandle.stderr.tail().trim();
         queue.push({
           type: "error",
           code: "process_exit_nonzero",
-          message:
-            stderrTail.length > 0
-              ? stderrTail
-              : `Process exited with code ${code}.`,
+          message: stderrTail.length > 0 ? stderrTail : `Process exited with code ${code}.`,
         });
-        queue.push({ type: "done", status: "failed", reason: "error", exitCode: code });
+        queue.push({
+          type: "done",
+          status: "failed",
+          reason: "error",
+          exitCode: code,
+        });
       } else {
         queue.push({
           type: "done",
@@ -552,18 +554,13 @@ function createBuiltInAcpTransport(): Transport {
   };
 }
 
-export function inferRuntimeKind<
-  TKind extends string = string,
-  TProvider extends string = string,
->(
+export function inferRuntimeKind<TKind extends string = string, TProvider extends string = string>(
   input: RuntimeKindSelectorInput<TKind, TProvider>,
 ): RuntimeTarget<TKind, TProvider> {
   if (input.requestedRuntimeKind) {
     return {
       kind: input.requestedRuntimeKind,
-      ...(input.requestedRuntimeProvider
-        ? { provider: input.requestedRuntimeProvider }
-        : {}),
+      ...(input.requestedRuntimeProvider ? { provider: input.requestedRuntimeProvider } : {}),
     };
   }
 
@@ -597,17 +594,19 @@ export function createRuntimeControlPlane<
       ...(provider.aliases ?? []).flatMap((alias) => {
         const normalized = String(alias).trim();
         if (!normalized || normalized === String(provider.runtime.provider)) return [];
-        return [{
-          provider,
-          target: { kind: provider.runtime.kind, provider: normalized as TProvider },
-        }];
+        return [
+          {
+            provider,
+            target: {
+              kind: provider.runtime.kind,
+              provider: normalized as TProvider,
+            },
+          },
+        ];
       }),
     ];
   });
-  const providerMap = new Map<
-    string,
-    RuntimeProvider<TContext, TEvent, TKind, TProvider>
-  >();
+  const providerMap = new Map<string, RuntimeProvider<TContext, TEvent, TKind, TProvider>>();
   for (const entry of providerTargets) {
     const key = getRuntimeTargetKey(entry.target);
     const existing = providerMap.get(key);
@@ -640,9 +639,7 @@ export function createRuntimeControlPlane<
     const runtimeId = runtimeTargetIndex.get(getRuntimeTargetKey(target));
     if (!runtimeId) {
       const providerSuffix = target.provider ? ` (${target.provider})` : "";
-      throw new Error(
-        `No runtime provider registered for ${target.kind}${providerSuffix}`,
-      );
+      throw new Error(`No runtime provider registered for ${target.kind}${providerSuffix}`);
     }
     const runtime = runtimeRecords.get(runtimeId);
     if (!runtime) {
@@ -724,9 +721,7 @@ export function createRuntimeControlPlane<
       if (input.requestedRuntimeKind) {
         const requestedTarget = {
           kind: input.requestedRuntimeKind,
-          ...(input.requestedRuntimeProvider
-            ? { provider: input.requestedRuntimeProvider }
-            : {}),
+          ...(input.requestedRuntimeProvider ? { provider: input.requestedRuntimeProvider } : {}),
         };
         if (!providerMap.has(getRuntimeTargetKey(requestedTarget))) {
           const providerSuffix = input.requestedRuntimeProvider
@@ -739,9 +734,7 @@ export function createRuntimeControlPlane<
         const runtime = getRuntimeRecordByTarget(requestedTarget);
         if (runtime.status === "offline") {
           const providerSuffix = runtime.provider ? ` (${runtime.provider})` : "";
-          throw new Error(
-            `Runtime ${runtime.kind}${providerSuffix} is offline`,
-          );
+          throw new Error(`Runtime ${runtime.kind}${providerSuffix} is offline`);
         }
       }
 
@@ -760,9 +753,7 @@ export function createRuntimeControlPlane<
       });
       if (!providerMap.has(getRuntimeTargetKey(target))) {
         const providerSuffix = target.provider ? ` (${target.provider})` : "";
-        throw new Error(
-          `No runtime provider registered for ${target.kind}${providerSuffix}`,
-        );
+        throw new Error(`No runtime provider registered for ${target.kind}${providerSuffix}`);
       }
       return getRuntimeTarget(getRuntimeRecordByTarget(target));
     },
@@ -774,9 +765,7 @@ export function createRuntimeControlPlane<
       const runtime = getRuntimeRecordByTarget(target);
       if (runtime.status === "offline") {
         const providerSuffix = runtime.provider ? ` (${runtime.provider})` : "";
-        throw new Error(
-          `Runtime ${runtime.kind}${providerSuffix} is offline`,
-        );
+        throw new Error(`Runtime ${runtime.kind}${providerSuffix} is offline`);
       }
       if (activeRunLeases.has(runId)) {
         throw new Error(`Run ${runId} already holds a runtime lease`);
@@ -785,9 +774,7 @@ export function createRuntimeControlPlane<
       const activeRuns = activeRunCounts.get(runtime.id) ?? 0;
       if (activeRuns >= runtime.capabilities.maxConcurrentRuns) {
         const providerSuffix = runtime.provider ? ` (${runtime.provider})` : "";
-        throw new Error(
-          `Runtime ${runtime.kind}${providerSuffix} is at capacity`,
-        );
+        throw new Error(`Runtime ${runtime.kind}${providerSuffix} is at capacity`);
       }
 
       activeRunCounts.set(runtime.id, activeRuns + 1);
@@ -814,16 +801,11 @@ export function createRuntimeControlPlane<
 
     releaseRuntimeLease,
 
-    streamRun(
-      target: RuntimeTarget<TKind, TProvider>,
-      context: TContext,
-    ): AsyncGenerator<TEvent> {
+    streamRun(target: RuntimeTarget<TKind, TProvider>, context: TContext): AsyncGenerator<TEvent> {
       const provider = providerMap.get(getRuntimeTargetKey(target));
       if (!provider) {
         const providerSuffix = target.provider ? ` (${target.provider})` : "";
-        throw new Error(
-          `No runtime provider registered for ${target.kind}${providerSuffix}`,
-        );
+        throw new Error(`No runtime provider registered for ${target.kind}${providerSuffix}`);
       }
       this.touchRuntime(target);
       return provider.streamRun(context);
