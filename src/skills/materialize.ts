@@ -127,7 +127,6 @@ async function writeFileNoSymlink(path: string, content: string, baseDir: string
   const file = await open(
     resolvedPath,
     constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-    0o600,
   ).catch((error: unknown) => {
     if (
       error &&
