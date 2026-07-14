@@ -5,6 +5,8 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 
 import type { SkillMaterializationRecord } from "../core/skills.js";
 
+const MATERIALIZED_SKILL_FILE_MODE = 0o660;
+
 function assertInside(baseDir: string, targetPath: string) {
   const resolvedBase = resolve(baseDir);
   const resolvedTarget = resolve(targetPath);
@@ -127,7 +129,7 @@ async function writeFileNoSymlink(path: string, content: string, baseDir: string
   const file = await open(
     resolvedPath,
     constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-    0o600,
+    MATERIALIZED_SKILL_FILE_MODE,
   ).catch((error: unknown) => {
     if (
       error &&
@@ -140,6 +142,10 @@ async function writeFileNoSymlink(path: string, content: string, baseDir: string
     throw error;
   });
   try {
+    // Some managed hosts execute the agent as a different user in the owning
+    // workspace group. Enforce the final mode after open so process umask and
+    // pre-existing files cannot remove group write.
+    await file.chmod(MATERIALIZED_SKILL_FILE_MODE);
     await file.writeFile(content, "utf8");
   } finally {
     await file.close();
