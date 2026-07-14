@@ -157,15 +157,48 @@ async function execTuttiCli(input: {
         ...(input.signal ? { signal: input.signal } : {}),
         timeout: input.timeoutMs,
       },
-      (error, stdout) => {
+      (error, stdout, stderr) => {
         if (error) {
-          reject(error);
+          reject(toTuttiCliExecutionError(error, stdout, stderr, input.signal));
           return;
         }
         resolve(stdout);
       },
     );
   });
+}
+
+function toTuttiCliExecutionError(
+  error: { code?: string | number | null; killed?: boolean; signal?: string | null },
+  stdout: string,
+  stderr: string,
+  signal?: AbortSignal,
+) {
+  if (signal?.aborted) {
+    return new TuttiIntegrationError("cli_aborted", "Tutti CLI request was aborted.");
+  }
+  const details: Record<string, string | number | boolean> = {
+    stdoutBytes: Buffer.byteLength(stdout),
+    stderrBytes: Buffer.byteLength(stderr),
+  };
+  if (typeof error.code === "number" || typeof error.code === "string") {
+    details.exitCode = error.code;
+  }
+  if (typeof error.signal === "string" && error.signal) {
+    details.signal = error.signal;
+  }
+  if (error.killed && error.signal === "SIGTERM") {
+    return new TuttiIntegrationError(
+      "cli_timeout",
+      "Tutti CLI request timed out.",
+      details,
+    );
+  }
+  return new TuttiIntegrationError(
+    "cli_execution_failed",
+    "Tutti CLI request failed.",
+    details,
+  );
 }
 
 function normalizeOptionalString(value: string | null | undefined) {

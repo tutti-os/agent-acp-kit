@@ -18,6 +18,12 @@ type Descriptor<TProvider extends string> = {
   requiresKnownAuth: boolean;
 };
 
+type ManagedCatalogPayload = {
+  schemaVersion: 2;
+  defaultProviderId?: unknown;
+  providers: unknown[];
+};
+
 export async function detectTuttiManagedProviders<TProvider extends string>(input: {
   context: DetectContext;
   descriptors: Descriptor<TProvider>[];
@@ -33,17 +39,19 @@ export async function detectTuttiManagedProviders<TProvider extends string>(inpu
       runTuttiCli: input.runTuttiCli,
       timeoutMs: MANAGED_COMPOSER_TIMEOUT_MS,
     });
-  } catch {
-    return input.descriptors.map((descriptor) => ({
-      provider: descriptor.id,
-      displayName: descriptor.displayName,
-      supported: false,
-      authState: "unknown",
-      reason: "Managed provider catalog is unavailable.",
-      models: [],
-    }));
+  } catch (error) {
+    return unavailableManagedCatalog(input.descriptors, error);
   }
 
+  if (!isManagedCatalogPayload(payload)) {
+    return unavailableManagedCatalog(
+      input.descriptors,
+      new TuttiIntegrationError(
+        "unsupported_schema",
+        "Tutti CLI returned an unsupported provider catalog schema.",
+      ),
+    );
+  }
   const catalog = parseManagedCatalog(payload, input.descriptors);
   const eligible = catalog.filter((entry) => entry.supported);
   const composerResults = await Promise.allSettled(
@@ -92,12 +100,9 @@ export async function detectTuttiManagedProviders<TProvider extends string>(inpu
 }
 
 function parseManagedCatalog<TProvider extends string>(
-  payload: unknown,
+  payload: ManagedCatalogPayload,
   descriptors: Descriptor<TProvider>[],
 ): Array<DetectedProvider<TProvider>> {
-  if (!isRecord(payload) || payload.schemaVersion !== 2 || !Array.isArray(payload.providers)) {
-    return descriptors.map((descriptor) => unavailableDescriptor(descriptor));
-  }
   const defaultProviderId = canonicalTuttiProviderId(
     optionalString(payload.defaultProviderId) ?? "",
   );
@@ -130,17 +135,32 @@ function parseManagedCatalog<TProvider extends string>(
   return result;
 }
 
-function unavailableDescriptor<TProvider extends string>(
-  descriptor: Descriptor<TProvider>,
-): DetectedProvider<TProvider> {
-  return {
+function isManagedCatalogPayload(payload: unknown): payload is ManagedCatalogPayload {
+  return isRecord(payload) && payload.schemaVersion === 2 && Array.isArray(payload.providers);
+}
+
+function unavailableManagedCatalog<TProvider extends string>(
+  descriptors: Descriptor<TProvider>[],
+  error: unknown,
+): Array<DetectedProvider<TProvider>> {
+  const integrationError = error instanceof TuttiIntegrationError ? error : undefined;
+  console.warn(JSON.stringify({
+    event: "agent_acp_kit.managed_provider_catalog_unavailable",
+    command: "tutti --json agent providers",
+    errorCode: integrationError?.code ?? "unknown",
+    descriptorCount: descriptors.length,
+    ...(integrationError && Object.keys(integrationError.details).length > 0
+      ? { errorDetails: integrationError.details }
+      : {}),
+  }));
+  return descriptors.map((descriptor) => ({
     provider: descriptor.id,
     displayName: descriptor.displayName,
     supported: false,
     authState: "unknown",
     reason: "Managed provider catalog is unavailable.",
     models: [],
-  };
+  }));
 }
 
 function authStateFromReason(reasonCode: string): DetectedProvider["authState"] {

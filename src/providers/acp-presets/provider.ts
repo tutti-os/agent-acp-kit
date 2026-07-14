@@ -118,7 +118,8 @@ export const DEFAULT_LOCAL_AGENT_PROVIDER_IDS = [
   "codex",
   "claude-code",
   "tutti-agent",
-  ...ACP_PROVIDER_SPECS.map((provider) => provider.id),
+  "opencode",
+  "cursor",
 ] as const;
 
 function resolveProviderCommand(spec: AcpProviderSpec) {
@@ -194,7 +195,8 @@ export function createDefaultLocalAgentProviderPlugins(): LocalAgentProviderPlug
     createCodexProvider(),
     createClaudeProvider(),
     createTuttiAgentProvider(),
-    ...ACP_PROVIDER_SPECS.map((provider) => createKnownAcpProvider(provider.id)),
+    createOpenCodeProvider(),
+    createCursorProvider(),
   ];
 }
 
