@@ -16,20 +16,18 @@ try {
   const tarball = path.join(fixture, packResult.filename);
   writeFileSync(
     path.join(fixture, "package.json"),
-    JSON.stringify({ name: "agent-acp-kit-consumer", private: true, type: "module" }),
+    JSON.stringify({
+      name: "agent-acp-kit-consumer",
+      private: true,
+      type: "module",
+    }),
   );
   execFileSync(
     "npm",
-    [
-      "install",
-      "--ignore-scripts",
-      tarball,
-      "typescript@5.9.3",
-      "@types/node@22.19.19",
-    ],
+    ["install", "--ignore-scripts", tarball, "typescript@5.9.3", "@types/node@22.19.19"],
     {
-    cwd: fixture,
-    stdio: "inherit",
+      cwd: fixture,
+      stdio: "inherit",
     },
   );
   writeFileSync(
@@ -53,9 +51,12 @@ export function selectable(provider: DetectedProvider): boolean {
     [
       "--noEmit",
       "--strict",
-      "--target", "ES2022",
-      "--module", "NodeNext",
-      "--moduleResolution", "NodeNext",
+      "--target",
+      "ES2022",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
       "type-smoke.ts",
     ],
     { cwd: fixture, stdio: "inherit" },
@@ -68,12 +69,12 @@ import {
   createLocalAgentRuntime,
 } from "@tutti-os/agent-acp-kit";
 import {
-  loadTuttiAgentProviderCatalog,
+  loadTuttiAgentCatalog,
   loadTuttiAgentSkillContext,
   projectTuttiCliChildProcess,
   redactTuttiCliChildProcessText,
 } from "@tutti-os/agent-acp-kit/tutti";
-import { isTuttiAgentProviderCatalog } from "@tutti-os/agent-acp-kit/tutti/contracts";
+import { isTuttiAgentCatalog } from "@tutti-os/agent-acp-kit/tutti/contracts";
 import { createFakeAcpPeerScript } from "@tutti-os/agent-acp-kit/testing";
 
 const peer = createFakeAcpPeerScript({
@@ -119,7 +120,7 @@ if (!Object.isFrozen(projection.env) || !projection.redactionSecrets.includes("p
 if (redactTuttiCliChildProcessText("value=packed-secret", projection.redactionSecrets) !== "value=[REDACTED]") {
   throw new Error("packed redaction helper failed");
 }
-const catalog = await loadTuttiAgentProviderCatalog({
+const catalog = await loadTuttiAgentCatalog({
   detectContext,
   runtime,
   runTuttiCli: async (_args, options) => {
@@ -127,25 +128,25 @@ const catalog = await loadTuttiAgentProviderCatalog({
       throw new Error("packed facade lost detectContext");
     }
     return ({
-    schemaVersion: 2,
-    defaultProviderId: "packed",
-    providers: [{
-      providerId: "packed",
-      displayName: "Packed",
-      agentTargetId: "local:packed",
+    schemaVersion: 1,
+    defaultAgentTargetId: "local:packed",
+    agents: [{
+      id: "local:packed",
+      name: "Packed",
+      provider: "packed",
       availability: { status: "available", reasonCode: "", detail: "" },
     }],
     });
   },
 });
-if (!isTuttiAgentProviderCatalog(catalog)) throw new Error("catalog contract failed");
+if (!isTuttiAgentCatalog(catalog)) throw new Error("catalog contract failed");
 const detected = await runtime.detect();
 if (detected[0]?.provider !== "packed" || detected[0]?.supported !== true || "result" in detected[0]) {
   throw new Error("flat runtime detection contract failed");
 }
 const standaloneSkills = await loadTuttiAgentSkillContext({
   env: {},
-  provider: "packed",
+  agentTargetId: "local:packed",
 });
 if (standaloneSkills.source !== "standalone") throw new Error("skill auto fallback failed");
 const events = [];
@@ -158,7 +159,7 @@ for await (const event of runtime.run({
 if (!events.some((event) => event.type === "text_delta" && event.text === "packed-ok")) {
   throw new Error("packed ACP runtime failed");
 }
-console.log(JSON.stringify({ ok: true, providers: catalog.providers.length, events: events.length }));
+console.log(JSON.stringify({ ok: true, agents: catalog.agents.length, events: events.length }));
 `,
   );
   execFileSync(process.execPath, ["smoke.mjs"], {

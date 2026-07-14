@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { LocalAgentRuntime } from "../../src/runtime/create-runtime.js";
-import { loadTuttiAgentComposerOptions } from "../../src/tutti/index.js";
+import { loadTuttiAgentComposerOptions, TuttiIntegrationError } from "../../src/tutti/index.js";
 
 function runtime(): LocalAgentRuntime<string, string> {
   return {
     async cancel() {},
-    listProviders: () => [
-      { id: "codex", displayName: "Codex", kind: "local-agent" },
-    ],
+    listProviders: () => [{ id: "codex", displayName: "Codex", kind: "local-agent" }],
     detect: async () => [
       {
         provider: "codex",
@@ -25,20 +23,21 @@ function runtime(): LocalAgentRuntime<string, string> {
 }
 
 const cliCatalog = {
-  schemaVersion: 2,
-  defaultProviderId: "codex",
-  providers: [
+  schemaVersion: 1,
+  defaultAgentTargetId: "local:codex",
+  agents: [
     {
-      providerId: "codex",
-      displayName: "Codex",
-      agentTargetId: "local:codex",
+      id: "local:codex",
+      name: "Codex",
+      provider: "codex",
       availability: { status: "available", reasonCode: "", detail: "" },
     },
   ],
 };
 
 const cliComposer = {
-  schemaVersion: 1,
+  schemaVersion: 2,
+  agentTargetId: "local:codex",
   provider: "codex",
   effectiveSettings: { model: "gpt-5", permissionModeId: "auto" },
   modelConfig: {
@@ -52,76 +51,164 @@ const cliComposer = {
     defaultValue: "auto",
     modes: [{ id: "auto", label: "Auto", semantic: "auto" }],
   },
-  reasoningConfig: { configurable: false, currentValue: "", defaultValue: "", options: [] },
-  speedConfig: { configurable: false, currentValue: "", defaultValue: "", options: [] },
+  reasoningConfig: {
+    configurable: false,
+    currentValue: "",
+    defaultValue: "",
+    options: [],
+  },
+  speedConfig: {
+    configurable: false,
+    currentValue: "",
+    defaultValue: "",
+    options: [],
+  },
 };
 
 describe("Tutti composer options", () => {
-  it("validates the CLI catalog and loads canonical provider options", async () => {
+  it("loads options by exact agent id on the new contract", async () => {
     const calls: string[][] = [];
     const timeouts: number[] = [];
     const options = await loadTuttiAgentComposerOptions({
       runtime: runtime(),
-      providerId: "codex",
+      agentTargetId: "local:codex",
       cwd: "/workspace",
       runTuttiCli: async (args, runnerOptions) => {
         calls.push(args);
         timeouts.push(runnerOptions.timeoutMs);
-        return calls.length === 1 ? cliCatalog : cliComposer;
+        return args.includes("list") ? cliCatalog : cliComposer;
       },
     });
     expect(calls).toEqual([
-      ["--json", "agent", "providers"],
-      [
-        "--json",
-        "agent",
-        "composer-options",
-        "--provider",
-        "codex",
-        "--cwd",
-        "/workspace",
-      ],
+      ["--json", "agent", "list"],
+      ["--json", "agent", "composer-options", "--agent-id", "local:codex", "--cwd", "/workspace"],
     ]);
     expect(options).toMatchObject({
+      schemaVersion: 2,
       source: "tutti-cli",
+      agentTargetId: "local:codex",
       providerId: "codex",
       modelConfig: { currentValue: "gpt-5" },
     });
     expect(timeouts).toEqual([10_000, 45_000]);
   });
 
+  it("uses the old provider selector after legacy catalog negotiation", async () => {
+    const calls: string[][] = [];
+    const options = await loadTuttiAgentComposerOptions({
+      runtime: runtime(),
+      agentTargetId: "local:codex",
+      runTuttiCli: async (args) => {
+        calls.push(args);
+        if (args.includes("list")) {
+          throw new TuttiIntegrationError("unsupported_command", "unknown command");
+        }
+        if (args.includes("providers")) {
+          return {
+            schemaVersion: 2,
+            defaultProviderId: "codex",
+            providers: [
+              {
+                providerId: "codex",
+                displayName: "Codex",
+                agentTargetId: "local:codex",
+                availability: {
+                  status: "available",
+                  reasonCode: "",
+                  detail: "",
+                },
+              },
+            ],
+          };
+        }
+        return {
+          ...cliComposer,
+          schemaVersion: 1,
+          agentTargetId: undefined,
+        };
+      },
+    });
+    expect(calls.at(-1)).toEqual(["--json", "agent", "composer-options", "--provider", "codex"]);
+    expect(options).toMatchObject({
+      schemaVersion: 2,
+      agentTargetId: "local:codex",
+      providerId: "codex",
+    });
+  });
+
+  it("rejects shared providers on the old daemon before composer execution", async () => {
+    const calls: string[][] = [];
+    await expect(
+      loadTuttiAgentComposerOptions({
+        runtime: runtime(),
+        agentTargetId: "team:codex-one",
+        runTuttiCli: async (args) => {
+          calls.push(args);
+          if (args.includes("list")) {
+            throw new TuttiIntegrationError("unsupported_command", "unknown command");
+          }
+          return {
+            schemaVersion: 2,
+            defaultProviderId: "codex",
+            providers: [
+              {
+                providerId: "codex",
+                displayName: "Codex One",
+                agentTargetId: "team:codex-one",
+                availability: {
+                  status: "available",
+                  reasonCode: "",
+                  detail: "",
+                },
+              },
+              {
+                providerId: "codex",
+                displayName: "Codex Two",
+                agentTargetId: "team:codex-two",
+                availability: {
+                  status: "available",
+                  reasonCode: "",
+                  detail: "",
+                },
+              },
+            ],
+          };
+        },
+      }),
+    ).rejects.toMatchObject({ code: "agent_ambiguous" });
+    expect(calls.some((args) => args.includes("composer-options"))).toBe(false);
+  });
+
   it("preserves a caller-provided timeout for catalog and composer", async () => {
     const timeouts: number[] = [];
-    let call = 0;
     await loadTuttiAgentComposerOptions({
       runtime: runtime(),
-      providerId: "codex",
+      agentTargetId: "local:codex",
       timeoutMs: 12_345,
-      runTuttiCli: async (_args, runnerOptions) => {
+      runTuttiCli: async (args, runnerOptions) => {
         timeouts.push(runnerOptions.timeoutMs);
-        call += 1;
-        return call === 1 ? cliCatalog : cliComposer;
+        return args.includes("list") ? cliCatalog : cliComposer;
       },
     });
     expect(timeouts).toEqual([12_345, 12_345]);
   });
 
-  it("builds conservative standalone options without requiring mode", async () => {
+  it("builds conservative standalone options with a stable agent id", async () => {
     const options = await loadTuttiAgentComposerOptions({
       env: {},
       runtime: runtime(),
-      providerId: "codex",
+      agentTargetId: "local:codex",
     });
     expect(options).toMatchObject({
       source: "standalone",
+      agentTargetId: "local:codex",
       providerId: "codex",
       modelConfig: { configurable: true, defaultValue: "gpt-5" },
       permissionConfig: { configurable: false },
-      reasoningConfig: { configurable: false },
     });
   });
 
-  it("reuses the same detectContext for every standalone detection", async () => {
+  it("reuses the same detectContext for standalone catalog and composer", async () => {
     const contexts: unknown[] = [];
     const standaloneRuntime = runtime();
     const baseDetect = standaloneRuntime.detect;
@@ -130,17 +217,18 @@ describe("Tutti composer options", () => {
       return await baseDetect(context);
     };
     const detectContext = {
-      managedAgentInvocation: { credential: "request-secret", cwd: "/workspace" },
+      managedAgentInvocation: {
+        credential: "request-secret",
+        cwd: "/workspace",
+      },
       redactionSecrets: ["request-secret"],
     };
-
     await loadTuttiAgentComposerOptions({
       detectContext,
       env: {},
       runtime: standaloneRuntime,
-      providerId: "codex",
+      agentTargetId: "local:codex",
     });
-
     expect(contexts).toHaveLength(2);
     expect(contexts[0]).toBe(detectContext);
     expect(contexts[1]).toBe(detectContext);
@@ -150,7 +238,7 @@ describe("Tutti composer options", () => {
     const options = await loadTuttiAgentComposerOptions({
       env: {},
       runtime: runtime(),
-      providerId: "codex",
+      agentTargetId: "local:codex",
       model: "custom-model",
     });
     expect(options).toMatchObject({
@@ -159,80 +247,68 @@ describe("Tutti composer options", () => {
     });
   });
 
-  it("rejects unsupported composer schemas", async () => {
-    let call = 0;
+  it("rejects unsupported composer schemas and mismatched agents", async () => {
     await expect(
       loadTuttiAgentComposerOptions({
         runtime: runtime(),
-        providerId: "codex",
-        runTuttiCli: async () => {
-          call += 1;
-          return call === 1 ? cliCatalog : { ...cliComposer, schemaVersion: 2 };
-        },
+        agentTargetId: "local:codex",
+        runTuttiCli: async (args) =>
+          args.includes("list") ? cliCatalog : { ...cliComposer, schemaVersion: 3 },
       }),
     ).rejects.toMatchObject({ code: "unsupported_schema" });
+    await expect(
+      loadTuttiAgentComposerOptions({
+        runtime: runtime(),
+        agentTargetId: "local:codex",
+        runTuttiCli: async (args) =>
+          args.includes("list") ? cliCatalog : { ...cliComposer, agentTargetId: "other:codex" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("rejects missing or unknown permission semantics", async () => {
     for (const semantic of [undefined, "provider-owned-superuser"]) {
-      let call = 0;
       await expect(
         loadTuttiAgentComposerOptions({
           runtime: runtime(),
-          providerId: "codex",
-          runTuttiCli: async () => {
-            call += 1;
-            if (call === 1) return cliCatalog;
-            return {
-              ...cliComposer,
-              permissionConfig: {
-                ...cliComposer.permissionConfig,
-                modes: [{ id: "auto", label: "Auto", semantic }],
-              },
-            };
-          },
+          agentTargetId: "local:codex",
+          runTuttiCli: async (args) =>
+            args.includes("list")
+              ? cliCatalog
+              : {
+                  ...cliComposer,
+                  permissionConfig: {
+                    ...cliComposer.permissionConfig,
+                    modes: [{ id: "auto", label: "Auto", semantic }],
+                  },
+                },
         }),
       ).rejects.toMatchObject({ code: "invalid_response" });
     }
   });
 
-  it("rejects providers absent from the CLI catalog", async () => {
+  it("rejects agents absent from the live catalog", async () => {
     await expect(
       loadTuttiAgentComposerOptions({
         runtime: runtime(),
-        providerId: "future-agent",
+        agentTargetId: "future:agent",
         runTuttiCli: async () => cliCatalog,
       }),
-    ).rejects.toMatchObject({ code: "provider_not_found" });
+    ).rejects.toMatchObject({ code: "agent_not_found" });
   });
 
-  it("accepts the legacy Claude id only at input and returns canonical output", async () => {
-    const claudeRuntime = runtime();
-    claudeRuntime.listProviders = () => [
-      { id: "claude-code", displayName: "Claude Code", kind: "local-agent" },
-    ];
-    const claudeCatalog = {
-      ...cliCatalog,
-      defaultProviderId: "claude-code",
-      providers: [{
-        ...cliCatalog.providers[0],
-        providerId: "claude-code",
-        displayName: "Claude Code",
-      }],
+  it("keeps provider input only as an unambiguous compatibility adapter", async () => {
+    const ambiguousCatalog = {
+      schemaVersion: 1,
+      defaultAgentTargetId: "local:codex",
+      agents: [cliCatalog.agents[0], { ...cliCatalog.agents[0], id: "team:codex-two" }],
     };
-    const claudeComposer = {
-      ...cliComposer,
-      provider: "claude-code",
-    };
-    let call = 0;
-    const options = await loadTuttiAgentComposerOptions({
-      runtime: claudeRuntime,
-      providerId: "claude",
-      runTuttiCli: async () => {
-        call += 1;
-        return call === 1 ? claudeCatalog : claudeComposer;
-      },
-    });
-    expect(options.providerId).toBe("claude-code");
+    await expect(
+      loadTuttiAgentComposerOptions({
+        runtime: runtime(),
+        providerId: "codex",
+        runTuttiCli: async () => ambiguousCatalog,
+      }),
+    ).rejects.toMatchObject({ code: "agent_ambiguous" });
   });
 });

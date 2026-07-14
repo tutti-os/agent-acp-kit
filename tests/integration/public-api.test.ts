@@ -20,12 +20,8 @@ describe("public api", () => {
     expect(runtime.MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER).toBe(
       "X-TSH-Managed-Agent-Credential",
     );
-    expect(runtime.getManagedAgentInvocationCredentialFromHeaders).toBeTypeOf(
-      "function",
-    );
-    expect(runtime.MANAGED_AGENT_MCP_ATTACHMENT_ENV).toBe(
-      "TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64",
-    );
+    expect(runtime.getManagedAgentInvocationCredentialFromHeaders).toBeTypeOf("function");
+    expect(runtime.MANAGED_AGENT_MCP_ATTACHMENT_ENV).toBe("TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64");
     expect(runtime.MANAGED_AGENT_INVOCATION_PROVIDER_IDS).toEqual([
       "codex",
       "claude-code",
@@ -84,6 +80,7 @@ describe("public api", () => {
     expect(tutti.loadTuttiAgentSkillBundle).toBeTypeOf("function");
     expect(tutti.loadTuttiAgentSkillContext).toBeTypeOf("function");
     expect(tutti.loadTuttiAgentProviderCatalog).toBeTypeOf("function");
+    expect(tutti.loadTuttiAgentCatalog).toBeTypeOf("function");
     expect(tutti.loadTuttiAgentComposerOptions).toBeTypeOf("function");
     expect(tutti.parseTuttiAgentSkillBundle).toBeTypeOf("function");
     expect(tutti.resolveTuttiCliCommand).toBeTypeOf("function");

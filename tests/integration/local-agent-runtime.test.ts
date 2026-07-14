@@ -28,14 +28,24 @@ describe("createLocalAgentRuntime", () => {
         return { authState: "ok", executablePath: "canonical", version: "1" };
       },
       capabilities() {
-        return { cancel: true, nativeResume: false, streaming: true, toolGateway: false, maxConcurrentRuns: 1 };
+        return {
+          cancel: true,
+          nativeResume: false,
+          streaming: true,
+          toolGateway: false,
+          maxConcurrentRuns: 1,
+        };
       },
       async buildLaunchPlan() {
         throw new Error("not used");
       },
       async *run(params) {
         permissions.push(params.permission);
-        yield { type: "done", status: "completed", sessionId: String(params.runtimeProvider) };
+        yield {
+          type: "done",
+          status: "completed",
+          sessionId: String(params.runtimeProvider),
+        };
       },
     };
     const runtime = createLocalAgentRuntime({ providers: [provider] });
@@ -62,10 +72,7 @@ describe("createLocalAgentRuntime", () => {
     })) {
       // Drain the provider stream.
     }
-    expect(permissions).toEqual([
-      { semantic: "full-access" },
-      { semantic: "locked-down" },
-    ]);
+    expect(permissions).toEqual([{ semantic: "full-access" }, { semantic: "locked-down" }]);
   });
 
   it("rejects duplicate provider ids and aliases during construction", () => {
@@ -132,17 +139,24 @@ describe("createLocalAgentRuntime", () => {
     const detect = vi.spyOn(provider, "detect");
     const runtime = createDefaultLocalAgentRuntime({ providers: [provider] });
 
-    await expect(runtime.detect({
-      env: { TUTTI_CLI: "/definitely/missing/tutti" },
-      managedAgentInvocation: { credential: "test-credential", cwd: "/workspace" },
-    })).resolves.toEqual([{
-      provider: "fake",
-      displayName: "Fake Local Agent",
-      supported: false,
-      authState: "unknown",
-      reason: "Managed provider catalog is unavailable.",
-      models: [],
-    }]);
+    await expect(
+      runtime.detect({
+        env: { TUTTI_CLI: "/definitely/missing/tutti" },
+        managedAgentInvocation: {
+          credential: "test-credential",
+          cwd: "/workspace",
+        },
+      }),
+    ).resolves.toEqual([
+      {
+        provider: "fake",
+        displayName: "Fake Local Agent",
+        supported: false,
+        authState: "unknown",
+        reason: "Managed agent catalog is unavailable.",
+        models: [],
+      },
+    ]);
     expect(detect).not.toHaveBeenCalled();
   });
 
@@ -176,7 +190,9 @@ describe("createLocalAgentRuntime", () => {
       async *run(params) {
         await new Promise<void>((resolve) => {
           releaseRun = resolve;
-          params.signal?.addEventListener("abort", () => resolve(), { once: true });
+          params.signal?.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
         });
         yield { type: "done", status: "canceled", reason: "cancelled" };
       },
@@ -662,12 +678,8 @@ describe("createLocalAgentRuntime", () => {
       },
       redactionSecrets: ["existing-secret", "managed-run-secret"],
     });
-    expect(events).toEqual([
-      { type: "done", status: "completed", reason: "completed" },
-    ]);
-    expect(process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).not.toBe(
-      "managed-run-secret",
-    );
+    expect(events).toEqual([{ type: "done", status: "completed", reason: "completed" }]);
+    expect(process.env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).not.toBe("managed-run-secret");
   });
 
   it("runs managed invocations from cwd outside /workspace", async () => {
@@ -867,11 +879,7 @@ describe("createLocalAgentRuntime", () => {
       events.push(event);
     }
 
-    expect(calls).toEqual([
-      "adapter:run_pipe:test",
-      "parse",
-      "transport:hello",
-    ]);
+    expect(calls).toEqual(["adapter:run_pipe:test", "parse", "transport:hello"]);
     expect(events).toEqual([
       {
         type: "tool_result",

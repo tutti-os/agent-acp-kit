@@ -3,10 +3,7 @@ import { isAgentPermissionSemantic } from "../core/permissions.js";
 
 export type TuttiAgentIntegrationSource = "tutti-cli" | "standalone";
 
-export type TuttiAgentAvailabilityStatus =
-  | "available"
-  | "unavailable"
-  | "unknown";
+export type TuttiAgentAvailabilityStatus = "available" | "unavailable" | "unknown";
 
 export interface TuttiAgentProviderAvailability {
   status: TuttiAgentAvailabilityStatus;
@@ -20,6 +17,24 @@ export interface TuttiAgentProviderCatalogEntry {
   agentTargetId?: string;
   availability: TuttiAgentProviderAvailability;
   runtimeSupported: boolean;
+}
+
+export type TuttiAgentCliContract = "agent-id" | "provider-compat";
+
+export interface TuttiAgentCatalogEntry {
+  agentTargetId: string;
+  providerId: string;
+  displayName: string;
+  availability: TuttiAgentProviderAvailability;
+  runtimeSupported: boolean;
+}
+
+export interface TuttiAgentCatalog {
+  schemaVersion: 1;
+  source: TuttiAgentIntegrationSource;
+  cliContract: TuttiAgentCliContract;
+  defaultAgentTargetId: string;
+  agents: TuttiAgentCatalogEntry[];
 }
 
 export interface TuttiAgentProviderCatalog {
@@ -58,8 +73,9 @@ export interface TuttiAgentPermissionConfig {
 }
 
 export interface TuttiAgentComposerOptions {
-  schemaVersion: 1;
+  schemaVersion: 2;
   source: TuttiAgentIntegrationSource;
+  agentTargetId: string;
   providerId: string;
   effectiveSettings: Record<string, unknown>;
   modelConfig: TuttiAgentComposerConfig;
@@ -68,9 +84,24 @@ export interface TuttiAgentComposerOptions {
   speedConfig: TuttiAgentComposerConfig;
 }
 
-export function isTuttiAgentProviderCatalog(
-  value: unknown,
-): value is TuttiAgentProviderCatalog {
+export function isTuttiAgentCatalog(value: unknown): value is TuttiAgentCatalog {
+  if (!isRecord(value) || value.schemaVersion !== 1) return false;
+  if (value.source !== "tutti-cli" && value.source !== "standalone") return false;
+  if (value.cliContract !== "agent-id" && value.cliContract !== "provider-compat") {
+    return false;
+  }
+  if (typeof value.defaultAgentTargetId !== "string" || !Array.isArray(value.agents)) {
+    return false;
+  }
+  if (!value.agents.every(isAgentCatalogEntry)) return false;
+  const agentTargetIds = value.agents.map((agent) => agent.agentTargetId);
+  if (new Set(agentTargetIds).size !== agentTargetIds.length) return false;
+  return agentTargetIds.length === 0
+    ? value.defaultAgentTargetId === ""
+    : agentTargetIds.includes(value.defaultAgentTargetId);
+}
+
+export function isTuttiAgentProviderCatalog(value: unknown): value is TuttiAgentProviderCatalog {
   if (!isRecord(value) || value.schemaVersion !== 2) return false;
   if (value.source !== "tutti-cli" && value.source !== "standalone") return false;
   if (typeof value.defaultProviderId !== "string" || !Array.isArray(value.providers)) {
@@ -84,27 +115,41 @@ export function isTuttiAgentProviderCatalog(
     : providerIds.includes(value.defaultProviderId);
 }
 
-export function isTuttiAgentComposerOptions(
-  value: unknown,
-): value is TuttiAgentComposerOptions {
-  return isRecord(value) &&
-    value.schemaVersion === 1 &&
+export function isTuttiAgentComposerOptions(value: unknown): value is TuttiAgentComposerOptions {
+  return (
+    isRecord(value) &&
+    value.schemaVersion === 2 &&
     (value.source === "tutti-cli" || value.source === "standalone") &&
+    isNonEmptyString(value.agentTargetId) &&
     typeof value.providerId === "string" &&
     isRecord(value.effectiveSettings) &&
     isComposerConfig(value.modelConfig) &&
     isPermissionConfig(value.permissionConfig) &&
     isComposerConfig(value.reasoningConfig) &&
-    isComposerConfig(value.speedConfig);
+    isComposerConfig(value.speedConfig)
+  );
+}
+
+function isAgentCatalogEntry(value: unknown) {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.agentTargetId) &&
+    isCanonicalProviderId(value.providerId) &&
+    isNonEmptyString(value.displayName) &&
+    typeof value.runtimeSupported === "boolean" &&
+    isAvailability(value.availability)
+  );
 }
 
 function isProviderCatalogEntry(value: unknown) {
-  return isRecord(value) &&
+  return (
+    isRecord(value) &&
     isCanonicalProviderId(value.providerId) &&
     isNonEmptyString(value.displayName) &&
     (value.agentTargetId === undefined || isNonEmptyString(value.agentTargetId)) &&
     typeof value.runtimeSupported === "boolean" &&
-    isAvailability(value.availability);
+    isAvailability(value.availability)
+  );
 }
 
 function isCanonicalProviderId(value: unknown): value is string {
@@ -116,14 +161,19 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function isAvailability(value: unknown) {
-  return isRecord(value) &&
-    (value.status === "available" || value.status === "unavailable" || value.status === "unknown") &&
+  return (
+    isRecord(value) &&
+    (value.status === "available" ||
+      value.status === "unavailable" ||
+      value.status === "unknown") &&
     typeof value.reasonCode === "string" &&
-    typeof value.detail === "string";
+    typeof value.detail === "string"
+  );
 }
 
 function isComposerConfig(value: unknown) {
-  return isRecord(value) &&
+  return (
+    isRecord(value) &&
     typeof value.configurable === "boolean" &&
     typeof value.currentValue === "string" &&
     typeof value.defaultValue === "string" &&
@@ -135,13 +185,14 @@ function isComposerConfig(value: unknown) {
         typeof option.value === "string" &&
         typeof option.label === "string" &&
         (option.description === undefined || typeof option.description === "string") &&
-        (option.supportsImageInput === undefined ||
-          typeof option.supportsImageInput === "boolean"),
-    );
+        (option.supportsImageInput === undefined || typeof option.supportsImageInput === "boolean"),
+    )
+  );
 }
 
 function isPermissionConfig(value: unknown) {
-  return isRecord(value) &&
+  return (
+    isRecord(value) &&
     typeof value.configurable === "boolean" &&
     typeof value.defaultValue === "string" &&
     Array.isArray(value.modes) &&
@@ -152,7 +203,8 @@ function isPermissionConfig(value: unknown) {
         typeof mode.label === "string" &&
         (mode.description === undefined || typeof mode.description === "string") &&
         isAgentPermissionSemantic(mode.semantic),
-    );
+    )
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

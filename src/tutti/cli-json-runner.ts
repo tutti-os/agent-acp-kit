@@ -1,21 +1,21 @@
 import { execFile } from "node:child_process";
 
 import type { DetectContext } from "../core/detection.js";
-import {
-  projectTuttiCliChildProcess,
-  redactTuttiCliChildProcessText,
-} from "./child-process.js";
+import { projectTuttiCliChildProcess, redactTuttiCliChildProcessText } from "./child-process.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BUFFER = 1024 * 1024;
 
 export type TuttiIntegrationErrorCode =
+  | "agent_ambiguous"
+  | "agent_not_found"
   | "cli_aborted"
   | "cli_execution_failed"
   | "cli_timeout"
   | "invalid_response"
   | "provider_not_found"
   | "provider_runtime_unavailable"
+  | "unsupported_command"
   | "unsupported_schema";
 
 export class TuttiIntegrationError extends Error {
@@ -47,9 +47,7 @@ export interface ResolveTuttiCliCommandInput {
   envNames?: string[];
 }
 
-export function resolveTuttiCliCommand(
-  input: ResolveTuttiCliCommandInput = {},
-): string {
+export function resolveTuttiCliCommand(input: ResolveTuttiCliCommandInput = {}): string {
   const env = input.env ?? process.env;
   for (const name of [...(input.envNames ?? []), "TUTTI_CLI"]) {
     const value = env[name]?.trim();
@@ -92,14 +90,12 @@ export function hasConfiguredTuttiCli(input: Omit<TuttiCliJsonRequest, "args">) 
   const env = resolveTuttiCliRequestEnv(input);
   return Boolean(
     input.runTuttiCli ||
-      normalizeOptionalString(input.command) ||
-      resolveTuttiCliCommand({ env, envNames: input.commandEnvNames }),
+    normalizeOptionalString(input.command) ||
+    resolveTuttiCliCommand({ env, envNames: input.commandEnvNames }),
   );
 }
 
-export async function runTuttiCliJson(
-  input: TuttiCliJsonRequest,
-): Promise<unknown> {
+export async function runTuttiCliJson(input: TuttiCliJsonRequest): Promise<unknown> {
   const cwd = normalizeOptionalString(input.cwd);
   const env = resolveTuttiCliRequestEnv(input);
   const child = projectTuttiCliChildProcess({
@@ -131,24 +127,21 @@ export async function runTuttiCliJson(
     try {
       return JSON.parse(payload || "{}");
     } catch {
-      throw new TuttiIntegrationError(
-        "invalid_response",
-        "Tutti CLI returned invalid JSON.",
-      );
+      throw new TuttiIntegrationError("invalid_response", "Tutti CLI returned invalid JSON.");
     }
   } catch (error) {
     if (error instanceof TuttiIntegrationError) throw error;
     if (input.signal?.aborted) {
       throw new TuttiIntegrationError("cli_aborted", "Tutti CLI request was aborted.");
     }
-    const candidate = error as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+    const candidate = error as NodeJS.ErrnoException & {
+      killed?: boolean;
+      signal?: string;
+    };
     if (candidate.killed && candidate.signal === "SIGTERM") {
       throw new TuttiIntegrationError("cli_timeout", "Tutti CLI request timed out.");
     }
-    throw new TuttiIntegrationError(
-      "cli_execution_failed",
-      "Tutti CLI request failed.",
-    );
+    throw new TuttiIntegrationError("cli_execution_failed", "Tutti CLI request failed.");
   }
 }
 
@@ -163,10 +156,7 @@ async function execTuttiCli(input: {
   timeoutMs: number;
 }) {
   if (!input.command) {
-    throw new TuttiIntegrationError(
-      "cli_execution_failed",
-      "Tutti CLI command is not configured.",
-    );
+    throw new TuttiIntegrationError("cli_execution_failed", "Tutti CLI command is not configured.");
   }
   return await new Promise<string>((resolve, reject) => {
     execFile(
@@ -182,13 +172,9 @@ async function execTuttiCli(input: {
       },
       (error, stdout, stderr) => {
         if (error) {
-          reject(toTuttiCliExecutionError(
-            error,
-            stdout,
-            stderr,
-            input.redactionSecrets,
-            input.signal,
-          ));
+          reject(
+            toTuttiCliExecutionError(error, stdout, stderr, input.redactionSecrets, input.signal),
+          );
           return;
         }
         resolve(stdout);
@@ -198,7 +184,11 @@ async function execTuttiCli(input: {
 }
 
 function toTuttiCliExecutionError(
-  error: { code?: string | number | null; killed?: boolean; signal?: string | null },
+  error: {
+    code?: string | number | null;
+    killed?: boolean;
+    signal?: string | null;
+  },
   stdout: string,
   stderr: string,
   redactionSecrets: readonly string[],
@@ -221,16 +211,21 @@ function toTuttiCliExecutionError(
     details.signal = error.signal;
   }
   if (error.killed && error.signal === "SIGTERM") {
+    return new TuttiIntegrationError("cli_timeout", "Tutti CLI request timed out.", details);
+  }
+  if (isUnsupportedAgentListCommand(details.stderr)) {
     return new TuttiIntegrationError(
-      "cli_timeout",
-      "Tutti CLI request timed out.",
+      "unsupported_command",
+      "Tutti CLI does not support the agent list command.",
       details,
     );
   }
-  return new TuttiIntegrationError(
-    "cli_execution_failed",
-    "Tutti CLI request failed.",
-    details,
+  return new TuttiIntegrationError("cli_execution_failed", "Tutti CLI request failed.", details);
+}
+
+function isUnsupportedAgentListCommand(stderr: unknown) {
+  return (
+    typeof stderr === "string" && /(?:^|\n)unknown command:\s+agent list\s*(?:\n|$)/u.test(stderr)
   );
 }
 
