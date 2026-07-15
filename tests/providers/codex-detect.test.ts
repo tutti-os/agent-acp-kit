@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
 import { detectCodex } from "../../src/providers/codex/detect.js";
 
 describe("detectCodex", () => {
@@ -124,20 +123,20 @@ describe("detectCodex", () => {
   });
 
   it("passes cwd and env through version and model discovery subprocesses", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-managed-"));
-    const cwd = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-managed-cwd-"));
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-direct-"));
+    const cwd = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-direct-cwd-"));
     tempDirs.push(dir, cwd);
     const codexBin = join(dir, "codex");
-    const credential = "managed-detect-secret";
+    const marker = "direct-detect-marker";
     writeFileSync(
       codexBin,
       `#!${process.execPath}
 const fs = require("node:fs");
 const expectedCwd = fs.realpathSync(${JSON.stringify(cwd)});
-const expectedCredential = ${JSON.stringify(credential)};
+const expectedMarker = ${JSON.stringify(marker)};
 function ok() {
   return fs.realpathSync(process.cwd()) === expectedCwd &&
-    process.env.${MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV} === expectedCredential;
+    process.env.APP_TEST_MARKER === expectedMarker;
 }
 if (process.argv[2] === "--version") {
   if (!ok()) process.exit(9);
@@ -150,7 +149,7 @@ if (process.argv[2] === "app-server") {
 }
 if (process.argv[2] === "debug" && process.argv[3] === "models") {
   if (!ok()) process.exit(9);
-  console.log(JSON.stringify({ models: [{ slug: "managed-model", display_name: "Managed Model" }] }));
+  console.log(JSON.stringify({ models: [{ slug: "direct-model", display_name: "Direct Model" }] }));
   process.exit(0);
 }
 process.exit(1);
@@ -163,7 +162,7 @@ process.exit(1);
       env: {
         PATH: dir,
         CODEX_HOME: join(dir, ".codex-home"),
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
+        APP_TEST_MARKER: marker,
       },
     });
 
@@ -174,20 +173,20 @@ process.exit(1);
     });
     expect(detection.models).toEqual([
       { id: "default", label: "Default (CLI config)" },
-      { id: "managed-model", label: "Managed Model" },
+      { id: "direct-model", label: "Direct Model" },
     ]);
   });
 
-  it("redacts managed invocation credentials from version failures", async () => {
+  it("redacts configured secrets from version failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-codex-redact-"));
     tempDirs.push(dir);
     const codexBin = join(dir, "codex");
-    const credential = "managed-redact-secret";
+    const secret = "configured-redact-secret";
     writeFileSync(
       codexBin,
       `#!${process.execPath}
 if (process.argv[2] === "--version") {
-  process.stderr.write("failed with " + process.env.${MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV});
+  process.stderr.write("failed with " + process.env.APP_TEST_SECRET);
   process.exit(9);
 }
 process.exit(1);
@@ -199,8 +198,9 @@ process.exit(1);
       env: {
         PATH: dir,
         CODEX_HOME: join(dir, ".codex-home"),
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
+        APP_TEST_SECRET: secret,
       },
+      redactionSecrets: [secret],
     });
 
     expect(detection).toMatchObject({
@@ -208,7 +208,7 @@ process.exit(1);
       version: "unknown",
     });
     expect(detection.unsupportedReason).toContain("[REDACTED]");
-    expect(detection.unsupportedReason).not.toContain(credential);
+    expect(detection.unsupportedReason).not.toContain(secret);
   });
 
   it("discovers Codex models from the debug catalog", async () => {

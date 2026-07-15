@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from "../../src/core/managed-invocation.js";
 import {
   detectClaude,
   detectClaudeAuthState,
@@ -81,27 +80,27 @@ describe("detectClaude", () => {
   });
 
   it("passes cwd and env through Claude Code version and SDK model discovery", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-managed-"));
-    const cwd = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-managed-cwd-"));
+    const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-direct-"));
+    const cwd = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-direct-cwd-"));
     const configDir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-home-"));
     tempDirs.push(dir, cwd, configDir);
     const claudeBin = join(dir, "claude");
-    const credential = "managed-claude-secret";
+    const marker = "direct-claude-marker";
     writeFileSync(
       claudeBin,
       `#!${process.execPath}
 const fs = require("node:fs");
 const expectedCwd = fs.realpathSync(${JSON.stringify(cwd)});
-const expectedCredential = ${JSON.stringify(credential)};
+const expectedMarker = ${JSON.stringify(marker)};
 if (process.argv[2] === "--version" &&
   fs.realpathSync(process.cwd()) === expectedCwd &&
-  process.env.${MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV} === expectedCredential) {
+  process.env.APP_TEST_MARKER === expectedMarker) {
   console.log("claude 2.0.0");
   process.exit(0);
 }
 if (process.argv[2] === "auth" && process.argv[3] === "status" &&
   fs.realpathSync(process.cwd()) === expectedCwd &&
-  process.env.${MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV} === expectedCredential) {
+  process.env.APP_TEST_MARKER === expectedMarker) {
   console.log(JSON.stringify({ loggedIn: true, authMethod: "managed" }));
   process.exit(0);
 }
@@ -122,7 +121,7 @@ process.exit(9);
       env: {
         PATH: dir,
         CLAUDE_CONFIG_DIR: configDir,
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
+        APP_TEST_MARKER: marker,
       },
     });
 
@@ -138,7 +137,7 @@ process.exit(9);
         env: {
           PATH: dir,
           CLAUDE_CONFIG_DIR: configDir,
-          [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
+          APP_TEST_MARKER: marker,
         },
         includePartialMessages: true,
         pathToClaudeCodeExecutable: claudeBin,
@@ -148,17 +147,17 @@ process.exit(9);
     expect(close).toHaveBeenCalled();
   });
 
-  it("redacts managed invocation credentials from version failures", async () => {
+  it("redacts configured secrets from version failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-redact-"));
     const configDir = mkdtempSync(join(tmpdir(), "agent-acp-kit-claude-home-"));
     tempDirs.push(dir, configDir);
     const claudeBin = join(dir, "claude");
-    const credential = "managed-claude-redact-secret";
+    const secret = "configured-claude-redact-secret";
     writeFileSync(
       claudeBin,
       `#!${process.execPath}
 if (process.argv[2] === "--version") {
-  process.stderr.write("failed with " + process.env.${MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV});
+  process.stderr.write("failed with " + process.env.APP_TEST_SECRET);
   process.exit(9);
 }
 process.exit(1);
@@ -170,8 +169,9 @@ process.exit(1);
       env: {
         PATH: dir,
         CLAUDE_CONFIG_DIR: configDir,
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
+        APP_TEST_SECRET: secret,
       },
+      redactionSecrets: [secret],
     });
 
     expect(detection).toMatchObject({
@@ -179,7 +179,7 @@ process.exit(1);
       version: "unknown",
     });
     expect(detection.unsupportedReason).toContain("[REDACTED]");
-    expect(detection.unsupportedReason).not.toContain(credential);
+    expect(detection.unsupportedReason).not.toContain(secret);
   });
 
   it("uses Claude SDK supportedModels as the dynamic model source", async () => {

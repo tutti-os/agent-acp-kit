@@ -217,10 +217,6 @@ describe("Tutti composer options", () => {
       return await baseDetect(context);
     };
     const detectContext = {
-      managedAgentInvocation: {
-        credential: "request-secret",
-        cwd: "/workspace",
-      },
       redactionSecrets: ["request-secret"],
     };
     await loadTuttiAgentComposerOptions({

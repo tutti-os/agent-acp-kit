@@ -148,9 +148,7 @@ Tutti apps keep platform integration behind `@tutti-os/agent-acp-kit/tutti` and 
 
 ```ts
 import {
-  createManagedAgentDetectContextFromHeaders,
   createDefaultLocalAgentRuntime,
-  createManagedAgentRunContextFromHeaders,
 } from "@tutti-os/agent-acp-kit";
 import {
   loadTuttiAgentCatalog,
@@ -159,7 +157,9 @@ import {
 } from "@tutti-os/agent-acp-kit/tutti";
 
 const runtime = createDefaultLocalAgentRuntime();
-const detectContext = createManagedAgentDetectContextFromHeaders(headers);
+const cwd = process.env.TUTTI_WORKSPACE_ROOT ?? process.cwd();
+const env = { ...process.env };
+const detectContext = { cwd, env };
 const catalog = await loadTuttiAgentCatalog({ runtime, detectContext });
 const agent =
   catalog.agents.find(
@@ -185,18 +185,24 @@ const skills = await loadTuttiAgentSkillContext({
   cwd: appLocalCwd,
   detectContext,
 });
-const runContext = await createManagedAgentRunContextFromHeaders(headers, {
-  providerId: agent.providerId,
+for await (const event of runtime.run({
   runId,
-});
+  provider: agent.providerId,
+  cwd,
+  env,
+  prompt,
+  skillManifest: skills.skillManifest,
+})) {
+  // Persist or stream normalized Agent events in the App.
+}
 ```
 
 There is no app-facing mode switch. `loadTuttiAgentCatalog()` is the selection
 API: it preserves every exact Agent Target even when several agents share one
-runtime provider. A managed context uses `agent list` plus target-scoped
-composer and skill JSON without running Provider plugin probes. A standalone
-context derives stable `local:<provider-id>` target IDs from Provider plugin
-detection. Provider IDs remain runtime metadata and are passed to
+runtime provider. When a Tutti CLI is configured, the catalog uses `agent list`
+plus target-scoped composer and skill JSON. Otherwise it derives stable
+`local:<provider-id>` target IDs from Provider plugin detection. Provider IDs
+remain runtime metadata and are passed to
 `runtime.run()` only after the host has selected an exact `agentTargetId`.
 
 The integration negotiates both daemon generations during rollout. It prefers
@@ -206,8 +212,7 @@ metadata internally from the selected target. Legacy fallback requires an exact
 target ID from the old catalog and fails closed when multiple targets share a
 provider; ordinary CLI failures never trigger fallback.
 
-Apps that wrap a Provider plugin can preserve that customization without
-reimplementing managed detection:
+Apps that wrap a Provider plugin can preserve that customization:
 
 ```ts
 const runtime = createDefaultLocalAgentRuntime({
@@ -215,16 +220,9 @@ const runtime = createDefaultLocalAgentRuntime({
 });
 ```
 
-The default factory always owns managed strategy injection. Consumer apps must
-not import or wire the internal managed detector themselves.
-
-Managed hosts pass the same request-scoped `detectContext` object unchanged to
-runtime detection and skill helpers. The kit projects its existing
-managed invocation credential only when it creates the immediate CLI child;
-intermediate app code must not extract the credential, copy it to
-`process.env`, or substitute `ManagedAgentRunContext` for `detectContext`.
-App-owned non-Agent Tutti children use `projectTuttiCliChildProcess` at their
-own child boundary and pass returned output through
+Hosts can pass the same `detectContext` object to runtime detection and skill
+helpers. App-owned Tutti children use `projectTuttiCliChildProcess` at their
+child boundary and pass returned output through
 `redactTuttiCliChildProcessText` before logging or returning errors.
 
 Apps do not construct daemon URLs or CLI argv, read catalog tokens, pass app IDs,
@@ -248,7 +246,7 @@ import {
 | --------------------------- | ------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Codex                       | Supported    | `codex exec --json` JSONL               | Dynamic model discovery via `codex debug models`; per-run `CODEX_HOME` with copied auth and sanitized config; same-provider resume via `codex exec resume --json <session> -`                                                                           |
 | Claude Code (`claude-code`) | Supported    | `claude -p --output-format stream-json` | Canonical provider ID is `claude-code`; legacy `claude` input is accepted internally; supports fallback model hints, custom model pass-through, and same-provider resume via `--resume <session>`                                                       |
-| Tutti Agent (`tutti-agent`) | Supported    | `tutti-agent exec --json` JSONL         | First-party canonical provider; local runs copy credentials into a temporary `TUTTI_AGENT_HOME`, while managed runs use the managed run directory supplied by Tutti; authentication is probed with `tutti-agent login status`; no Nexight runtime alias |
+| Tutti Agent (`tutti-agent`) | Supported    | `tutti-agent exec --json` JSONL         | First-party canonical provider; runs use a temporary `TUTTI_AGENT_HOME` derived from the VM-local source Home; authentication is probed with `tutti-agent login status`; no Nexight runtime alias |
 | Devin for Terminal          | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `DEVIN_ACP_BIN`                                                                                                                                                                                          |
 | Hermes                      | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `HERMES_ACP_BIN`                                                                                                                                                                                         |
 | Kimi                        | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `KIMI_ACP_BIN`                                                                                                                                                                                           |
@@ -276,12 +274,6 @@ preserves compatible `config.toml` settings such as custom model providers and
 `base_url`, removes Codex config values known to break current CLI parsing,
 disables Codex native multi-agent for single-process run lifecycle safety, and
 overlays any run-scoped MCP server config.
-
-Managed Codex runs use a caller-supplied `CODEX_HOME` when one is provided;
-otherwise they materialize a run-scoped `CODEX_HOME` at
-`<managed-run-cwd>/.codex`. This managed home is for run-local Codex config
-only; auth, user sessions, and MCP attachments stay on the managed execution
-path instead of being copied from the app server.
 
 ## Host Integration Pattern
 
@@ -417,95 +409,31 @@ An App can pass an explicit narrower semantic for a run. For ACP, every
 non-`full-access` semantic cancels permission requests because the protocol
 adapter cannot safely infer a tool's risk from a provider-specific option id.
 
-## Managed Agent Invocation
+## VM-local Codex Home
 
-Hosts that run inside a managed reverse-exec environment can pass a per-operation
-managed invocation context to both detection and runs. In SSR or server-side
-handlers behind TSH desktop runtime preview, use the header helpers so app code
-does not need to parse credentials or define managed cwd rules:
+For Codex runs, pass the VM session user's existing Codex home explicitly:
 
 ```ts
-import {
-  createManagedAgentDetectContextFromHeaders,
-  createManagedAgentRunContextFromHeaders,
-} from "@tutti-os/agent-acp-kit";
-
-const detectContext = createManagedAgentDetectContextFromHeaders(
-  request.headers,
-);
-await runtime.detect(detectContext);
-
-const runContext = await createManagedAgentRunContextFromHeaders(
-  request.headers,
-  {
-    providerId: "codex",
-    runId,
-  },
-);
-const cwd = runContext?.cwd ?? localWorkspaceDir;
-
 for await (const event of runtime.run({
   runId,
   provider: "codex",
-  cwd,
+  cwd: workspaceDir,
   prompt,
-  managedAgentInvocation: runContext?.managedAgentInvocation,
+  env: {
+    ...process.env,
+    CODEX_HOME: "/home/tsh-runtime/.codex",
+  },
+  mcpServers,
 })) {
   // Project AgentEvent into the host protocol.
 }
 ```
 
-The helpers read `X-TSH-Managed-Agent-Credential` case-insensitively from
-headers-like inputs. If the header is absent, they return `undefined` and the
-existing non-managed behavior is unchanged. The `localWorkspaceDir` fallback
-above is only for that non-managed path. When `runContext` is present, use
-`runContext.cwd` as the provider process cwd and pass
-`runContext.managedAgentInvocation` through to `runtime.run()`.
-
-When the header is present, the helpers use `TUTTI_APP_DATA_DIR` as the
-app-isolated base directory. Run contexts create a scoped cwd under
-`TUTTI_APP_DATA_DIR/.agent-runs/`; the final directory name is generated by the
-SDK and should not be parsed or recreated by host applications.
-
-When this context is present, the SDK injects
-`TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL` only into the current provider
-operation and sets the provider process cwd from `managedAgentInvocation.cwd`.
-Managed cwd values are not remapped to `/workspace`; the host runtime-provided
-app data directory is used directly.
-
-For Codex managed runs, the SDK also prepares a run-scoped `CODEX_HOME`. If the
-host passes `env.CODEX_HOME`, that directory is used; otherwise the SDK creates
-one under the managed cwd. Hosts that do not need a custom Codex home can use
-the run context returned by `createManagedAgentRunContextFromHeaders()` without
-passing any Codex-home path.
-
-Managed invocation is intentionally limited to provider ids `codex`,
-`claude-code`, and `tutti-agent`. There is no `nextop` or `nexight` ingress
-alias. All three are built-in providers. The SDK expects managed CLI shims to
-be available on `PATH` and does not hardcode shim paths.
-
-In managed hosts, avoid alternate credential paths. Do not read a browser JSB
-credential and forward it in the request body, do not store managed credentials
-in run records or messages, and do not build `.agent-runs` paths in application
-code. Treat the request header as the server-side trust boundary and let these
-helpers produce the context consumed by `runtime.detect()` and `runtime.run()`.
-
-Managed credentials are not written to `process.env`, detection cache keys,
-provider config files, or global skill directories. They are added to
-run-scoped process env and redaction secrets so stderr tails and transport
-errors do not expose the credential. Detection contexts may also include
-`redactionSecrets`; managed invocation credentials are added to that list before
-provider detection runs.
-
-When a managed Codex or Claude run includes `mcpServers`, the SDK does not ask
-the provider to materialize provider-native MCP config. Instead it serializes a
-normalized MCP attachment into
-`TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64` for the tsh shim. Managed MCP handoff v1
-supports only VM-local stdio MCP servers; VM execution is implicit and callers
-do not need to set an execution-side flag. If that MCP server calls back into a
-host or app tool gateway, the injected gateway URL must be reachable from the VM
-process. MCP env/header values and the handoff payload are added to run
-redaction secrets.
+The value in `CODEX_HOME` is the source home owned by the VM session user. The
+kit creates a temporary per-run Codex home under `TMPDIR`, links `auth.json` and
+shared session/plugin state from the source home, copies and sanitizes
+`config.toml`, and overlays the run's MCP servers. It never treats an App
+runtime directory as the source login home.
 
 ## Installing Local Providers
 
@@ -561,9 +489,8 @@ Timeouts are normalized by provider. Codex writes `startup_timeout_sec` and
 `tool_timeout_sec` into its per-run config. Claude Code writes per-server
 `timeout` for tool calls. Generic ACP providers receive only standard ACP MCP
 server fields because the ACP MCP server schema does not define timeout fields.
-For non-managed Codex and Claude runs, MCP delivery continues to use those
-provider-native config paths. For managed Codex and Claude runs, MCP delivery
-uses the tsh handoff env described above.
+Codex and Claude MCP delivery uses those provider-native, run-scoped config
+paths. Generic ACP providers receive normalized MCP servers through ACP.
 
 Keep tool tokens run-scoped and short-lived. Do not pass broad application secrets or database credentials directly to agent processes.
 
@@ -671,10 +598,8 @@ import {
   createDefaultLocalAgentProviderPlugins,
   createGenericAcpProvider,
   installAgentProvider,
-  MANAGED_AGENT_INVOCATION_PROVIDER_IDS,
   type AgentEvent,
   type AgentRunInput,
-  type ManagedAgentInvocation,
 } from "@tutti-os/agent-acp-kit";
 ```
 
@@ -737,8 +662,6 @@ Recommended host policy:
 - Clean per-run temporary directories.
 - Limit MCP tool allowlists per run.
 - Gate dangerous provider flags behind trusted local mode.
-- Treat managed invocation credentials as per-operation values; do not store
-  them, pass them through global env, or reuse them across detect/run calls.
 - Persist terminal events durably so cancellation or failure cannot be overwritten by late process output.
 
 ## License

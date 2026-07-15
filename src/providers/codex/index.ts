@@ -1,4 +1,5 @@
 import {
+  access,
   copyFile,
   link,
   mkdir,
@@ -14,10 +15,6 @@ import { dirname, join } from "node:path";
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
 import type { AgentEvent } from "../../core/events.js";
 import type { RawAgentStream } from "../../core/transport.js";
-import {
-  applyManagedAgentInvocationToRunParams,
-  prepareManagedAgentInvocationDetectContext,
-} from "../../core/managed-invocation.js";
 import { normalizeMcpServerConfigs } from "../../core/mcp.js";
 import { resolveAgentPermissionSelection } from "../../core/permissions.js";
 import { materializeSkills } from "../../skills/materialize.js";
@@ -611,29 +608,11 @@ async function materializeCodexHome(params: {
   defaultHomeDirName: string;
   displayName: string;
   homeEnvKey: string;
-  managed: boolean;
   mcpServers?: Parameters<typeof normalizeMcpServerConfigs>[0];
   env?: Record<string, string>;
   model?: string;
   runHomeDirName: string;
 }) {
-  if (params.managed) {
-    const runHome =
-      params.env?.[params.homeEnvKey]?.trim() ||
-      join(params.cwd, params.runHomeDirName);
-    await mkdir(runHome, { recursive: true });
-    const mergedConfig = mergeCodexConfigToml({
-      ...(params.model ? { model: params.model } : {}),
-      mcpServers: normalizeMcpServerConfigs([]),
-    });
-    await writeFile(
-      join(runHome, "config.toml"),
-      ensureCodexProjectRootMarkers(ensureCodexMultiAgentDisabled(mergedConfig)),
-      "utf8",
-    );
-    return runHome;
-  }
-
   const normalizedServers = normalizeMcpServerConfigs(params.mcpServers ?? []);
   const sourceHome =
     params.env?.[params.homeEnvKey] ??
@@ -650,38 +629,44 @@ async function materializeCodexHome(params: {
   );
 
   try {
-    await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
-  } catch {
-    throw new Error(
-      `${params.displayName} auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
+    try {
+      await access(join(sourceHome, "auth.json"));
+      await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
+    } catch {
+      throw new Error(
+        `${params.displayName} auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
+      );
+    }
+
+    await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
+    try {
+      await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
+    } catch {
+      // Plugin cache is an optimization for bundled/plugin-backed assets.
+      // Codex can still run without it, so keep this best-effort like Multica.
+    }
+    await copyOptionalFile(join(sourceHome, "config.json"), join(runHome, "config.json"));
+    await copyOptionalFile(join(sourceHome, "instructions.md"), join(runHome, "instructions.md"));
+
+    const sourceConfig = stripSkillsConfigEntries(
+      (await readOptionalFile(join(sourceHome, "config.toml"))) ?? "",
     );
+    const mergedConfig = mergeCodexConfigToml({
+      ...(sourceConfig ? { sourceConfig } : {}),
+      ...(params.model ? { model: params.model } : {}),
+      mcpServers: normalizedServers,
+    });
+    await writeFile(
+      join(runHome, "config.toml"),
+      ensureCodexProjectRootMarkers(ensureCodexMultiAgentDisabled(mergedConfig)),
+      "utf8",
+    );
+
+    return runHome;
+  } catch (error) {
+    await rm(runHome, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
   }
-
-  await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
-  try {
-    await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
-  } catch {
-    // Plugin cache is an optimization for bundled/plugin-backed assets.
-    // Codex can still run without it, so keep this best-effort like Multica.
-  }
-  await copyOptionalFile(join(sourceHome, "config.json"), join(runHome, "config.json"));
-  await copyOptionalFile(join(sourceHome, "instructions.md"), join(runHome, "instructions.md"));
-
-  const sourceConfig = stripSkillsConfigEntries(
-    (await readOptionalFile(join(sourceHome, "config.toml"))) ?? "",
-  );
-  const mergedConfig = mergeCodexConfigToml({
-    ...(sourceConfig ? { sourceConfig } : {}),
-    ...(params.model ? { model: params.model } : {}),
-    mcpServers: normalizedServers,
-  });
-  await writeFile(
-    join(runHome, "config.toml"),
-    ensureCodexProjectRootMarkers(ensureCodexMultiAgentDisabled(mergedConfig)),
-    "utf8",
-  );
-
-  return runHome;
 }
 
 type CodexCompatibleProviderOptions<TProvider extends string> = {
@@ -703,87 +688,78 @@ function createCodexCompatibleProvider<TProvider extends string>(
   async function prepareLaunchPlan(
     params: Parameters<LocalAgentProviderPlugin<"local-agent", TProvider>["buildLaunchPlan"]>[0],
   ) {
-    params = applyManagedAgentInvocationToRunParams(options.providerId, params);
     params = {
       ...params,
       permission: resolveAgentPermissionSelection(params.permission),
     };
-    const managed = Boolean(params.managedAgentInvocation);
-    const codexEnv = params.env;
-    const projectRootMarker = managed
-      ? undefined
-      : await ensureCodexProjectRootMarker(params.cwd);
-    const materialized = await materializeSkills(
-      params.cwd,
-      params.skillManifest ?? [],
-      params.runId,
-    );
-    const prompt = buildCodexPrompt({
-      prompt: params.prompt,
-      ...(params.history ? { history: params.history } : {}),
-      skills: materialized,
-      ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
-      runtimeName: options.runtimeName,
-    });
-    const normalizedModel = normalizeCodexModel(params.model, options.providerId);
-    const redactionSecrets = managed
-      ? []
-      : collectMcpRedactionSecrets(
-          normalizeMcpServerConfigs(params.mcpServers ?? []),
-        );
-    const codexHome = await materializeCodexHome({
-      cwd: params.cwd,
-      defaultHomeDirName: options.defaultHomeDirName,
-      displayName: options.displayName,
-      homeEnvKey: options.homeEnvKey,
-      managed,
-      ...(codexEnv ? { env: codexEnv } : {}),
-      ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
-      ...(normalizedModel ? { model: normalizedModel } : {}),
-      runHomeDirName: options.runHomeDirName,
-    });
-    const cleanupTargets = [
-      ...materialized
-        .filter((skill) => skill.deliveryMode === "materialized-files")
-        .map((skill) => skill.materializedPath)
-        .filter((path): path is string => Boolean(path)),
-      ...(projectRootMarker ? [projectRootMarker] : []),
-      ...(codexHome ? [codexHome] : []),
-    ];
-    if (cleanupTargets.length > 0) {
-      cleanupByRunId.set(params.runId, cleanupTargets);
-    }
-
-    const { env: _env, ...paramsWithoutEnv } = params;
-    const plan = buildCodexLaunchPlan(
-      {
-        ...paramsWithoutEnv,
+    const cleanupTargets: string[] = [];
+    try {
+      const codexEnv = params.env;
+      const projectRootMarker = await ensureCodexProjectRootMarker(params.cwd);
+      if (projectRootMarker) cleanupTargets.push(projectRootMarker);
+      const materialized = await materializeSkills(
+        params.cwd,
+        params.skillManifest ?? [],
+        params.runId,
+      );
+      cleanupTargets.push(
+        ...materialized
+          .filter((skill) => skill.deliveryMode === "materialized-files")
+          .map((skill) => skill.materializedPath)
+          .filter((path): path is string => Boolean(path)),
+      );
+      const prompt = buildCodexPrompt({
+        prompt: params.prompt,
+        ...(params.history ? { history: params.history } : {}),
+        skills: materialized,
+        ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
+        runtimeName: options.runtimeName,
+      });
+      const normalizedModel = normalizeCodexModel(params.model, options.providerId);
+      const redactionSecrets = collectMcpRedactionSecrets(
+        normalizeMcpServerConfigs(params.mcpServers ?? []),
+      );
+      const codexHome = await materializeCodexHome({
+        cwd: params.cwd,
+        defaultHomeDirName: options.defaultHomeDirName,
+        displayName: options.displayName,
+        homeEnvKey: options.homeEnvKey,
         ...(codexEnv ? { env: codexEnv } : {}),
-        ...(codexHome
-          ? {
-              env: {
-                ...(codexEnv ?? {}),
-                [options.homeEnvKey]: codexHome,
-              },
-            }
-          : {}),
+        ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
         ...(normalizedModel ? { model: normalizedModel } : {}),
-        prompt,
-      },
-      options.command,
-      options.providerId,
-    );
+        runHomeDirName: options.runHomeDirName,
+      });
+      cleanupTargets.push(codexHome);
 
-    if (redactionSecrets.length === 0) {
-      return plan;
+      const { env: _env, ...paramsWithoutEnv } = params;
+      const plan = buildCodexLaunchPlan(
+        {
+          ...paramsWithoutEnv,
+          ...(codexEnv ? { env: codexEnv } : {}),
+          env: {
+            ...(codexEnv ?? {}),
+            [options.homeEnvKey]: codexHome,
+          },
+          ...(normalizedModel ? { model: normalizedModel } : {}),
+          prompt,
+        },
+        options.command,
+      );
+      if (cleanupTargets.length > 0) {
+        cleanupByRunId.set(params.runId, cleanupTargets);
+      }
+
+      if (redactionSecrets.length === 0) return plan;
+      return {
+        ...plan,
+        redactionSecrets: Array.from(
+          new Set([...(plan.redactionSecrets ?? []), ...redactionSecrets]),
+        ),
+      };
+    } catch (error) {
+      await cleanupPaths(cleanupTargets);
+      throw error;
     }
-
-    return {
-      ...plan,
-      redactionSecrets: Array.from(
-        new Set([...(plan.redactionSecrets ?? []), ...redactionSecrets]),
-      ),
-    };
   }
 
   async function cleanupRun(runId: string) {
@@ -798,15 +774,11 @@ function createCodexCompatibleProvider<TProvider extends string>(
     requiresKnownAuth: options.requiresKnownAuth,
     kind: "local-agent",
     async detect(context) {
-      const detectionContext = prepareManagedAgentInvocationDetectContext(
-        options.providerId,
-        context,
-      );
       return detectCodex({
         command: options.command,
         defaultHomeDirName: options.defaultHomeDirName,
-        ...(detectionContext?.cwd ? { cwd: detectionContext.cwd } : {}),
-        ...(detectionContext?.env ? { env: detectionContext.env } : {}),
+        ...(context?.cwd ? { cwd: context.cwd } : {}),
+        ...(context?.env ? { env: context.env } : {}),
         homeEnvKey: options.homeEnvKey,
         probeAuthStatus: options.requiresKnownAuth,
       });

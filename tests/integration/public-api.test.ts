@@ -14,20 +14,6 @@ describe("public api", () => {
     expect(runtime.claudeProvider.id).toBe("claude-code");
     expect(runtime.installAgentProvider).toBeTypeOf("function");
     expect(runtime.getAgentProviderInstallStatus).toBeTypeOf("function");
-    expect(runtime.MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV).toBe(
-      "TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL",
-    );
-    expect(runtime.MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER).toBe(
-      "X-TSH-Managed-Agent-Credential",
-    );
-    expect(runtime.getManagedAgentInvocationCredentialFromHeaders).toBeTypeOf("function");
-    expect(runtime.MANAGED_AGENT_MCP_ATTACHMENT_ENV).toBe("TSH_MANAGED_AGENT_MCP_ATTACHMENT_B64");
-    expect(runtime.MANAGED_AGENT_INVOCATION_PROVIDER_IDS).toEqual([
-      "codex",
-      "claude-code",
-      "tutti-agent",
-    ]);
-    expect(runtime.isManagedAgentInvocationProviderId("nextop")).toBe(false);
     expect(runtime.AGENT_PROVIDER_INSTALL_SPECS.codex.cliBinary).toBe("codex");
     expect(runtime.createDefaultLocalAgentProviderPlugins).toBeTypeOf("function");
     expect(runtime.DEFAULT_LOCAL_AGENT_PROVIDER_IDS).toEqual([

@@ -1,5 +1,4 @@
 import type { LocalAgentMcpServerConfig } from "./mcp.js";
-import type { ManagedAgentInvocation } from "./managed-invocation.js";
 import type { AgentRunMessage } from "./provider-plugin.js";
 import type { AgentPermissionSelection } from "./permissions.js";
 import type { SkillMaterializationRecord } from "./skills.js";
@@ -21,7 +20,6 @@ export type AgentRunInput<
   history?: AgentRunMessage[];
   mcpServers?: LocalAgentMcpServerConfig[];
   env?: Record<string, string>;
-  managedAgentInvocation?: ManagedAgentInvocation;
   timeoutMs?: number;
   signal?: AbortSignal;
   skillManifest?: SkillMaterializationRecord[];

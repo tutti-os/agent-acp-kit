@@ -33,15 +33,6 @@ export {
 export type { DetectionResult, DetectContext } from "./detection.js";
 export type { LaunchPlan, TransportKind } from "./launch-plan.js";
 export type {
-  ManagedAgentInvocation,
-  ManagedAgentContextOptions,
-  ManagedAgentInvocationCredentialHeaders,
-  ManagedAgentInvocationCredentialHeaderValue,
-  ManagedAgentInvocationProviderId,
-  ManagedAgentRunContext,
-  ManagedAgentRunContextOptions,
-} from "./managed-invocation.js";
-export type {
   ProviderAdapter,
   RawAgentEvent,
   RawAgentStream,
@@ -67,16 +58,3 @@ export type { LocalAgentRuntimeErrorCode } from "./errors.js";
 export { normalizeMcpEnvEntries, normalizeMcpServerConfig, normalizeMcpServerConfigs } from "./mcp.js";
 export { LocalAgentRuntimeError } from "./errors.js";
 export { getRuntimeTarget, getRuntimeTargetKey } from "./registry.js";
-export {
-  DEFAULT_MANAGED_AGENT_RUNS_DIR_NAME,
-  MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER,
-  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
-  MANAGED_AGENT_MCP_ATTACHMENT_ENV,
-  MANAGED_AGENT_INVOCATION_PROVIDER_IDS,
-  TUTTI_APP_DATA_DIR_ENV,
-  createManagedAgentDetectContextFromHeaders,
-  createManagedAgentRunContextFromHeaders,
-  getManagedAgentInvocationCredentialFromHeaders,
-  isManagedAgentInvocationCwd,
-  isManagedAgentInvocationProviderId,
-} from "./managed-invocation.js";

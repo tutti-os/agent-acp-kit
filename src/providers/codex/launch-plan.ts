@@ -1,5 +1,4 @@
 import type { AgentRunParams, ProviderLaunchPlan } from "../../core/provider-plugin.js";
-import { applyManagedAgentInvocationToLaunchPlan } from "../../core/managed-invocation.js";
 import { clampCodexReasoning } from "./reasoning.js";
 
 function codexPermissionArgs(
@@ -42,10 +41,8 @@ function resolveProviderResumeId(
 export function buildCodexLaunchPlan(
   params: AgentRunParams<"local-agent", string>,
   executablePath = "codex",
-  providerId = "codex",
 ): ProviderLaunchPlan {
   const resumeId = resolveProviderResumeId(params.resume);
-  const managed = Boolean(params.managedAgentInvocation);
   const args = resumeId ? ["exec", "resume", "--json"] : ["exec", "--json"];
   args.push(
     "--skip-git-repo-check",
@@ -54,7 +51,7 @@ export function buildCodexLaunchPlan(
     "--ignore-rules",
     ...codexPermissionArgs(params.permission),
   );
-  if (!resumeId && !managed) {
+  if (!resumeId) {
     args.push("-C", params.cwd);
   }
 
@@ -97,13 +94,8 @@ export function buildCodexLaunchPlan(
         resume: { mode: "fresh" },
       },
       executablePath,
-      providerId,
     );
   }
 
-  return applyManagedAgentInvocationToLaunchPlan(
-    providerId,
-    plan,
-    params.managedAgentInvocation,
-  );
+  return plan;
 }

@@ -77,7 +77,6 @@ describe("Tutti skill bundle helpers", () => {
       timeoutMs: 123,
     });
     expect(calls[1]?.options.redactionSecrets).toEqual([]);
-    expect(calls[1]?.options.env).not.toHaveProperty("TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL");
     expect(context.skills).toHaveLength(1);
     expect(context.source).toBe("tutti-cli");
     expect(context.skillManifest).toBe(context.skills);
@@ -205,18 +204,13 @@ describe("Tutti skill bundle helpers", () => {
 
   it("forwards detectContext to the CLI child projection", async () => {
     const detectContext = {
-      managedAgentInvocation: {
-        credential: "request-secret",
-        cwd: "/workspace",
-      },
       redactionSecrets: ["existing-secret"],
     };
     await loadTuttiAgentSkillBundle({
       detectContext,
       provider: "codex",
       runTuttiCli: async (_args, options) => {
-        expect(options.env?.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).toBe("request-secret");
-        expect(options.redactionSecrets).toEqual(["existing-secret", "request-secret"]);
+        expect(options.redactionSecrets).toEqual(["existing-secret"]);
         return { schemaVersion: 1, provider: "codex", skills: [] };
       },
     });

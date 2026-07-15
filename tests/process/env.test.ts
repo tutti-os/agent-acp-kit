@@ -223,26 +223,17 @@ describe("buildLocalAgentProcessEnv", () => {
     expect(env.PATH).toBeUndefined();
   });
 
-  it("strips local agent home env when requested", async () => {
-    const env = await buildLocalAgentProcessEnv(
-      {
-        PATH: "/usr/bin",
-        CLAUDE_CONFIG_DIR: "/tmp/claude-config",
-        CODEX_HOME: "/tmp/codex-home",
-        TUTTI_AGENT_HOME: "/tmp/tutti-agent-home",
-        Claude_Config_Dir: "/tmp/mixed-claude-config",
-        Codex_Home: "/tmp/mixed-codex-home",
-        Tutti_Agent_Home: "/tmp/mixed-tutti-agent-home",
-      },
-      { stripLocalAgentHomeEnv: true },
-    );
+  it("preserves explicit local agent home env", async () => {
+    const env = await buildLocalAgentProcessEnv({
+      PATH: "/usr/bin",
+      CLAUDE_CONFIG_DIR: "/tmp/claude-config",
+      CODEX_HOME: "/home/tsh-runtime/.codex",
+      TUTTI_AGENT_HOME: "/tmp/tutti-agent-home",
+    });
 
-    expect(env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
-    expect(env).not.toHaveProperty("CODEX_HOME");
-    expect(env).not.toHaveProperty("TUTTI_AGENT_HOME");
-    expect(env).not.toHaveProperty("Claude_Config_Dir");
-    expect(env).not.toHaveProperty("Codex_Home");
-    expect(env).not.toHaveProperty("Tutti_Agent_Home");
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/tmp/claude-config");
+    expect(env.CODEX_HOME).toBe("/home/tsh-runtime/.codex");
+    expect(env.TUTTI_AGENT_HOME).toBe("/tmp/tutti-agent-home");
   });
 
   it("appends unique PATH entries in order", () => {

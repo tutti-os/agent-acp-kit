@@ -5,7 +5,6 @@ import {
   createLocalAgentRuntime,
   type LocalAgentRuntime,
 } from "./create-runtime.js";
-import { detectTuttiManagedProviders } from "../tutti/runtime-detection.js";
 
 export type DefaultLocalAgentRuntimeOptions<
   TKind extends string = "local-agent",
@@ -27,6 +26,5 @@ export function createDefaultLocalAgentRuntime<
   return createLocalAgentRuntime({
     providers,
     ...(options.transports ? { transports: options.transports } : {}),
-    detectManagedProviders: detectTuttiManagedProviders,
   });
 }

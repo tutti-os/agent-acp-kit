@@ -1,15 +1,10 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
-  MANAGED_AGENT_MCP_ATTACHMENT_ENV,
-} from "../../src/core/managed-invocation.js";
-import {
   createCodexProvider,
-  createTuttiAgentProvider,
 } from "../../src/providers/codex/index.js";
 import { buildCodexLaunchPlan } from "../../src/providers/codex/launch-plan.js";
 
@@ -24,71 +19,6 @@ describe("buildCodexLaunchPlan", () => {
     expect(createCodexProvider().capabilities()).toMatchObject({
       maxConcurrentRuns: Number.MAX_SAFE_INTEGER,
     });
-  });
-
-  it("builds managed Tutti Agent fresh and resume plans without Codex identity leakage", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "tutti-agent-managed-plan-"));
-    try {
-      const provider = createTuttiAgentProvider();
-      const fresh = await provider.buildLaunchPlan({
-        runId: "run-tutti-agent-fresh",
-        cwd,
-        prompt: "draw a poster",
-        model: "tutti-agent:gpt-5.4",
-        managedAgentInvocation: {
-          credential: "managed-tutti-agent-secret",
-          cwd,
-        },
-      });
-
-      expect(fresh.command).toBe("tutti-agent");
-      expect(fresh.env).toMatchObject({
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]:
-          "managed-tutti-agent-secret",
-        TUTTI_AGENT_HOME: join(cwd, ".tutti-agent"),
-      });
-      expect(fresh.args).toEqual(
-        expect.arrayContaining(["--model", "gpt-5.4"]),
-      );
-      expect(fresh.args).toContain(
-        "--dangerously-bypass-approvals-and-sandbox",
-      );
-
-      const resumed = await provider.buildLaunchPlan({
-        runId: "run-tutti-agent-resume",
-        cwd,
-        prompt: "continue",
-        model: "codex:gpt-5",
-        permission: { semantic: "auto", modeId: "auto" },
-        resume: {
-          mode: "provider",
-          providerSessionId: "tutti-session-1",
-        },
-        managedAgentInvocation: {
-          credential: "managed-tutti-agent-secret",
-          cwd,
-        },
-      });
-
-      expect(resumed.command).toBe("tutti-agent");
-      expect(resumed.args).toEqual(
-        expect.arrayContaining([
-          "exec",
-          "resume",
-          'sandbox_mode="workspace-write"',
-          "--model",
-          "codex:gpt-5",
-          "tutti-session-1",
-          "-",
-        ]),
-      );
-      expect(resumed.args).not.toContain(
-        "--dangerously-bypass-approvals-and-sandbox",
-      );
-      expect(resumed.fallbackPlan?.command).toBe("tutti-agent");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
   });
 
   it("uses the safe auto policy, stdin delivery, cwd pinning, and repeatable add-dir flags", () => {
@@ -160,54 +90,6 @@ describe("buildCodexLaunchPlan", () => {
         },
       }).args,
     ).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-  });
-
-  it("injects managed invocation env and cwd into Codex launch plans", () => {
-    const plan = buildCodexLaunchPlan({
-      runId: "run-1",
-      cwd: "/tmp/project",
-      prompt: "draw a poster",
-      managedAgentInvocation: {
-        credential: "managed-codex-secret",
-        cwd: "/workspace/project",
-      },
-      resume: {
-        mode: "provider",
-        providerSessionId: "codex-session-1",
-      },
-    });
-
-    expect(plan.cwd).toBe("/workspace/project");
-    expect(plan.env).toMatchObject({
-      [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
-    });
-    expect(plan.redactionSecrets).toEqual(["managed-codex-secret"]);
-    expect(plan.fallbackPlan).toMatchObject({
-      cwd: "/workspace/project",
-      env: {
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
-      },
-      redactionSecrets: ["managed-codex-secret"],
-    });
-    expect(plan.fallbackPlan?.args).not.toContain("-C");
-    expect(plan.fallbackPlan?.args).not.toContain("/workspace/project");
-  });
-
-  it("does not pass managed workspace cwd through -C for fresh Codex runs", () => {
-    const plan = buildCodexLaunchPlan({
-      runId: "run-managed-fresh",
-      cwd: "/tmp/app-runner-physical-cwd",
-      prompt: "draw a poster",
-      managedAgentInvocation: {
-        credential: "managed-codex-secret",
-        cwd: "/workspace/workspace-1/.aimc-agent-runs/codex-1",
-      },
-    });
-
-    expect(plan.cwd).toBe("/workspace/workspace-1/.aimc-agent-runs/codex-1");
-    expect(plan.args).not.toContain("-C");
-    expect(plan.args).not.toContain("/workspace/workspace-1/.aimc-agent-runs/codex-1");
-    expect(plan.args).not.toContain("/tmp/app-runner-physical-cwd");
   });
 
   it("clamps reasoning for GPT-5.4+", () => {
@@ -561,118 +443,38 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
-  it("uses the caller-provided Codex home for managed runs", async () => {
-    const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-"));
-    const workspaceCwd = join(scratch, "run-cwd");
-    const callerCodexHome = join(scratch, "caller-codex-home");
+  it("cleans run-scoped files when the VM source home has no auth", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "codex-missing-auth-"));
+    const sourceHome = join(scratch, "source-home");
+    const cwd = join(scratch, "cwd");
+    const tempRoot = join(scratch, "tmp");
+    const skillPath = join(cwd, ".local-agent", "runs", "missing-auth", "skills", "test-skill");
+
     try {
+      await mkdir(sourceHome, { recursive: true });
+      await mkdir(cwd, { recursive: true });
       const adapter = createCodexProvider().createAdapter();
-      const plan = await adapter!.buildLaunchPlan({
-        runId: "run-managed-codex-home",
-        cwd: "/tmp/ignored-by-managed-invocation",
-        prompt: "draw a poster",
-        env: { CODEX_HOME: callerCodexHome },
-        managedAgentInvocation: {
-          credential: "managed-codex-secret",
-          cwd: workspaceCwd,
-        },
-      });
 
-      expect(plan.cwd).toBe(workspaceCwd);
-      expect(plan.env).toMatchObject({
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
-        CODEX_HOME: callerCodexHome,
-      });
-      expect(await readFile(join(callerCodexHome, "config.toml"), "utf8")).toContain(
-        "features.multi_agent = false",
-      );
-      expect(plan.args).not.toContain("-C");
-      expect(plan.args).not.toContain(workspaceCwd);
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
-  });
-
-  it("materializes a run-scoped Codex home for managed runs when none is provided", async () => {
-    const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-"));
-    const workspaceCwd = join(scratch, "run-cwd");
-    try {
-      const adapter = createCodexProvider().createAdapter();
-      const plan = await adapter!.buildLaunchPlan({
-        runId: "run-managed-codex-auto-home",
-        cwd: "/tmp/ignored-by-managed-invocation",
-        prompt: "draw a poster",
-        managedAgentInvocation: {
-          credential: "managed-codex-secret",
-          cwd: workspaceCwd,
-        },
-      });
-
-      const managedCodexHome = join(workspaceCwd, ".codex");
-      expect(plan.env).toMatchObject({
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-codex-secret",
-        CODEX_HOME: managedCodexHome,
-      });
-      expect(await readFile(join(managedCodexHome, "config.toml"), "utf8")).toContain(
-        "features.multi_agent = false",
-      );
-    } finally {
-      await rm(scratch, { recursive: true, force: true });
-    }
-  });
-
-  it("hands managed Codex MCP servers to tsh instead of Codex home config", async () => {
-    const scratch = await mkdtemp(join(tmpdir(), "agent-acp-kit-managed-codex-mcp-"));
-    const workspaceCwd = join(scratch, "run-cwd");
-    try {
-      const adapter = createCodexProvider().createAdapter();
-      const plan = await adapter!.buildLaunchPlan({
-        runId: "run-managed-codex-mcp",
-        cwd: "/tmp/ignored-by-managed-invocation",
-        prompt: "draw a poster",
-        mcpServers: [
-          {
-            type: "stdio",
-            name: "aimc",
-            command: process.execPath,
-            args: ["/tmp/aimc-mcp.js"],
-            env: { AIMC_TOOL_TOKEN: "tool-token" },
-            startupTimeoutMs: 120_000,
-            toolTimeoutMs: 1_800_000,
-          },
-        ],
-        managedAgentInvocation: {
-          credential: "managed-codex-secret",
-          cwd: workspaceCwd,
-        },
-      });
-
-      const encoded = plan.env?.[MANAGED_AGENT_MCP_ATTACHMENT_ENV];
-      const config = await readFile(join(workspaceCwd, ".codex", "config.toml"), "utf8");
-      expect(encoded).toBeTruthy();
-      expect(plan.env?.CODEX_HOME).toBe(join(workspaceCwd, ".codex"));
-      expect(config).not.toContain("aimc");
-      expect(config).not.toContain("tool-token");
-      expect(plan.mcpServers).toBeUndefined();
-      expect(plan.redactionSecrets).toContain("managed-codex-secret");
-      expect(plan.redactionSecrets).toContain("tool-token");
-      expect(plan.redactionSecrets).toContain(encoded);
-      expect(
-        JSON.parse(Buffer.from(encoded!, "base64").toString("utf8")),
-      ).toEqual({
-        mcpServers: {
-          aimc: {
-            type: "stdio",
-            command: "node",
-            args: ["/tmp/aimc-mcp.js"],
-            env: { AIMC_TOOL_TOKEN: "tool-token" },
-            timeouts: {
-              startupTimeoutMs: 120_000,
-              toolTimeoutMs: 1_800_000,
+      await expect(
+        adapter!.buildLaunchPlan({
+          runId: "missing-auth",
+          cwd,
+          prompt: "hello",
+          env: { CODEX_HOME: sourceHome, TMPDIR: tempRoot },
+          skillManifest: [
+            {
+              skillId: "test/skill",
+              slug: "test-skill",
+              deliveryMode: "materialized-files",
+              content: "# Test",
             },
-          },
-        },
-      });
+          ],
+        }),
+      ).rejects.toThrow("auth is unavailable");
+
+      await expect(readdir(tempRoot)).resolves.toEqual([]);
+      await expect(access(join(cwd, ".agent-acp-kit-codex-root"))).rejects.toThrow();
+      await expect(access(skillPath)).rejects.toThrow();
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
