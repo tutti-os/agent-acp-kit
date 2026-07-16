@@ -103,6 +103,73 @@ describe("createLocalAgentRuntime", () => {
     ]);
   });
 
+  it("lets the default-runtime integration replace standalone detection", async () => {
+    const provider = createFakeProvider();
+    const providerDetect = vi.spyOn(provider, "detect");
+    const runtime = createLocalAgentRuntime({
+      providers: [provider],
+      detectTuttiTargets: async () => [
+        {
+          agentTargetId: "team:fake",
+          provider: "fake",
+          displayName: "Team Fake",
+          supported: true,
+          authState: "ok",
+          models: [{ id: "team-model", label: "Team Model" }],
+          isDefault: true,
+        },
+      ],
+    });
+
+    await expect(runtime.detect()).resolves.toMatchObject([
+      { agentTargetId: "team:fake", models: [{ id: "team-model" }] },
+    ]);
+    expect(providerDetect).not.toHaveBeenCalled();
+  });
+
+  it("cancels a run while Tutti composer preparation is still active", async () => {
+    let preparationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      preparationStarted = resolve;
+    });
+    let preparationSignal: AbortSignal | undefined;
+    const provider = createFakeProvider();
+    const providerRun = vi.spyOn(provider, "run");
+    const runtime = createLocalAgentRuntime({
+      providers: [provider],
+      prepareTuttiRun: async ({ run }) => {
+        preparationSignal = run.signal;
+        preparationStarted();
+        await new Promise<never>((_resolve, reject) => {
+          run.signal?.addEventListener(
+            "abort",
+            () => reject(run.signal?.reason ?? new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    });
+    const events: AgentEvent[] = [];
+    const consume = (async () => {
+      for await (const event of runtime.run({
+        runId: "preparation-cancel",
+        provider: "fake",
+        cwd: process.cwd(),
+        prompt: "wait",
+      })) {
+        events.push(event);
+      }
+    })();
+
+    await started;
+    await runtime.cancel("preparation-cancel");
+    await consume;
+
+    expect(preparationSignal?.aborted).toBe(true);
+    expect(providerRun).not.toHaveBeenCalled();
+    expect(events).toEqual([{ type: "done", status: "canceled", reason: "cancelled" }]);
+  });
+
   it("passes direct cwd and the VM source Codex home to the provider", async () => {
     let received: AgentRunParams<"local-agent", "codex"> | undefined;
     const provider: LocalAgentProviderPlugin<"local-agent", "codex"> = {

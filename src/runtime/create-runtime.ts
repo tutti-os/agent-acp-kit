@@ -45,6 +45,24 @@ export type LocalAgentRuntime<TKind extends string = string, TProvider extends s
   run(input: AgentRunInput<TKind, TProvider>): AsyncGenerator<AgentEvent>;
 };
 
+export type RuntimeAgentDescriptor<TKind extends string, TProvider extends string> = {
+  id: TProvider;
+  displayName: string;
+  kind: TKind;
+  requiresKnownAuth: boolean;
+};
+
+export type TuttiRuntimeDetector<TKind extends string, TProvider extends string> = (input: {
+  context?: DetectContext;
+  descriptors: RuntimeAgentDescriptor<TKind, TProvider>[];
+}) => Promise<Array<DetectedProvider<TProvider>> | undefined>;
+
+export type TuttiRuntimeRunPreparer<TKind extends string, TProvider extends string> = (input: {
+  run: AgentRunInput<TKind, TProvider>;
+  env: Record<string, string>;
+  descriptors: RuntimeAgentDescriptor<TKind, TProvider>[];
+}) => Promise<AgentRunInput<TKind, TProvider>>;
+
 function createRuntimeAbortSignal(
   inputSignal: AbortSignal | undefined,
   controller: AbortController,
@@ -81,6 +99,10 @@ export function createLocalAgentRuntime<
 >(options: {
   providers: LocalAgentProviderPlugin<TKind, TProvider>[];
   transports?: Transport[];
+  /** Internal production wiring used by createDefaultLocalAgentRuntime(). */
+  detectTuttiTargets?: TuttiRuntimeDetector<TKind, TProvider>;
+  /** Internal production wiring used by createDefaultLocalAgentRuntime(). */
+  prepareTuttiRun?: TuttiRuntimeRunPreparer<TKind, TProvider>;
 }): LocalAgentRuntime<TKind, TProvider> {
   const providers = new Map<string, LocalAgentProviderPlugin<TKind, TProvider>>();
   const canonicalProviderIds = new Set<string>();
@@ -124,6 +146,12 @@ export function createLocalAgentRuntime<
     }
   >();
   const detectionCache = createDetectionCache<ProviderDetectionResult<TKind, TProvider>>();
+  const descriptors = options.providers.map((provider) => ({
+    id: provider.id,
+    displayName: provider.displayName,
+    kind: provider.kind,
+    requiresKnownAuth: provider.requiresKnownAuth === true,
+  }));
 
   const transports = new Map<TransportKind, Transport>(
     [
@@ -155,6 +183,10 @@ export function createLocalAgentRuntime<
     },
 
     async detect(context) {
+      const tuttiTargets = await options.detectTuttiTargets?.({ context, descriptors });
+      if (tuttiTargets !== undefined) {
+        return tuttiTargets;
+      }
       if (context?.refresh) {
         detectionCache.clear();
       }
@@ -199,33 +231,60 @@ export function createLocalAgentRuntime<
     },
 
     async *run(input) {
-      const requestedProviderId = String(input.provider);
-      const provider = providers.get(requestedProviderId);
-      if (!provider) {
-        throw new Error(`No local agent provider registered for ${requestedProviderId}`);
+      const initialProviderId = String(input.provider);
+      const initialProvider = providers.get(initialProviderId);
+      if (!initialProvider) {
+        throw new Error(`No local agent provider registered for ${initialProviderId}`);
       }
 
       const controller = new AbortController();
       const signal = createRuntimeAbortSignal(input.signal, controller);
-      activeRuns.set(input.runId, { controller, provider });
+      activeRuns.set(input.runId, { controller, provider: initialProvider });
 
       try {
-        const env = await buildLocalAgentProcessEnv({
+        const baseEnv = await buildLocalAgentProcessEnv({
           ...process.env,
           ...(input.env ?? {}),
         });
+        let preparedInput: AgentRunInput<TKind, TProvider>;
+        try {
+          preparedInput = options.prepareTuttiRun
+            ? await options.prepareTuttiRun({
+                run: { ...input, signal },
+                env: Object.fromEntries(
+                  Object.entries(baseEnv).filter(
+                    (entry): entry is [string, string] => typeof entry[1] === "string",
+                  ),
+                ),
+                descriptors,
+              })
+            : input;
+        } catch (error) {
+          if (signal.aborted) {
+            yield { type: "done", status: "canceled", reason: "cancelled" };
+            return;
+          }
+          throw error;
+        }
+        const requestedProviderId = String(preparedInput.provider);
+        const provider = providers.get(requestedProviderId);
+        if (!provider) {
+          throw new Error(`No local agent provider registered for ${requestedProviderId}`);
+        }
+        activeRuns.set(input.runId, { controller, provider });
+        const env = baseEnv;
         if (signal.aborted) {
           yield { type: "done", status: "canceled", reason: "cancelled" };
           return;
         }
         const params: AgentRunParams<TKind, TProvider> = {
-          ...input,
+          ...preparedInput,
           env,
-          permission: resolveAgentPermissionSelection(input.permission),
-          runtimeKind: input.runtimeKind ?? provider.kind,
+          permission: resolveAgentPermissionSelection(preparedInput.permission),
+          runtimeKind: preparedInput.runtimeKind ?? provider.kind,
           runtimeProvider:
-            input.runtimeProvider && canonicalProviderIds.has(String(input.runtimeProvider))
-              ? input.runtimeProvider
+            preparedInput.runtimeProvider && canonicalProviderIds.has(String(preparedInput.runtimeProvider))
+              ? preparedInput.runtimeProvider
               : provider.id,
           signal,
         };
@@ -260,6 +319,7 @@ function projectStandaloneDetection<TKind extends string, TProvider extends stri
   const usesDefaultModel = supported && (result?.models?.length ?? 0) === 0;
   const models = usesDefaultModel ? [{ id: "default", label: "Default" }] : (result?.models ?? []);
   return {
+    agentTargetId: `local:${String(provider.id)}`,
     provider: provider.id,
     displayName: provider.displayName,
     supported,
