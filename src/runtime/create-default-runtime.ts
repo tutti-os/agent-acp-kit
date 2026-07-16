@@ -5,6 +5,7 @@ import {
   createLocalAgentRuntime,
   type LocalAgentRuntime,
 } from "./create-runtime.js";
+import { createTuttiRuntimeIntegration } from "../tutti/runtime-integration.js";
 
 export type DefaultLocalAgentRuntimeOptions<
   TKind extends string = "local-agent",
@@ -23,8 +24,11 @@ export function createDefaultLocalAgentRuntime<
 ): LocalAgentRuntime<TKind, TProvider> {
   const providers = options.providers ??
     (createDefaultLocalAgentProviderPlugins() as unknown as LocalAgentProviderPlugin<TKind, TProvider>[]);
+  const tuttiIntegration = createTuttiRuntimeIntegration<TKind, TProvider>();
   return createLocalAgentRuntime({
     providers,
     ...(options.transports ? { transports: options.transports } : {}),
+    detectTuttiTargets: tuttiIntegration.detect,
+    prepareTuttiRun: tuttiIntegration.prepareRun,
   });
 }

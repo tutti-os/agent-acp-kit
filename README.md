@@ -151,8 +151,6 @@ import {
   createDefaultLocalAgentRuntime,
 } from "@tutti-os/agent-acp-kit";
 import {
-  loadTuttiAgentCatalog,
-  loadTuttiAgentComposerOptions,
   loadTuttiAgentSkillContext,
 } from "@tutti-os/agent-acp-kit/tutti";
 
@@ -160,25 +158,17 @@ const runtime = createDefaultLocalAgentRuntime();
 const cwd = process.env.TUTTI_WORKSPACE_ROOT ?? process.cwd();
 const env = { ...process.env };
 const detectContext = { cwd, env };
-const catalog = await loadTuttiAgentCatalog({ runtime, detectContext });
+const agents = await runtime.detect(detectContext);
 const agent =
-  catalog.agents.find(
+  agents.find(
     (item) =>
-      item.agentTargetId === catalog.defaultAgentTargetId &&
-      item.runtimeSupported &&
-      item.availability.status === "available",
+      item.isDefault && item.supported,
   ) ??
-  catalog.agents.find(
-    (item) => item.runtimeSupported && item.availability.status === "available",
-  );
+  agents.find((item) => item.supported);
 if (!agent) {
   throw new Error("No local Agent is currently available.");
 }
-const composer = await loadTuttiAgentComposerOptions({
-  runtime,
-  agentTargetId: agent.agentTargetId,
-  detectContext,
-});
+if (!agent.agentTargetId) throw new Error("Selected Agent has no target identity.");
 const skills = await loadTuttiAgentSkillContext({
   agentTargetId: agent.agentTargetId,
   agentSessionId: runId,
@@ -186,8 +176,9 @@ const skills = await loadTuttiAgentSkillContext({
   detectContext,
 });
 for await (const event of runtime.run({
+  agentTargetId: agent.agentTargetId,
   runId,
-  provider: agent.providerId,
+  provider: agent.provider,
   cwd,
   env,
   prompt,
@@ -197,13 +188,17 @@ for await (const event of runtime.run({
 }
 ```
 
-There is no app-facing mode switch. `loadTuttiAgentCatalog()` is the selection
-API: it preserves every exact Agent Target even when several agents share one
-runtime provider. When a Tutti CLI is configured, the catalog uses `agent list`
-plus target-scoped composer and skill JSON. Otherwise it derives stable
-`local:<provider-id>` target IDs from Provider plugin detection. Provider IDs
-remain runtime metadata and are passed to
-`runtime.run()` only after the host has selected an exact `agentTargetId`.
+There is no app-facing mode switch. `runtime.detect()` is the single discovery
+API. When `TUTTI_CLI` is configured it uses `agent list` plus target-scoped
+composer JSON and preserves every exact Agent Target, including multiple
+targets backed by one runtime provider. Without `TUTTI_CLI` it performs direct
+Provider plugin detection. `runtime.run()` accepts the selected
+`agentTargetId` and applies its latest composer defaults internally before
+launching the app-owned local Provider process.
+
+`loadTuttiAgentCatalog()` and `loadTuttiAgentComposerOptions()` remain available
+as low-level compatibility APIs, but Workspace Apps should not compose them
+themselves.
 
 The integration negotiates both daemon generations during rollout. It prefers
 the agent-ID contract and falls back to the old provider contract only when the
@@ -365,16 +360,17 @@ Codex reconnect progress such as `Reconnecting... 2/5 (request timed out)` is a 
 
 ## Models
 
-Use `runtime.detect()` to get provider installation status, support status, and model hints.
+Use `runtime.detect()` to get Agent Targets, provider installation/support
+status, and authoritative model options.
 
 ```ts
 const modelOptions = await runtime.detect();
 ```
 
-No-argument detection is cached for the lifetime of the runtime. After a host
-installs a provider or otherwise changes the local CLI environment, call
-`runtime.detect({ refresh: true })` to clear that cache and probe the current
-machine state.
+Tutti detection is cached per CLI/workspace for the lifetime of the runtime;
+standalone no-argument detection is cached per Provider. After the catalog,
+credentials, models, or local CLI installation changes, call
+`runtime.detect({ refresh: true })` to refresh it.
 
 Provider behavior differs:
 
