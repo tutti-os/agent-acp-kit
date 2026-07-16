@@ -177,6 +177,7 @@ function createComposerArgs(
     ...(optionalString(input.reasoningEffort)
       ? ["--reasoning-effort", optionalString(input.reasoningEffort)!]
       : []),
+    ...(input.detectContext?.refresh ? ["--refresh"] : []),
   ];
 }
 

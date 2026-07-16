@@ -10,6 +10,68 @@ import {
 } from "../../src/tutti/index.js";
 
 describe("Tutti skill bundle helpers", () => {
+  it("accepts the schema v2 payload projected by TSH and binds it to the requested target", async () => {
+    const tshPayload = {
+      schemaVersion: 2,
+      agentTargetId: "target-codex-owner-device",
+      provider: "codex",
+      cliCommand: "tutti",
+      agentSessionId: "session-1",
+      skills: [],
+    };
+    const bundle = await loadTuttiAgentSkillBundle({
+      agentSessionId: "session-1",
+      agentTargetId: "target-codex-owner-device",
+      runTuttiCli: async (args) =>
+        args.includes("list")
+          ? {
+              schemaVersion: 1,
+              defaultAgentTargetId: "target-codex-owner-device",
+              agents: [
+                {
+                  id: "target-codex-owner-device",
+                  name: "Codex",
+                  provider: "codex",
+                  availability: { status: "available", reasonCode: "", detail: "" },
+                },
+              ],
+            }
+          : tshPayload,
+    });
+
+    expect(bundle).toMatchObject({
+      schemaVersion: 2,
+      agentTargetId: "target-codex-owner-device",
+      providerId: "codex",
+      agentSessionId: "session-1",
+    });
+  });
+
+  it("rejects a TSH schema v2 payload that omits the requested target", async () => {
+    await expect(
+      loadTuttiAgentSkillBundle({
+        agentTargetId: "target-codex-owner-device",
+        runTuttiCli: async (args) =>
+          args.includes("list")
+            ? {
+                schemaVersion: 1,
+                defaultAgentTargetId: "target-codex-owner-device",
+                agents: [
+                  {
+                    id: "target-codex-owner-device",
+                    name: "Codex",
+                    provider: "codex",
+                    availability: { status: "available", reasonCode: "", detail: "" },
+                  },
+                ],
+              }
+            : { schemaVersion: 2, provider: "codex", skills: [] },
+      }),
+    ).rejects.toThrow(
+      "Tutti skill bundle response does not contain a valid agentTargetId",
+    );
+  });
+
   it("loads and validates the Tutti CLI skill bundle", async () => {
     const calls: Array<{
       args: string[];

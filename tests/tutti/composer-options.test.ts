@@ -193,6 +193,27 @@ describe("Tutti composer options", () => {
     expect(timeouts).toEqual([12_345, 12_345]);
   });
 
+  it("forwards an explicit detection refresh to the managed composer command", async () => {
+    const calls: string[][] = [];
+    await loadTuttiAgentComposerOptions({
+      runtime: runtime(),
+      agentTargetId: "local:codex",
+      detectContext: { refresh: true },
+      runTuttiCli: async (args) => {
+        calls.push(args);
+        return args.includes("list") ? cliCatalog : cliComposer;
+      },
+    });
+    expect(calls.at(-1)).toEqual([
+      "--json",
+      "agent",
+      "composer-options",
+      "--agent-id",
+      "local:codex",
+      "--refresh",
+    ]);
+  });
+
   it("builds conservative standalone options with a stable agent id", async () => {
     const options = await loadTuttiAgentComposerOptions({
       env: {},
