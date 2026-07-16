@@ -35,20 +35,17 @@ describe("runTuttiCliJson", () => {
     ).resolves.toEqual({ argv: ["--json", "agent", "providers"] });
   });
 
-  it("projects request-scoped credential only into the immediate child", async () => {
+  it("passes the caller-provided environment to the immediate child", async () => {
     const command = await executable(`process.stdout.write(JSON.stringify({
       base: process.env.BASE_VALUE,
-      canonical: process.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL,
-      legacy: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,
+      appData: process.env.TUTTI_APP_DATA_DIR,
     }));`);
     const baseEnv = {
       PATH: process.env.PATH,
       BASE_VALUE: "base",
-      TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL: "ambient-canonical",
-      TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL: "ambient-legacy",
+      TUTTI_APP_DATA_DIR: "/workspace/.tsh/apps/data/example",
     };
     const detectContext = {
-      managedAgentInvocation: { credential: "request-secret", cwd: "/workspace" },
       redactionSecrets: ["existing-secret"],
     };
 
@@ -61,47 +58,22 @@ describe("runTuttiCliJson", () => {
       }),
     ).resolves.toEqual({
       base: "base",
-      legacy: "request-secret",
+      appData: "/workspace/.tsh/apps/data/example",
     });
-    expect(baseEnv.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL).toBe("ambient-canonical");
-    expect(baseEnv.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).toBe("ambient-legacy");
+    expect(baseEnv.TUTTI_APP_DATA_DIR).toBe("/workspace/.tsh/apps/data/example");
   });
 
-  it("inherits host env for managed requests with a partial context env", async () => {
-    const command = await executable(`process.stdout.write(JSON.stringify({
-      command: process.env.TUTTI_CLI,
-      workspace: process.env.TSH_WORKSPACE_ID,
-      appData: process.env.TUTTI_APP_DATA_DIR,
-      credential: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,
-    }));`);
+  it("does not rehydrate ambient host env over an explicit direct-mode env", async () => {
+    const command = await executable(`process.stdout.write("{}");`);
     vi.stubEnv("TUTTI_CLI", command);
     vi.stubEnv("TSH_WORKSPACE_ID", "workspace-1");
-    const detectContext = {
-      env: { TUTTI_APP_DATA_DIR: "/tmp/aimc-app-data" },
-      managedAgentInvocation: {
-        credential: "request-secret",
-        cwd: "/tmp/aimc-app-data",
-      },
-    };
+    const env = { TUTTI_APP_DATA_DIR: "/tmp/aimc-app-data" };
 
     expect(
       hasConfiguredTuttiCli({
-        detectContext,
-        env: detectContext.env,
+        env,
       }),
-    ).toBe(true);
-    await expect(
-      runTuttiCliJson({
-        args: [],
-        detectContext,
-        env: detectContext.env,
-      }),
-    ).resolves.toEqual({
-      command,
-      workspace: "workspace-1",
-      appData: "/tmp/aimc-app-data",
-      credential: "request-secret",
-    });
+    ).toBe(false);
   });
 
   it("keeps explicit env authoritative for non-managed requests", () => {
@@ -114,15 +86,11 @@ describe("runTuttiCliJson", () => {
     const projection = projectTuttiCliChildProcess({
       baseEnv,
       detectContext: {
-        managedAgentInvocation: { credential: "request-secret", cwd: "/workspace" },
         redactionSecrets: ["existing-secret", "request-secret"],
       },
     });
 
-    expect(projection.env).toEqual({
-      BASE_VALUE: "base",
-      TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL: "request-secret",
-    });
+    expect(projection.env).toEqual({ BASE_VALUE: "base" });
     expect(projection.redactionSecrets).toEqual(["existing-secret", "request-secret"]);
     expect(Object.isFrozen(projection)).toBe(true);
     expect(Object.isFrozen(projection.env)).toBe(true);
@@ -136,28 +104,12 @@ describe("runTuttiCliJson", () => {
     );
   });
 
-  it("sanitizes ambient credentials for a custom runner without context", async () => {
-    await runTuttiCliJson({
-      args: [],
-      env: {
-        TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL: "ambient-canonical",
-        TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL: "ambient-legacy",
-      },
-      runTuttiCli: async (_args, options) => {
-        expect(options.env).not.toHaveProperty("TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL");
-        expect(options.env).not.toHaveProperty("TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL");
-        expect(options.redactionSecrets).toEqual([]);
-        return {};
-      },
-    });
-  });
-
-  it("classifies timeout and abort without exposing request credentials", async () => {
+  it("classifies timeout and abort without exposing configured secrets", async () => {
     const command = await executable(
       `process.stderr.write("managed-secret"); setInterval(() => {}, 1000);`,
     );
     const diagnosticsContext = {
-      managedAgentInvocation: { credential: "managed-secret", cwd: "/workspace" },
+      redactionSecrets: ["managed-secret"],
     };
     const timeout = await runTuttiCliJson({
       command,
@@ -231,7 +183,7 @@ describe("runTuttiCliJson", () => {
     ).rejects.toMatchObject({ code: "cli_execution_failed" });
   });
 
-  it("redacts managed credentials from CLI stderr diagnostics", async () => {
+  it("redacts configured secrets from CLI stderr diagnostics", async () => {
     const credential = "request-secret-stderr";
     const command = await executable(
       `process.stderr.write(${JSON.stringify(`app-cli failed credential=${credential}`)}); process.exit(1);`,
@@ -239,7 +191,7 @@ describe("runTuttiCliJson", () => {
     const error = await runTuttiCliJson({
       command,
       args: [],
-      detectContext: { managedAgentInvocation: { credential, cwd: "/workspace" } },
+      detectContext: { redactionSecrets: [credential] },
     }).catch((candidate) => candidate);
 
     expect(error).toMatchObject({
@@ -263,7 +215,6 @@ describe("runTuttiCliJson", () => {
       command,
       args: [],
       detectContext: {
-        managedAgentInvocation: { credential, cwd: "/workspace" },
         redactionSecrets: [credential],
       },
     }).catch((candidate) => candidate);

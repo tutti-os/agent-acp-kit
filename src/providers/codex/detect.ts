@@ -5,7 +5,7 @@ import readline from "node:readline";
 import { promisify } from "node:util";
 
 import type { AgentModelOption } from "../../core/provider-plugin.js";
-import { redactManagedAgentInvocationSecrets } from "../../core/managed-invocation.js";
+import { redactSecrets } from "../../core/redaction.js";
 import { resolveCommandExecutable } from "../../process/command-resolver.js";
 
 const execFileAsync = promisify(execFile);
@@ -334,6 +334,7 @@ export async function detectCodex(options?: {
   minimumVersion?: string;
   overridePath?: string;
   probeAuthStatus?: boolean;
+  redactionSecrets?: readonly string[];
 }) {
   const command = options?.command ?? "codex";
   const homeEnvKey = options?.homeEnvKey ?? "CODEX_HOME";
@@ -357,9 +358,7 @@ export async function detectCodex(options?: {
       skillsDir: path.join(configDir, "skills"),
       supported: false,
       unsupportedReason:
-        error instanceof Error
-          ? redactManagedAgentInvocationSecrets(error.message, options?.env)
-          : `Executable not found: ${command}`,
+        error instanceof Error ? error.message : `Executable not found: ${command}`,
       version: "not-installed",
     };
   }
@@ -380,9 +379,9 @@ export async function detectCodex(options?: {
       supported: false,
       unsupportedReason:
         error instanceof Error
-          ? redactManagedAgentInvocationSecrets(
+          ? redactSecrets(
               `Unable to run ${command} --version: ${error.message}`,
-              options?.env,
+              [...(options?.redactionSecrets ?? [])],
             )
           : `Unable to run ${command} --version`,
       version: "unknown",

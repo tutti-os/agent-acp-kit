@@ -1,5 +1,4 @@
 import type { DetectContext } from "../core/detection.js";
-import { isManagedAgentInvocationProviderId } from "../core/managed-invocation.js";
 import type { LocalAgentRuntime } from "../runtime/create-runtime.js";
 import {
   hasConfiguredTuttiCli,
@@ -146,7 +145,6 @@ function parseCatalogEntries(input: {
   const runtimeProviderIds = new Set(
     input.runtime.listProviders().map((provider) => String(provider.id)),
   );
-  const managedInvocation = Boolean(input.detectContext?.managedAgentInvocation);
   const seen = new Set<string>();
   return input.values.map((value, index) => {
     if (!isRecord(value)) {
@@ -164,19 +162,14 @@ function parseCatalogEntries(input: {
       requiredString(value[input.providerIdField], `agents[${index}].providerId`),
     );
     const runtimeRegistered = runtimeProviderIds.has(providerId);
-    const managedSupported = !managedInvocation || isManagedAgentInvocationProviderId(providerId);
-    const runtimeSupported = runtimeRegistered && managedSupported;
+    const runtimeSupported = runtimeRegistered;
     const platformAvailability = parseAvailability(value.availability, index);
     const availability = runtimeSupported
       ? platformAvailability
       : {
           status: "unavailable" as const,
-          reasonCode: runtimeRegistered
-            ? "managed_provider_unsupported"
-            : "kit_runtime_unavailable",
-          detail: runtimeRegistered
-            ? "Managed execution does not support this agent runtime."
-            : "The installed agent-acp-kit cannot execute this agent runtime.",
+          reasonCode: "kit_runtime_unavailable",
+          detail: "The installed agent-acp-kit cannot execute this agent runtime.",
         };
     return {
       agentTargetId,
@@ -199,19 +192,12 @@ async function loadStandaloneAgentCatalog(
   );
   const agents = descriptors.map((descriptor) => {
     const providerId = String(descriptor.id);
-    const runtimeSupported =
-      !detectContext?.managedAgentInvocation || isManagedAgentInvocationProviderId(providerId);
+    const runtimeSupported = true;
     return {
       agentTargetId: `local:${providerId}`,
       providerId,
       displayName: descriptor.displayName,
-      availability: runtimeSupported
-        ? standaloneAvailability(byProvider.get(providerId))
-        : {
-            status: "unavailable" as const,
-            reasonCode: "managed_provider_unsupported",
-            detail: "Managed execution does not support this agent runtime.",
-          },
+      availability: standaloneAvailability(byProvider.get(providerId)),
       runtimeSupported,
     } satisfies TuttiAgentCatalogEntry;
   });

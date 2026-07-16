@@ -72,18 +72,7 @@ export interface TuttiCliJsonRequest {
 function resolveTuttiCliRequestEnv(
   input: Pick<TuttiCliJsonRequest, "detectContext" | "env">,
 ): NodeJS.ProcessEnv | undefined {
-  if (!input.detectContext?.managedAgentInvocation) {
-    return input.env;
-  }
-
-  // Managed contexts created from request headers intentionally carry only
-  // request-scoped values. Rehydrate the host environment only at the Tutti
-  // CLI boundary, while keeping explicit context and request overrides.
-  return {
-    ...process.env,
-    ...(input.detectContext.env ?? {}),
-    ...(input.env ?? {}),
-  };
+  return input.env;
 }
 
 export function hasConfiguredTuttiCli(input: Omit<TuttiCliJsonRequest, "args">) {

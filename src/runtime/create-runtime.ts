@@ -28,13 +28,6 @@ import { runPlainTransport } from "../transports/plain/plain-transport.js";
 import { spawnSupervisedProcess } from "../process/supervisor.js";
 import { buildLocalAgentProcessEnv } from "../process/env.js";
 import { createProviderRegistry } from "./provider-registry.js";
-import {
-  applyManagedAgentInvocationToLaunchPlan,
-  applyManagedAgentInvocationToRunParams,
-  hasManagedAgentInvocation,
-  prepareManagedAgentInvocationDetectContext,
-} from "../core/managed-invocation.js";
-import { selectRuntimeDetectionStrategy } from "./detection-strategy.js";
 
 type ProviderDetectionResult<TKind extends string, TProvider extends string> = Awaited<
   ReturnType<LocalAgentProviderPlugin<TKind, TProvider>["detect"]>
@@ -51,15 +44,6 @@ export type LocalAgentRuntime<TKind extends string = string, TProvider extends s
   }>;
   run(input: AgentRunInput<TKind, TProvider>): AsyncGenerator<AgentEvent>;
 };
-
-export type ManagedProviderDetector<TProvider extends string = string> = (input: {
-  context: DetectContext;
-  descriptors: Array<{
-    id: TProvider;
-    displayName: string;
-    requiresKnownAuth: boolean;
-  }>;
-}) => Promise<Array<DetectedProvider<TProvider>>>;
 
 function createRuntimeAbortSignal(
   inputSignal: AbortSignal | undefined,
@@ -97,8 +81,6 @@ export function createLocalAgentRuntime<
 >(options: {
   providers: LocalAgentProviderPlugin<TKind, TProvider>[];
   transports?: Transport[];
-  /** Internal production wiring used by createDefaultLocalAgentRuntime(). */
-  detectManagedProviders?: ManagedProviderDetector<TProvider>;
 }): LocalAgentRuntime<TKind, TProvider> {
   const providers = new Map<string, LocalAgentProviderPlugin<TKind, TProvider>>();
   const canonicalProviderIds = new Set<string>();
@@ -173,28 +155,6 @@ export function createLocalAgentRuntime<
     },
 
     async detect(context) {
-      const strategy = selectRuntimeDetectionStrategy(context);
-      if (strategy === "tutti-managed") {
-        const descriptors = options.providers.map((provider) => ({
-          id: provider.id,
-          displayName: provider.displayName,
-          requiresKnownAuth: provider.requiresKnownAuth === true,
-        }));
-        if (!options.detectManagedProviders) {
-          return descriptors.map((descriptor) => ({
-            provider: descriptor.id,
-            displayName: descriptor.displayName,
-            supported: false,
-            authState: "unknown",
-            reason: "Managed agent catalog is unavailable.",
-            models: [],
-          }));
-        }
-        return await options.detectManagedProviders({
-          context: context!,
-          descriptors,
-        });
-      }
       if (context?.refresh) {
         detectionCache.clear();
       }
@@ -208,26 +168,13 @@ export function createLocalAgentRuntime<
             return projectStandaloneDetection(provider, cached);
           }
 
-          const providerContext = prepareManagedAgentInvocationDetectContext(
-            String(provider.id),
-            context,
-          );
-          const shouldAugmentEnv = !(
-            context?.managedAgentInvocation && !providerContext?.managedAgentInvocation
-          );
-          const detectionInput = shouldAugmentEnv
-            ? {
-                ...(providerContext ?? {}),
-                env: await buildLocalAgentProcessEnv(
-                  providerContext?.managedAgentInvocation
-                    ? (providerContext.env ?? {})
-                    : {
-                        ...process.env,
-                        ...(providerContext?.env ?? {}),
-                      },
-                ),
-              }
-            : providerContext;
+          const detectionInput = {
+            ...(context ?? {}),
+            env: await buildLocalAgentProcessEnv({
+              ...process.env,
+              ...(context?.env ?? {}),
+            }),
+          };
           let result: ProviderDetectionResult<TKind, TProvider>;
           try {
             result = await provider.detect(detectionInput);
@@ -263,44 +210,32 @@ export function createLocalAgentRuntime<
       activeRuns.set(input.runId, { controller, provider });
 
       try {
-        const env = await buildLocalAgentProcessEnv(
-          {
-            ...process.env,
-            ...(input.env ?? {}),
-          },
-          {
-            stripLocalAgentHomeEnv: Boolean(input.managedAgentInvocation),
-          },
-        );
+        const env = await buildLocalAgentProcessEnv({
+          ...process.env,
+          ...(input.env ?? {}),
+        });
         if (signal.aborted) {
           yield { type: "done", status: "canceled", reason: "cancelled" };
           return;
         }
-        const params: AgentRunParams<TKind, TProvider> = applyManagedAgentInvocationToRunParams(
-          String(provider.id),
-          {
-            ...input,
-            env,
-            permission: resolveAgentPermissionSelection(input.permission),
-            runtimeKind: input.runtimeKind ?? provider.kind,
-            runtimeProvider:
-              input.runtimeProvider && canonicalProviderIds.has(String(input.runtimeProvider))
-                ? input.runtimeProvider
-                : provider.id,
-            signal,
-          },
-        );
+        const params: AgentRunParams<TKind, TProvider> = {
+          ...input,
+          env,
+          permission: resolveAgentPermissionSelection(input.permission),
+          runtimeKind: input.runtimeKind ?? provider.kind,
+          runtimeProvider:
+            input.runtimeProvider && canonicalProviderIds.has(String(input.runtimeProvider))
+              ? input.runtimeProvider
+              : provider.id,
+          signal,
+        };
         const adapter = provider.createAdapter?.();
         if (!adapter) {
           yield* normalizeAgentEvents(provider.run(params));
           return;
         }
 
-        const plan = applyManagedAgentInvocationToLaunchPlan(
-          String(provider.id),
-          await adapter.buildLaunchPlan(params),
-          hasManagedAgentInvocation(params) ? params.managedAgentInvocation : undefined,
-        );
+        const plan = await adapter.buildLaunchPlan(params);
         const rawStream = resolveTransport(plan).run(plan, signal);
         activeRuns.set(input.runId, {
           controller,

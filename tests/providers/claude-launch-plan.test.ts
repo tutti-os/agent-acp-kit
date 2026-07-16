@@ -1,12 +1,8 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
-  MANAGED_AGENT_MCP_ATTACHMENT_ENV,
-} from "../../src/core/managed-invocation.js";
 import { createClaudeProvider } from "../../src/providers/claude/index.js";
 import { buildClaudeLaunchPlan } from "../../src/providers/claude/launch-plan.js";
 
@@ -81,26 +77,6 @@ describe("buildClaudeLaunchPlan", () => {
         },
       }).args,
     ).not.toContain("--permission-mode");
-  });
-
-  it("injects managed invocation env and cwd into Claude launch plans", () => {
-    const plan = buildClaudeLaunchPlan({
-      runId: "run-1",
-      cwd: "/tmp/project",
-      prompt: "refine the poster",
-      managedAgentInvocation: {
-        credential: "managed-claude-secret",
-        cwd: "/workspace/project",
-      },
-    });
-
-    expect(plan).toMatchObject({
-      cwd: "/workspace/project",
-      env: {
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-claude-secret",
-      },
-      redactionSecrets: ["managed-claude-secret"],
-    });
   });
 
   it("adds Claude Code --resume only when same-provider resume metadata exists", () => {
@@ -200,59 +176,6 @@ describe("buildClaudeLaunchPlan", () => {
     }
   });
 
-  it("hands managed Claude MCP servers to tsh instead of --mcp-config", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "claude-managed-mcp-plan-"));
-    try {
-      const plan = await createClaudeProvider().buildLaunchPlan({
-        runId: "run-managed-claude-mcp",
-        cwd,
-        prompt: "generate a poster",
-        managedAgentInvocation: {
-          credential: "managed-claude-secret",
-          cwd: "/workspace/project",
-        },
-        mcpServers: [
-          {
-            name: "aimc",
-            type: "stdio",
-            command: process.execPath,
-            args: ["/tmp/aimc-mcp.js"],
-            env: {
-              AIMC_TOOL_TOKEN: "secret-token",
-            },
-            toolTimeoutMs: 1_800_000,
-          },
-        ],
-      });
-
-      const encoded = plan.env?.[MANAGED_AGENT_MCP_ATTACHMENT_ENV];
-      expect(encoded).toBeTruthy();
-      expect(plan.args).not.toContain("--mcp-config");
-      expect(plan.args).not.toContain("--strict-mcp-config");
-      expect(plan.mcpServers).toBeUndefined();
-      expect(plan.redactionSecrets).toContain("managed-claude-secret");
-      expect(plan.redactionSecrets).toContain("secret-token");
-      expect(plan.redactionSecrets).toContain(encoded);
-      expect(
-        JSON.parse(Buffer.from(encoded!, "base64").toString("utf8")),
-      ).toMatchObject({
-        mcpServers: {
-          aimc: {
-            type: "stdio",
-            command: "node",
-            env: { AIMC_TOOL_TOKEN: "secret-token" },
-            timeouts: {
-              toolTimeoutMs: 1_800_000,
-            },
-          },
-        },
-      });
-      await expect(access(join(cwd, ".local-agent", "claude"))).rejects.toThrow();
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
   it("serializes HTTP MCP servers for Claude Code configs", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "claude-http-mcp-plan-"));
     try {
@@ -343,46 +266,6 @@ describe("buildClaudeLaunchPlan", () => {
       );
       expect(plan.prompt).toContain(`${skillPath}/SKILL.md`);
       await expect(readFile(join(skillPath, "SKILL.md"), "utf8")).resolves.toBe("# Tutti CLI");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps managed invocation skill delivery out of env and argv", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "claude-managed-skill-plan-"));
-    try {
-      const plan = await createClaudeProvider().buildLaunchPlan({
-        runId: "run-1",
-        cwd,
-        prompt: "use the skill",
-        managedAgentInvocation: {
-          credential: "managed-claude-secret",
-          cwd,
-        },
-        skillManifest: [
-          {
-            skillId: "tutti/tutti-cli",
-            slug: "tutti-cli",
-            deliveryMode: "materialized-files",
-            content: "# Tutti CLI",
-          },
-        ],
-      });
-
-      const skillPath = join(
-        cwd,
-        ".local-agent",
-        "runs",
-        "run-1",
-        "skills",
-        "tutti-cli",
-      );
-      expect(plan.prompt).toContain(`${skillPath}/SKILL.md`);
-      expect(plan.args.join(" ")).not.toContain(skillPath);
-      expect(Object.values(plan.env ?? {}).join(" ")).not.toContain(skillPath);
-      expect(plan.env).toMatchObject({
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: "managed-claude-secret",
-      });
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

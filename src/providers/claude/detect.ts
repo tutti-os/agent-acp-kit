@@ -3,8 +3,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { redactManagedAgentInvocationSecrets } from "../../core/managed-invocation.js";
 import type { AgentModelOption } from "../../core/provider-plugin.js";
+import { redactSecrets } from "../../core/redaction.js";
 import { resolveCommandExecutable } from "../../process/command-resolver.js";
 
 const execFileAsync = promisify(execFile);
@@ -205,6 +205,7 @@ export async function detectClaude(options?: {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   overridePath?: string;
+  redactionSecrets?: readonly string[];
 }) {
   const command = options?.command ?? "claude";
   const configDir = resolveClaudeConfigDir(options?.env);
@@ -227,7 +228,7 @@ export async function detectClaude(options?: {
       supported: false,
       unsupportedReason:
         error instanceof Error
-          ? redactManagedAgentInvocationSecrets(error.message, options?.env)
+          ? error.message
           : "Executable not found on PATH: claude, openclaude",
       version: "not-installed",
     };
@@ -249,9 +250,9 @@ export async function detectClaude(options?: {
       supported: false,
       unsupportedReason:
         error instanceof Error
-          ? redactManagedAgentInvocationSecrets(
+          ? redactSecrets(
               `Unable to run ${command} --version: ${error.message}`,
-              options?.env,
+              [...(options?.redactionSecrets ?? [])],
             )
           : `Unable to run ${command} --version`,
       version: "unknown",

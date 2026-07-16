@@ -234,7 +234,7 @@ describe("Tutti agent catalog", () => {
     });
   });
 
-  it("disables managed agents whose runtime cannot execute", async () => {
+  it("keeps every registered runtime available in direct mode", async () => {
     const catalog = await loadTuttiAgentCatalog({
       runtime: fakeRuntime({
         providers: [
@@ -242,9 +242,6 @@ describe("Tutti agent catalog", () => {
           { id: "codex", displayName: "Codex", kind: "local-agent" },
         ],
       }),
-      detectContext: {
-        managedAgentInvocation: { credential: "secret", cwd: "/tmp/run" },
-      },
       runTuttiCli: async () => ({
         schemaVersion: 1,
         defaultAgentTargetId: "local:codex",
@@ -262,10 +259,9 @@ describe("Tutti agent catalog", () => {
     expect(catalog.agents).toMatchObject([
       {
         agentTargetId: "local:opencode",
-        runtimeSupported: false,
+        runtimeSupported: true,
         availability: {
-          status: "unavailable",
-          reasonCode: "managed_provider_unsupported",
+          status: "available",
         },
       },
       { agentTargetId: "local:codex", runtimeSupported: true },

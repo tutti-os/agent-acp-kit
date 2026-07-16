@@ -97,35 +97,35 @@ const runtime = createLocalAgentRuntime({
     }),
   }],
 });
+const vmEnv = {
+  CODEX_HOME: "/home/tsh-runtime/.codex",
+  TMPDIR: "/workspace/.tsh/apps/runtimes/runtime-1/tmp",
+};
 const detectContext = {
-  managedAgentInvocation: { credential: "packed-secret", cwd: process.cwd() },
+  cwd: process.cwd(),
+  env: vmEnv,
   redactionSecrets: ["packed-existing"],
 };
 const projection = projectTuttiCliChildProcess({
-  baseEnv: {
-    TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL: "ambient-canonical",
-    TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL: "ambient-legacy",
-  },
+  baseEnv: vmEnv,
   detectContext,
 });
-if (projection.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL) {
-  throw new Error("canonical ambient credential was not removed");
+if (projection.env.CODEX_HOME !== "/home/tsh-runtime/.codex") {
+  throw new Error("VM source CODEX_HOME projection failed");
 }
-if (projection.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL !== "packed-secret") {
-  throw new Error("request credential projection failed");
-}
-if (!Object.isFrozen(projection.env) || !projection.redactionSecrets.includes("packed-secret")) {
+if (!Object.isFrozen(projection.env) || !projection.redactionSecrets.includes("packed-existing")) {
   throw new Error("projection immutability/redaction failed");
 }
-if (redactTuttiCliChildProcessText("value=packed-secret", projection.redactionSecrets) !== "value=[REDACTED]") {
+if (redactTuttiCliChildProcessText("value=packed-existing", projection.redactionSecrets) !== "value=[REDACTED]") {
   throw new Error("packed redaction helper failed");
 }
 const catalog = await loadTuttiAgentCatalog({
   detectContext,
+  env: vmEnv,
   runtime,
   runTuttiCli: async (_args, options) => {
-    if (options.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL !== "packed-secret") {
-      throw new Error("packed facade lost detectContext");
+    if (options.env.CODEX_HOME !== "/home/tsh-runtime/.codex") {
+      throw new Error("packed facade lost VM source CODEX_HOME");
     }
     return ({
     schemaVersion: 1,

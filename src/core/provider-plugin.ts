@@ -2,7 +2,6 @@ import type { AgentRuntimeRecord, RuntimeTarget } from "./capabilities.js";
 import type { DetectContext } from "./detection.js";
 import type { AgentEvent } from "./events.js";
 import type { LaunchPlan, TransportKind } from "./launch-plan.js";
-import type { ManagedAgentInvocation } from "./managed-invocation.js";
 import type { LocalAgentMcpServerConfig } from "./mcp.js";
 import type { AgentPermissionSelection } from "./permissions.js";
 import type { SkillMaterializationRecord } from "./skills.js";
@@ -68,7 +67,7 @@ export type AgentDetection<TModel extends AgentModelOption = AgentModelOption> =
 
 /** Stable app-facing provider discovery result returned by runtime.detect(). */
 export type DetectedProvider<TProvider extends string = string> = {
-  /** Exact Agent Target associated with this managed runtime when unambiguous. */
+  /** Exact Agent Target associated with this runtime when unambiguous. */
   agentTargetId?: string;
   provider: TProvider;
   displayName: string;
@@ -102,7 +101,6 @@ export type AgentRunParams<TKind extends string = string, TProvider extends stri
   signal?: AbortSignal;
   skillManifest?: SkillMaterializationRecord[];
   env?: Record<string, string>;
-  managedAgentInvocation?: ManagedAgentInvocation;
   timeoutMs?: number;
   metadata?: Record<string, unknown>;
   resume?: {

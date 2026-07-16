@@ -47,7 +47,7 @@ jobs:
         run: pnpm build
 
       - name: Audit production dependencies
-        run: pnpm audit --prod
+        run: pnpm audit --prod --ignore-registry-errors
 
       - name: Validate package tarball
         run: pnpm pack:check

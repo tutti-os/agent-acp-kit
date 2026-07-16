@@ -1,6 +1,6 @@
 {
   "name": "@tutti-os/agent-acp-kit",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "ACP-oriented toolkit for detecting, launching, and streaming local coding agents.",
   "license": "Apache-2.0",

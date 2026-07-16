@@ -5,10 +5,6 @@ import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
 import type { AgentEvent } from "../../core/events.js";
 import type { RawAgentStream } from "../../core/transport.js";
 import {
-  applyManagedAgentInvocationToRunParams,
-  prepareManagedAgentInvocationDetectContext,
-} from "../../core/managed-invocation.js";
-import {
   normalizeMcpServerConfigs,
   type NormalizedLocalAgentMcpServerConfig,
 } from "../../core/mcp.js";
@@ -134,12 +130,10 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
   async function prepareLaunchPlan(
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "claude-code">["buildLaunchPlan"]>[0],
   ) {
-    params = applyManagedAgentInvocationToRunParams("claude-code", params);
     params = {
       ...params,
       permission: resolveAgentPermissionSelection(params.permission),
     };
-    const managed = Boolean(params.managedAgentInvocation);
     const materialized = await materializeSkills(
       params.cwd,
       params.skillManifest ?? [],
@@ -155,16 +149,11 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
       .filter((skill) => skill.deliveryMode === "materialized-files")
       .map((skill) => skill.materializedPath)
       .filter((path): path is string => Boolean(path));
-    const mcpConfig = managed
-      ? {
-          cleanupTargets: [] as string[],
-          redactionSecrets: [] as string[],
-        }
-      : await materializeClaudeMcpConfig({
-          cwd: params.cwd,
-          ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
-          runId: params.runId,
-        });
+    const mcpConfig = await materializeClaudeMcpConfig({
+      cwd: params.cwd,
+      ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
+      runId: params.runId,
+    });
     const allCleanupTargets = [
       ...cleanupTargets,
       ...mcpConfig.cleanupTargets,
@@ -208,13 +197,9 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
     displayName: "Claude Code",
     kind: "local-agent",
     async detect(context) {
-      const detectionContext = prepareManagedAgentInvocationDetectContext(
-        "claude-code",
-        context,
-      );
       return detectClaude({
-        ...(detectionContext?.cwd ? { cwd: detectionContext.cwd } : {}),
-        ...(detectionContext?.env ? { env: detectionContext.env } : {}),
+        ...(context?.cwd ? { cwd: context.cwd } : {}),
+        ...(context?.env ? { env: context.env } : {}),
       });
     },
     capabilities() {
