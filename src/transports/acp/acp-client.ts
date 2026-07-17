@@ -16,7 +16,16 @@ function toolCallId(source: Record<string, unknown>) {
 }
 
 function optionalToolCallName(source: Record<string, unknown>) {
-  const value = source.name ?? source.toolName ?? source.kind ?? source.title;
+  // ACP providers commonly use `kind: "other"` for MCP calls and put the
+  // actual MCP tool name in `title`. Keep specific standard kinds such as
+  // `read` canonical, but prefer a title over the generic `other` kind.
+  const explicitName = source.name ?? source.toolName;
+  const kind = source.kind;
+  const value =
+    explicitName ??
+    (kind !== undefined && String(kind).toLowerCase() !== "other"
+      ? kind
+      : (source.title ?? kind));
   return value === undefined || value === null ? undefined : String(value);
 }
 
@@ -198,6 +207,10 @@ export async function* runAcpTransport(
   let done = false;
   let fatalError = false;
   let lifecycleSettled = false;
+  let promptCompleted = false;
+  let transportClosedProcess = false;
+  let promptExitTimer: NodeJS.Timeout | undefined;
+  let promptKillFallbackTimer: NodeJS.Timeout | undefined;
   let nextId = 1;
   let sessionId: string | undefined;
   let resumeToken: string | undefined;
@@ -349,6 +362,14 @@ export async function* runAcpTransport(
   });
 
   const waitForExit = processHandle.waitForExit().then(({ code, signal, timedOut }) => {
+    if (promptExitTimer) clearTimeout(promptExitTimer);
+    if (promptKillFallbackTimer) clearTimeout(promptKillFallbackTimer);
+    const completedByClientShutdown =
+      promptCompleted &&
+      transportClosedProcess &&
+      !params.signal?.aborted &&
+      !timedOut &&
+      (signal != null || code === 143 || code === 137);
     if (pending.size > 0) {
       failPending(
         new Error(
@@ -365,7 +386,7 @@ export async function* runAcpTransport(
         code: "process_timeout",
         message: `ACP process timed out after ${plan.timeoutMs}ms.`,
       });
-    } else if (code && code !== 0) {
+    } else if (code && code !== 0 && !completedByClientShutdown) {
       const stderrTail = processHandle.stderr.tail().trim();
       queue.push({
         type: "error",
@@ -376,13 +397,16 @@ export async function* runAcpTransport(
             : `ACP process exited with code ${code}.`,
       });
     }
-    const failed = fatalError || timedOut || (code != null && code !== 0);
-    const canceled = signal != null && !failed;
+    const failed =
+      fatalError ||
+      timedOut ||
+      (!completedByClientShutdown && code != null && code !== 0);
+    const canceled = signal != null && !failed && !completedByClientShutdown;
     queue.push({
       type: "done",
       status: canceled ? "canceled" : failed ? "failed" : "completed",
       reason: canceled ? "cancelled" : failed ? "error" : "completed",
-      exitCode: code,
+      exitCode: completedByClientShutdown ? 0 : code,
       ...(sessionId ? { sessionId } : {}),
       ...(resumeToken ? { resumeToken } : {}),
     });
@@ -434,7 +458,30 @@ export async function* runAcpTransport(
         sessionId,
         prompt: [{ type: "text", text: params.prompt }],
       });
+      promptCompleted = true;
       processHandle.child.stdin.end();
+      // ACP peers are long-lived JSON-RPC servers. Once session/prompt has
+      // acknowledged the completed turn, give buffered notifications a short
+      // drain window, then reclaim the child instead of waiting for a server
+      // that is allowed to stay alive indefinitely.
+      promptExitTimer = setTimeout(() => {
+        if (params.signal?.aborted) return;
+        if (
+          processHandle.child.exitCode === null &&
+          processHandle.child.signalCode === null
+        ) {
+          transportClosedProcess = true;
+          processHandle.child.kill("SIGTERM");
+          promptKillFallbackTimer = setTimeout(() => {
+            if (
+              processHandle.child.exitCode === null &&
+              processHandle.child.signalCode === null
+            ) {
+              processHandle.child.kill("SIGKILL");
+            }
+          }, 2_000);
+        }
+      }, 250);
     } catch (error) {
       fatalError = true;
       queue.push({

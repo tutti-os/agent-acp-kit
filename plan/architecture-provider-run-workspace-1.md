@@ -71,6 +71,7 @@ This plan defines and executes a provider preparation architecture that keeps fo
 | TASK-010 | Add Cursor and OpenCode tests proving TMPDIR skill materialization, prompt delivery, ACP MCP forwarding, duplicate protection, and cleanup. | ✅ | 2026-07-17 |
 | TASK-011 | Run Cursor and OpenCode executable detection in the development environment and record supported/auth/model outcomes without mutating user configuration. | ✅ | 2026-07-17 |
 | TASK-012 | Run `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm pack:check`, and `pnpm test:packed-consumer`; update this plan status and task completion fields. | ✅ | 2026-07-17 |
+| TASK-013 | Exercise a real stdio MCP tool through Claude, Codex, Cursor, and OpenCode; normalize long-lived ACP peer shutdown and isolate Codex child temp files below its run home. | ✅ | 2026-07-17 |
 
 ## 3. Alternatives
 
@@ -93,6 +94,7 @@ This plan defines and executes a provider preparation architecture that keeps fo
 - **FILE-004**: `tests/providers/acp-providers.test.ts` — Generic ACP, Cursor, and OpenCode launch-plan/lifecycle tests.
 - **FILE-005**: `tests/providers/codex-launch-plan.test.ts` — Codex-compatible concurrency and cleanup tests.
 - **FILE-006**: `README.md` — provider storage and skill-delivery behavior.
+- **FILE-007**: `src/transports/acp/acp-client.ts` — ACP MCP forwarding, tool-event projection, and completed-turn child reclamation.
 
 ## 6. Testing
 
@@ -102,6 +104,8 @@ This plan defines and executes a provider preparation architecture that keeps fo
 - **TEST-004**: Verify direct run, adapter completion, preparation failure, and duplicate `runId` paths remove all run-scoped directories.
 - **TEST-005**: Verify Codex and Tutti Agent reject duplicate preparation and adapter reuse without deleting another run's artifacts.
 - **TEST-006**: Verify the complete package test, build, pack, and packed-consumer commands pass.
+- **TEST-007**: Start a real stdio MCP server and require installed provider CLIs to discover and invoke its `validation_echo` tool, return a run-unique marker, and leave no run temp artifacts.
+- **TEST-008**: Verify a long-lived ACP peer is reclaimed after `session/prompt` acknowledges completion and a wrapper-style exit code 143 is normalized as a completed client shutdown.
 
 Validation record from 2026-07-17:
 
@@ -119,6 +123,27 @@ The same validation exposed standard ACP `tool_call_update` events being
 projected as duplicate anonymous calls. The transport now coalesces each
 `toolCallId` into one named call and one terminal result. Final live validation
 produced `read`/`completed` call-result pairs for both Cursor and OpenCode.
+
+Real stdio MCP validation used a local `validation_echo` server whose marker
+was available only from `tools/call`. The audit file proved that each passing
+provider invoked the tool with `{ value: "probe" }`; matching assistant text
+alone was not considered sufficient evidence.
+
+| Provider | Real MCP result | Final duration | Cleanup/result |
+|----------|-----------------|----------------|----------------|
+| Claude | Passed: config materialization, tool discovery, call, and result | 25.35 seconds | Completed; cwd and runtime temp empty |
+| Codex | Passed: TOML config, tool discovery, call, and result | 48.89 seconds | Completed; only the intentional cwd root marker remains; runtime temp empty |
+| Cursor | Passed: ACP `session/new`, discovery, call, and result | 27.25 seconds | Completed; long-lived ACP peer reclaimed; cwd and runtime temp empty |
+| OpenCode | Passed: ACP `session/new`, discovery, call, and result | 9.84 seconds | Completed; cwd and runtime temp empty |
+| Tutti Agent | Not completed: CLI returned `ACC_SESSION_EXPIRED` before the model could invoke MCP | N/A | MCP config generation is covered deterministically; live call requires renewed user login |
+| Other Generic ACP presets | Deterministic transport/config/cleanup coverage only | N/A | Live MCP calls require each optional CLI and its credentials |
+
+The Cursor validation originally completed the MCP call but left its ACP
+server running until the process watchdog. ACP peers are long-lived servers,
+so the transport now treats the successful `session/prompt` response as the
+turn boundary, drains queued notifications, and reclaims the child. Codex now
+sets `TMPDIR`, `TEMP`, and `TMP` to `CODEX_HOME/tmp` inside the run home, so
+provider/MCP scratch files are deleted by the same lifecycle cleanup.
 
 ## 7. Risks & Assumptions
 

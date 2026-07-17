@@ -686,6 +686,8 @@ function createCodexCompatibleProvider<TProvider extends string>(
         normalizeMcpServerConfigs(params.mcpServers ?? []),
       );
       const codexHome = await workspace.getRoot();
+      const providerTemp = join(codexHome, "tmp");
+      await mkdir(providerTemp, { recursive: true });
       const homePromise = materializeCodexHome({
         defaultHomeDirName: options.defaultHomeDirName,
         displayName: options.displayName,
@@ -723,6 +725,9 @@ function createCodexCompatibleProvider<TProvider extends string>(
           env: {
             ...(codexEnv ?? {}),
             [options.homeEnvKey]: codexHome,
+            TMPDIR: providerTemp,
+            TEMP: providerTemp,
+            TMP: providerTemp,
           },
           ...(normalizedModel ? { model: normalizedModel } : {}),
           prompt,
