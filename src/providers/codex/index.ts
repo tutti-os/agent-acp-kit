@@ -17,7 +17,7 @@ import type { AgentEvent } from "../../core/events.js";
 import type { RawAgentStream } from "../../core/transport.js";
 import { normalizeMcpServerConfigs } from "../../core/mcp.js";
 import { resolveAgentPermissionSelection } from "../../core/permissions.js";
-import { materializeSkills } from "../../skills/materialize.js";
+import { materializeSkillsIntoRoot } from "../../skills/materialize.js";
 import { cleanupPaths } from "../../skills/cleanup.js";
 import { skillPromptLabel } from "../../skills/prompt-injection.js";
 import { resolveTempDir } from "../../process/env.js";
@@ -122,7 +122,7 @@ function buildCodexPrompt(input: {
 
   const materializedSkillSection =
     materializedSkills.length > 0
-      ? `Workspace skills are materialized under the current run directory. Read the referenced SKILL.md before following a skill.\n${materializedSkills
+      ? `Selected skills are materialized under the current provider run home. Read the referenced SKILL.md before following a skill.\n${materializedSkills
           .map((skill) => `- ${skillPromptLabel(skill.slug)}: ${skill.materializedPath}/SKILL.md`)
           .join("\n")}`
       : "";
@@ -697,24 +697,6 @@ function createCodexCompatibleProvider<TProvider extends string>(
       const codexEnv = params.env;
       const projectRootMarker = await ensureCodexProjectRootMarker(params.cwd);
       if (projectRootMarker) cleanupTargets.push(projectRootMarker);
-      const materialized = await materializeSkills(
-        params.cwd,
-        params.skillManifest ?? [],
-        params.runId,
-      );
-      cleanupTargets.push(
-        ...materialized
-          .filter((skill) => skill.deliveryMode === "materialized-files")
-          .map((skill) => skill.materializedPath)
-          .filter((path): path is string => Boolean(path)),
-      );
-      const prompt = buildCodexPrompt({
-        prompt: params.prompt,
-        ...(params.history ? { history: params.history } : {}),
-        skills: materialized,
-        ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
-        runtimeName: options.runtimeName,
-      });
       const normalizedModel = normalizeCodexModel(params.model, options.providerId);
       const redactionSecrets = collectMcpRedactionSecrets(
         normalizeMcpServerConfigs(params.mcpServers ?? []),
@@ -730,6 +712,17 @@ function createCodexCompatibleProvider<TProvider extends string>(
         runHomeDirName: options.runHomeDirName,
       });
       cleanupTargets.push(codexHome);
+      const materialized = await materializeSkillsIntoRoot(
+        join(codexHome, "skills"),
+        params.skillManifest ?? [],
+      );
+      const prompt = buildCodexPrompt({
+        prompt: params.prompt,
+        ...(params.history ? { history: params.history } : {}),
+        skills: materialized,
+        ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
+        runtimeName: options.runtimeName,
+      });
 
       const { env: _env, ...paramsWithoutEnv } = params;
       const plan = buildCodexLaunchPlan(
