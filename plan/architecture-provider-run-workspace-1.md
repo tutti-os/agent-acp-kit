@@ -110,6 +110,12 @@ Validation record from 2026-07-17:
 | Cursor | Supported; 7.55 seconds; live model catalog returned | `ACP_OK`; 13.82 seconds on the final run; one preceding 45-second provider timeout was retried | Project cwd unchanged; runtime root empty after completion and timeout |
 | OpenCode | Supported; 0.87 seconds; default model returned | `ACP_OK`; 10.08 seconds on the final run | Project cwd unchanged; runtime root empty after completion |
 
+Materialized-skill read validation used a random marker available only inside
+the generated `SKILL.md`. OpenCode read and returned the marker in 14.64
+seconds. Cursor read and returned the marker in 24.12 seconds but prefixed one
+explanatory sentence despite the exact-output instruction. Both providers used
+file tools successfully and left the project cwd and runtime root empty.
+
 ## 7. Risks & Assumptions
 
 - **RISK-001**: Some ACP providers may ignore prompt-referenced skill paths. Mitigation: keep prompt-injected content supported and validate representative Cursor/OpenCode ACP sessions.

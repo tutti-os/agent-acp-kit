@@ -308,4 +308,57 @@ setTimeout(() => process.exit(42), 10);
     expect(readdirSync(runtimeTmp)).toEqual([]);
     expect(readdirSync(cwd)).toEqual([]);
   });
+
+  it("runs every known ACP preset through the shared transport and cleanup lifecycle", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "agent-acp-kit-known-acp-runs-"));
+    tempDirs.push(scratch);
+    const command = join(scratch, "fake-acp-provider");
+    writeFileSync(
+      command,
+      `#!${process.execPath}\n${createFakeAcpPeerScript({
+        updates: [{ type: "text_delta", text: "PRESET_OK" }],
+      })}`,
+    );
+    chmodSync(command, 0o755);
+
+    for (const spec of ACP_PROVIDER_SPECS) {
+      const cwd = join(scratch, `workspace-${spec.id}`);
+      const runtimeTmp = join(scratch, `runtime-${spec.id}`);
+      mkdirSync(cwd, { recursive: true });
+      const previousOverride = process.env[spec.binEnvKey];
+      process.env[spec.binEnvKey] = command;
+      try {
+        const events = [];
+        const provider = createKnownAcpProvider(spec.id);
+        for await (const event of provider.run({
+          runId: `run-${spec.id}`,
+          cwd,
+          prompt: "validate preset",
+          env: { TMPDIR: runtimeTmp },
+          skillManifest: [
+            {
+              skillId: "validation/preset",
+              slug: "validation-preset",
+              deliveryMode: "materialized-files",
+              content: `# ${spec.displayName}\n`,
+            },
+          ],
+        })) {
+          events.push(event);
+        }
+        expect(events).toContainEqual({ type: "text_delta", text: "PRESET_OK" });
+        expect(events).toContainEqual(
+          expect.objectContaining({ type: "done", status: "completed" }),
+        );
+        expect(readdirSync(cwd)).toEqual([]);
+        expect(readdirSync(runtimeTmp)).toEqual([]);
+      } finally {
+        if (previousOverride === undefined) {
+          delete process.env[spec.binEnvKey];
+        } else {
+          process.env[spec.binEnvKey] = previousOverride;
+        }
+      }
+    }
+  });
 });
