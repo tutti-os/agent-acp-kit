@@ -110,6 +110,204 @@ describe("runAcpTransport", () => {
     ]);
   });
 
+  it("coalesces standard ACP tool_call updates into one call and one result", async () => {
+    const events = [];
+    const script = createFakeAcpPeerScript({
+      updates: [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "call_read_1",
+          title: "Read /tmp/SKILL.md",
+          kind: "read",
+          status: "pending",
+          rawInput: {},
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call_read_1",
+          status: "in_progress",
+          rawInput: { filePath: "/tmp/SKILL.md" },
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call_read_1",
+          title: "/tmp/SKILL.md",
+          status: "completed",
+          rawOutput: { output: "# Skill" },
+        },
+      ],
+    });
+
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "read skill",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
+      },
+      {
+        cwd: process.cwd(),
+        prompt: "read skill",
+        runId: "run_acp_standard_tool",
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "tool_call",
+        id: "call_read_1",
+        name: "read",
+        input: {},
+      },
+      {
+        type: "tool_result",
+        id: "call_read_1",
+        name: "read",
+        status: "completed",
+        output: { output: "# Skill" },
+      },
+      {
+        type: "done",
+        status: "completed",
+        reason: "completed",
+        exitCode: 0,
+        sessionId: "session_fake",
+      },
+    ]);
+  });
+
+  it("uses an MCP tool title instead of the generic ACP other kind", async () => {
+    const events = [];
+    const script = createFakeAcpPeerScript({
+      updates: [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "call_mcp_1",
+          title: "validation_echo",
+          kind: "other",
+          status: "pending",
+          rawInput: { value: "probe" },
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call_mcp_1",
+          status: "completed",
+          rawOutput: { output: "echo:probe" },
+        },
+      ],
+    });
+
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "call MCP",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
+      },
+      {
+        cwd: process.cwd(),
+        prompt: "call MCP",
+        runId: "run_acp_mcp_title",
+      },
+    )) events.push(event);
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "tool_call",
+        id: "call_mcp_1",
+        name: "validation_echo",
+      }),
+      expect.objectContaining({
+        type: "tool_result",
+        id: "call_mcp_1",
+        name: "validation_echo",
+        status: "completed",
+      }),
+    ]));
+  });
+
+  it("forwards MCP servers through session/new and reclaims a long-lived ACP peer", async () => {
+    const script = String.raw`
+process.stdin.setEncoding("utf8");
+let buffer = "";
+setInterval(() => {}, 1000);
+process.on("SIGTERM", () => process.exit(143));
+function send(message) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+}
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  let index = buffer.indexOf("\n");
+  while (index >= 0) {
+    const line = buffer.slice(0, index).trim();
+    buffer = buffer.slice(index + 1);
+    index = buffer.indexOf("\n");
+    if (!line) continue;
+    const message = JSON.parse(line);
+    if (message.method === "initialize") {
+      send({ id: message.id, result: { ok: true } });
+    } else if (message.method === "session/new") {
+      const servers = message.params?.mcpServers;
+      if (servers?.[0]?.type !== "stdio" ||
+          servers[0]?.name !== "validation" ||
+          servers[0]?.command !== "node" ||
+          servers[0]?.args?.[0] !== "server.mjs" ||
+          servers[0]?.env?.[0]?.name !== "TOKEN" ||
+          servers[0]?.env?.[0]?.value !== "secret") {
+        send({ id: message.id, error: { code: -32000, message: "invalid MCP forwarding" } });
+        continue;
+      }
+      send({ id: message.id, result: { sessionId: "session-mcp" } });
+    } else if (message.method === "session/prompt") {
+      send({ method: "session/update", params: { sessionUpdate: "text_delta", content: { text: "MCP ready" } } });
+      send({ id: message.id, result: { stopReason: "end_turn" } });
+    }
+  }
+});
+`;
+    const startedAt = Date.now();
+    const events = [];
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "call MCP",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
+      },
+      {
+        cwd: process.cwd(),
+        mcpServers: [{
+          name: "validation",
+          command: "node",
+          args: ["server.mjs"],
+          env: { TOKEN: "secret" },
+        }],
+        prompt: "call MCP",
+        runId: "run_acp_mcp_forwarding",
+      },
+    )) events.push(event);
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(events).toEqual([
+      { type: "text_delta", text: "MCP ready" },
+      {
+        type: "done",
+        status: "completed",
+        reason: "completed",
+        exitCode: 0,
+        sessionId: "session-mcp",
+      },
+    ]);
+  });
+
   it("waits for lifecycle acknowledgements and sets model before prompt", async () => {
     const events = [];
     const script = createFakeAcpPeerScript({

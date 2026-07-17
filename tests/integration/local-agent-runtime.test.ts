@@ -434,4 +434,41 @@ describe("createLocalAgentRuntime", () => {
     expect(transportPlan?.cwd).toBe("/workspace/project");
     expect(events).toEqual([{ type: "done", status: "completed", reason: "completed" }]);
   });
+
+  it("emits opt-in provider preparation and execution timing diagnostics", async () => {
+    const provider = createFakeProvider({
+      events: [
+        { type: "text_delta", text: "hello" },
+        { type: "tool_call", id: "tool-1", name: "read" },
+        { type: "done", status: "completed" },
+      ],
+    });
+    const runtime = createLocalAgentRuntime({ providers: [provider] });
+    const events: AgentEvent[] = [];
+
+    for await (const event of runtime.run({
+      runId: "timed-run",
+      provider: "fake",
+      cwd: process.cwd(),
+      prompt: "hello",
+      metadata: { timingDiagnostics: true },
+    })) events.push(event);
+
+    const diagnostics = events.flatMap((event) =>
+      event.type === "status" && event.diagnostic ? [event.diagnostic] : [],
+    );
+    expect(diagnostics.map((diagnostic) => diagnostic.stage)).toEqual([
+      "process_env",
+      "tutti_run_context",
+      "provider_plan",
+      "transport_started",
+      "provider_first_event",
+      "provider_first_text",
+      "provider_first_tool",
+      "provider_done",
+    ]);
+    expect(diagnostics.every((diagnostic) => diagnostic.elapsedMs >= 0)).toBe(true);
+    expect(diagnostics.every((diagnostic) => diagnostic.totalElapsedMs >= 0)).toBe(true);
+    expect(JSON.stringify(diagnostics)).not.toContain(process.cwd());
+  });
 });

@@ -4,6 +4,15 @@ export type AgentEvent =
       status?: "initializing" | "detecting" | "spawning" | "running" | "warning";
       stage?: "detecting" | "spawning" | "running" | "warning";
       message?: string;
+      /** Opt-in, secret-free timing diagnostics for app-owned observability. */
+      diagnostic?: {
+        kind: "timing";
+        phase: "prepare" | "run";
+        stage: string;
+        elapsedMs: number;
+        totalElapsedMs: number;
+        outcome?: "completed" | "failed" | "canceled";
+      };
     }
   | { type: "thinking"; text: string }
   | { type: "thinking_delta"; text: string }

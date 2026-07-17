@@ -248,9 +248,9 @@ import {
 | Kiro                        | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `KIRO_ACP_BIN`                                                                                                                                                                                           |
 | Kilo                        | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `KILO_ACP_BIN`                                                                                                                                                                                           |
 | Mistral Vibe                | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `VIBE_ACP_BIN`                                                                                                                                                                                           |
-| Cursor Agent                | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `CURSOR_ACP_BIN`                                                                                                                                                                                         |
+| Cursor Agent                | Experimental | ACP JSON-RPC                            | Shared generic ACP transport with run-scoped selected skills; command override `CURSOR_ACP_BIN`                                                                                                                                                         |
 | Gemini CLI                  | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `GEMINI_ACP_BIN`                                                                                                                                                                                         |
-| OpenCode                    | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `OPENCODE_ACP_BIN`                                                                                                                                                                                       |
+| OpenCode                    | Experimental | ACP JSON-RPC                            | Shared generic ACP transport with run-scoped selected skills; command override `OPENCODE_ACP_BIN`                                                                                                                                                       |
 | Qoder CLI                   | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `QODER_ACP_BIN`                                                                                                                                                                                          |
 | Qwen Code                   | Experimental | ACP JSON-RPC                            | Shared generic ACP transport; command override `QWEN_ACP_BIN`                                                                                                                                                                                           |
 | Generic ACP                 | Experimental | ACP JSON-RPC                            | Bring your own ACP agent command                                                                                                                                                                                                                        |
@@ -269,6 +269,13 @@ preserves compatible `config.toml` settings such as custom model providers and
 `base_url`, removes Codex config values known to break current CLI parsing,
 disables Codex native multi-agent for single-process run lifecycle safety, and
 overlays any run-scoped MCP server config.
+
+Codex and Tutti Agent keep one `.agent-acp-kit-codex-root` marker in the
+application working directory after the first successful preparation. The
+marker is project metadata used by Codex root discovery. It is deliberately
+not created and removed per run: concurrent runs share it, avoiding remote
+filesystem churn and preventing one finishing run from removing another
+run's root marker.
 
 ## Host Integration Pattern
 
@@ -355,6 +362,37 @@ hosts can distinguish same-named tools exposed by different MCP servers while
 keeping backward-compatible short-name routing.
 
 Hosts should persist enough event data for replay and should treat `done` as the terminal source of truth for a run. Individual `error` events are diagnostics, not terminal status by themselves.
+
+### Opt-in timing diagnostics
+
+Apps can ask the runtime for secret-free preparation and execution timings by
+setting `metadata.timingDiagnostics` on a run:
+
+```ts
+for await (const event of runtime.run({
+  runId,
+  provider: "codex",
+  cwd,
+  prompt,
+  metadata: { timingDiagnostics: true },
+})) {
+  if (event.type === "status" && event.diagnostic?.kind === "timing") {
+    appLogger.info("agent_kit_timing", event.diagnostic);
+    continue;
+  }
+  // Project normal provider events into the UI.
+}
+```
+
+Timing diagnostics separate runtime preparation (`process_env`,
+`tutti_run_context`, and `provider_plan`) from provider execution
+(`transport_started`, `provider_first_event`, `provider_first_text`,
+`provider_first_tool`, and `provider_done`). Failed preparation and provider
+stream stages carry an `outcome` without including the error message. Each
+diagnostic contains stage and total elapsed milliseconds only; it never
+contains prompts, paths, environment values, MCP credentials, or provider
+output. Hosts should persist these events with their own run id and should not
+render them as user-visible agent status messages.
 
 Codex reconnect progress such as `Reconnecting... 2/5 (request timed out)` is a transient provider retry state. The Codex provider maps those JSONL messages to `status` events with `status: "warning"` so hosts can show progress without ending the run.
 
@@ -506,21 +544,33 @@ Keep tool tokens run-scoped and short-lived. Do not pass broad application secre
 
 - `materialized-files`: writes selected skills into the run-scoped native
   provider home when the provider supports it (`CODEX_HOME/skills` for Codex
-  and `TUTTI_AGENT_HOME/skills` for Tutti Agent), then references them in the
-  prompt. Other providers retain their run-workspace delivery layout.
+  and `TUTTI_AGENT_HOME/skills` for Tutti Agent), or into a provider-owned
+  temporary run root for Claude Code and Generic ACP providers, then references
+  them in the prompt. Cursor, OpenCode, and the other ACP presets use this
+  Generic ACP layout without replacing their authentication `HOME`.
 - `prompt-injection`: injects skill content into the provider prompt.
 - `project-instructions`: injects instruction-style skill content.
 
-The package handles delivery and cleanup. The host remains the source of truth for skill selection, permission, and storage.
+The package handles delivery and cleanup for runtime and adapter execution. A
+host that calls a provider's low-level `buildLaunchPlan()` directly owns the
+resulting launch-plan artifact lifetime. The host remains the source of truth
+for skill selection, permission, and storage.
 
-Codex-compatible provider homes are already run-scoped. Their parent directory
+Codex-compatible provider homes, Claude Code invocation artifacts, and Generic
+ACP selected-skill roots are run-scoped. Their parent directory
 comes from run env `TMPDIR`, `TEMP`, or `TMP`, falling back to the process env
 and then the operating-system temp directory. Consequently VM callers can set
 `TMPDIR` to an App runtime directory while non-VM callers need no special
 configuration. Selected skills never mutate the source or global provider
-home. For these native provider homes, `materializedPath` is treated as an
-input hint only; the provider rewrites the effective path to
-`<run-home>/skills/<safe-slug>`.
+home, or the project working directory. Generic ACP child-process `TMPDIR`,
+`TEMP`, and `TMP` point at an isolated `tmp/` below the same run root so
+provider-generated logs and scratch files are reclaimed with the run. Claude
+Code's generated MCP config
+is kept in the same temporary run root. Generic ACP MCP definitions are
+delivered through ACP `session/new` and are not copied into generated files. For
+provider-owned roots,
+`materializedPath` is treated as an input hint only; the provider rewrites the
+effective path to `<run-home>/skills/<safe-slug>`.
 
 Hosts can also pass skill manifests produced by external commands. Tutti
 workspace apps can use the Tutti subpath helper to load dynamic CLI skills, then

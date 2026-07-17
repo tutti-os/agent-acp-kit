@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { LocalAgentProviderPlugin } from "../../core/provider-plugin.js";
@@ -9,10 +9,10 @@ import {
   type NormalizedLocalAgentMcpServerConfig,
 } from "../../core/mcp.js";
 import { resolveAgentPermissionSelection } from "../../core/permissions.js";
-import { materializeSkills } from "../../skills/materialize.js";
-import { cleanupPaths } from "../../skills/cleanup.js";
+import { materializeSkillsIntoRoot } from "../../skills/materialize.js";
 import { composePromptWithSkills } from "../../skills/prompt-injection.js";
 import { runJsonlTransport } from "../../transports/jsonl/jsonl-transport.js";
+import { createProviderRunWorkspaceManager } from "../run-workspace.js";
 import { detectClaude } from "./detect.js";
 import { buildClaudeLaunchPlan } from "./launch-plan.js";
 import { createClaudeEventMapper } from "./parser.js";
@@ -93,21 +93,17 @@ function collectMcpRedactionSecrets(
 }
 
 async function materializeClaudeMcpConfig(params: {
-  cwd: string;
+  runRoot: string;
   mcpServers?: Parameters<typeof normalizeMcpServerConfigs>[0];
-  runId: string;
 }) {
   const normalizedServers = normalizeMcpServerConfigs(params.mcpServers ?? []);
   if (normalizedServers.length === 0) {
     return {
-      cleanupTargets: [] as string[],
       redactionSecrets: [] as string[],
     };
   }
 
-  const configDir = join(params.cwd, ".local-agent", "claude");
-  await mkdir(configDir, { recursive: true });
-  const configPath = join(configDir, `${params.runId}-mcp.json`);
+  const configPath = join(params.runRoot, "mcp.json");
   await writeFile(
     configPath,
     JSON.stringify(buildClaudeMcpConfig(normalizedServers)),
@@ -115,7 +111,6 @@ async function materializeClaudeMcpConfig(params: {
   );
 
   return {
-    cleanupTargets: [configPath],
     mcpConfigPath: configPath,
     redactionSecrets: collectMcpRedactionSecrets(normalizedServers),
   };
@@ -125,7 +120,7 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
   "local-agent",
   "claude-code"
 > {
-  const cleanupByRunId = new Map<string, string[]>();
+  const runWorkspaces = createProviderRunWorkspaceManager("claude");
 
   async function prepareLaunchPlan(
     params: Parameters<LocalAgentProviderPlugin<"local-agent", "claude-code">["buildLaunchPlan"]>[0],
@@ -134,60 +129,70 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
       ...params,
       permission: resolveAgentPermissionSelection(params.permission),
     };
-    const materialized = await materializeSkills(
-      params.cwd,
-      params.skillManifest ?? [],
-      params.runId,
-    );
-    const prompt = composePromptWithSkills({
-      prompt: params.prompt,
-      ...(params.history ? { history: params.history } : {}),
-      skills: materialized,
-      ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
-    });
-    const cleanupTargets = materialized
-      .filter((skill) => skill.deliveryMode === "materialized-files")
-      .map((skill) => skill.materializedPath)
-      .filter((path): path is string => Boolean(path));
-    const mcpConfig = await materializeClaudeMcpConfig({
-      cwd: params.cwd,
-      ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
-      runId: params.runId,
-    });
-    const allCleanupTargets = [
-      ...cleanupTargets,
-      ...mcpConfig.cleanupTargets,
-    ];
-    if (allCleanupTargets.length > 0) {
-      cleanupByRunId.set(params.runId, allCleanupTargets);
+    const skillManifest = params.skillManifest ?? [];
+    const needsRunRoot =
+      skillManifest.some((skill) => skill.deliveryMode === "materialized-files") ||
+      (params.mcpServers?.length ?? 0) > 0;
+    if (!needsRunRoot) {
+      return buildClaudeLaunchPlan(
+        {
+          ...params,
+          prompt: composePromptWithSkills({
+            prompt: params.prompt,
+            ...(params.history ? { history: params.history } : {}),
+            skills: skillManifest,
+            ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
+          }),
+        },
+        "claude",
+      );
     }
-    const plan = buildClaudeLaunchPlan(
-      {
-        ...params,
-        prompt,
-      },
-      "claude",
-      mcpConfig.mcpConfigPath
-        ? { mcpConfigPath: mcpConfig.mcpConfigPath }
-        : undefined,
-    );
+    return runWorkspaces.prepare(params.runId, params.env, async (workspace) => {
+      const runRoot = await workspace.getRoot();
+      const skillsPromise = materializeSkillsIntoRoot(
+        join(runRoot, "skills"),
+        skillManifest,
+      );
+      const mcpConfigPromise = materializeClaudeMcpConfig({
+        runRoot,
+        ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
+      });
+      const [skillsResult, mcpResult] = await Promise.allSettled([
+        skillsPromise,
+        mcpConfigPromise,
+      ]);
+      if (skillsResult.status === "rejected") throw skillsResult.reason;
+      if (mcpResult.status === "rejected") throw mcpResult.reason;
+      const materialized = skillsResult.value;
+      const mcpConfig = mcpResult.value;
+      const prompt = composePromptWithSkills({
+        prompt: params.prompt,
+        ...(params.history ? { history: params.history } : {}),
+        skills: materialized,
+        ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
+      });
+      const plan = buildClaudeLaunchPlan(
+        {
+          ...params,
+          prompt,
+        },
+        "claude",
+        mcpConfig.mcpConfigPath
+          ? { mcpConfigPath: mcpConfig.mcpConfigPath }
+          : undefined,
+      );
 
-    if (mcpConfig.redactionSecrets.length === 0) {
-      return plan;
-    }
+      if (mcpConfig.redactionSecrets.length === 0) {
+        return plan;
+      }
 
-    return {
-      ...plan,
-      redactionSecrets: Array.from(
-        new Set([...(plan.redactionSecrets ?? []), ...mcpConfig.redactionSecrets]),
-      ),
-    };
-  }
-
-  async function cleanupRun(runId: string) {
-    const cleanupTargets = cleanupByRunId.get(runId) ?? [];
-    cleanupByRunId.delete(runId);
-    await cleanupPaths(cleanupTargets);
+      return {
+        ...plan,
+        redactionSecrets: Array.from(
+          new Set([...(plan.redactionSecrets ?? []), ...mcpConfig.redactionSecrets]),
+        ),
+      };
+    });
   }
 
   const plugin: LocalAgentProviderPlugin<"local-agent", "claude-code"> = {
@@ -223,13 +228,21 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
       let adapterRunId: string | undefined;
       return {
         buildLaunchPlan: async (params) => {
+          if (adapterRunId) {
+            throw new Error("Claude runtime adapters can prepare only one run.");
+          }
           adapterRunId = params.runId;
-          return {
-            ...(await prepareLaunchPlan(params)),
-            ...(params.model ? { model: params.model } : {}),
-            runId: params.runId,
-            transport: "jsonl",
-          };
+          try {
+            return {
+              ...(await prepareLaunchPlan(params)),
+              ...(params.model ? { model: params.model } : {}),
+              runId: params.runId,
+              transport: "jsonl",
+            };
+          } catch (error) {
+            adapterRunId = undefined;
+            throw error;
+          }
         },
         capabilities: () => plugin.capabilities(),
         parseEvents: async function* (stream) {
@@ -237,7 +250,7 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
             yield* parseClaudeRawEvents(stream);
           } finally {
             if (adapterRunId) {
-              await cleanupRun(adapterRunId);
+              await runWorkspaces.cleanup(adapterRunId);
             }
           }
         },
@@ -254,7 +267,7 @@ export function createClaudeProvider(): LocalAgentProviderPlugin<
       try {
         yield* runJsonlTransport(plan, mapClaudeEvent, params.signal);
       } finally {
-        await cleanupRun(params.runId);
+        await runWorkspaces.cleanup(params.runId);
       }
     },
   };
