@@ -203,3 +203,64 @@ export async function materializeSkills(
 
   return materialized;
 }
+
+/**
+ * Materialize selected skills into a provider-owned, run-scoped skills root.
+ *
+ * Provider homes own their native skills layout, so caller-provided
+ * `materializedPath` hints are deliberately replaced with stable slug
+ * directories below `skillsRoot`. This keeps app-controlled paths from
+ * escaping or recreating workspace-relative layouts inside the provider home.
+ */
+export async function materializeSkillsIntoRoot(
+  skillsRoot: string,
+  skills: SkillMaterializationRecord[],
+) {
+  const resolvedSkillsRoot = resolve(skillsRoot);
+  await mkdir(resolvedSkillsRoot, { recursive: true });
+  await assertNotSymlink(resolvedSkillsRoot);
+
+  const materialized: SkillMaterializationRecord[] = [];
+  const seenRoots = new Set<string>();
+
+  for (const skill of skills) {
+    if (skill.deliveryMode !== "materialized-files") {
+      materialized.push(skill);
+      continue;
+    }
+
+    if (skill.materializedPath !== undefined) {
+      assertNoControlCharacters(skill.materializedPath, "Skill materialization path");
+    }
+
+    const rootPath = join(
+      resolvedSkillsRoot,
+      stablePathSegment(skill.slug, "skill"),
+    );
+    assertStrictInside(resolvedSkillsRoot, rootPath);
+    if (seenRoots.has(rootPath)) {
+      throw new Error(`Duplicate skill materialization path: ${rootPath}`);
+    }
+    seenRoots.add(rootPath);
+    await resetSkillRoot(rootPath, resolvedSkillsRoot);
+
+    await writeFileNoSymlink(
+      join(rootPath, "SKILL.md"),
+      skill.content ?? `# ${skill.slug}\n`,
+      rootPath,
+    );
+
+    for (const file of skill.files ?? []) {
+      const filePath = resolve(rootPath, file.path);
+      assertStrictInside(rootPath, filePath);
+      await writeFileNoSymlink(filePath, file.content, rootPath);
+    }
+
+    materialized.push({
+      ...skill,
+      materializedPath: rootPath,
+    });
+  }
+
+  return materialized;
+}

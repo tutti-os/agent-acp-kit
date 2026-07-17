@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createCodexProvider,
+  createTuttiAgentProvider,
 } from "../../src/providers/codex/index.js";
 import { buildCodexLaunchPlan } from "../../src/providers/codex/launch-plan.js";
 
@@ -274,6 +275,7 @@ describe("buildCodexLaunchPlan", () => {
   it("includes materialized skill paths in provider prompts", async () => {
     const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "codex-skill-plan-"));
+    let runHome: string | undefined;
     try {
       await writeFile(
         join(sourceHome, "auth.json"),
@@ -295,19 +297,102 @@ describe("buildCodexLaunchPlan", () => {
         ],
       });
 
-      const skillPath = join(
-        cwd,
-        ".local-agent",
-        "runs",
-        "run-1",
-        "skills",
-        "tutti-cli",
-      );
+      runHome = plan.env?.CODEX_HOME;
+      const skillPath = join(runHome!, "skills", "tutti-cli");
       expect(plan.prompt).toContain(`${skillPath}/SKILL.md`);
       await expect(readFile(join(skillPath, "SKILL.md"), "utf8")).resolves.toBe("# Tutti CLI");
+      await expect(access(join(cwd, ".local-agent"))).rejects.toThrow();
+      await expect(access(join(sourceHome, "skills"))).rejects.toThrow();
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
       await rm(cwd, { recursive: true, force: true });
+      if (runHome) await rm(runHome, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the run-scoped Tutti Agent home for selected skills", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "tutti-agent-skill-plan-"));
+    const sourceHome = join(scratch, "source-home");
+    const cwd = join(scratch, "workspace");
+    const runtimeTmp = join(scratch, "runtime-tmp");
+    let runHome: string | undefined;
+    try {
+      await mkdir(sourceHome, { recursive: true });
+      await mkdir(cwd, { recursive: true });
+      await writeFile(join(sourceHome, "auth.json"), "{}", "utf8");
+
+      const plan = await createTuttiAgentProvider().buildLaunchPlan({
+        runId: "run-tutti-agent",
+        cwd,
+        prompt: "use the skill",
+        env: { TUTTI_AGENT_HOME: sourceHome, TMPDIR: runtimeTmp },
+        skillManifest: [
+          {
+            skillId: "tutti/tutti-cli",
+            slug: "tutti-cli",
+            deliveryMode: "materialized-files",
+            content: "# Tutti CLI",
+          },
+        ],
+      });
+
+      runHome = plan.env?.TUTTI_AGENT_HOME;
+      expect(runHome?.startsWith(`${runtimeTmp}/agent-acp-kit-tutti-agent-home-`)).toBe(true);
+      await expect(
+        readFile(join(runHome!, "skills", "tutti-cli", "SKILL.md"), "utf8"),
+      ).resolves.toBe("# Tutti CLI");
+      await expect(access(join(cwd, ".local-agent"))).rejects.toThrow();
+      await expect(access(join(sourceHome, "skills"))).rejects.toThrow();
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+      if (runHome) await rm(runHome, { recursive: true, force: true });
+    }
+  });
+
+  it("uses a VM-local TMPDIR for the run home and relocates explicit skill paths", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "codex-vm-skill-plan-"));
+    const sourceHome = join(scratch, "source-home");
+    const cwd = join(scratch, "workspace-data");
+    const runtimeTmp = join(scratch, "app-runtime", "tmp");
+    let runHome: string | undefined;
+    try {
+      await mkdir(sourceHome, { recursive: true });
+      await mkdir(cwd, { recursive: true });
+      await writeFile(
+        join(sourceHome, "auth.json"),
+        JSON.stringify({ OPENAI_API_KEY: "test-key" }),
+        "utf8",
+      );
+
+      const plan = await createCodexProvider().buildLaunchPlan({
+        runId: "run-vm",
+        cwd,
+        prompt: "use the skill",
+        env: {
+          CODEX_HOME: sourceHome,
+          TMPDIR: runtimeTmp,
+          TUTTI_APP_RUNTIME_DIR: join(scratch, "app-runtime"),
+        },
+        skillManifest: [
+          {
+            skillId: "tutti/tutti-cli",
+            slug: "tutti-cli",
+            deliveryMode: "materialized-files",
+            materializedPath: ".local-agent/tutti-cli",
+            content: "# Tutti CLI",
+          },
+        ],
+      });
+
+      runHome = plan.env?.CODEX_HOME;
+      expect(runHome?.startsWith(`${runtimeTmp}/agent-acp-kit-codex-home-`)).toBe(true);
+      const skillPath = join(runHome!, "skills", "tutti-cli");
+      await expect(readFile(join(skillPath, "SKILL.md"), "utf8")).resolves.toBe("# Tutti CLI");
+      expect(plan.prompt).toContain(`${skillPath}/SKILL.md`);
+      await expect(access(join(cwd, ".local-agent"))).rejects.toThrow();
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+      if (runHome) await rm(runHome, { recursive: true, force: true });
     }
   });
 
@@ -448,7 +533,6 @@ describe("buildCodexLaunchPlan", () => {
     const sourceHome = join(scratch, "source-home");
     const cwd = join(scratch, "cwd");
     const tempRoot = join(scratch, "tmp");
-    const skillPath = join(cwd, ".local-agent", "runs", "missing-auth", "skills", "test-skill");
 
     try {
       await mkdir(sourceHome, { recursive: true });
@@ -474,7 +558,7 @@ describe("buildCodexLaunchPlan", () => {
 
       await expect(readdir(tempRoot)).resolves.toEqual([]);
       await expect(access(join(cwd, ".agent-acp-kit-codex-root"))).rejects.toThrow();
-      await expect(access(skillPath)).rejects.toThrow();
+      await expect(access(join(cwd, ".local-agent"))).rejects.toThrow();
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
