@@ -9,10 +9,13 @@ import type {
 import type { LocalAgentRuntime } from "../runtime/create-runtime.js";
 import { loadTuttiAgentCatalog } from "./agent-catalog.js";
 import {
-  loadTuttiAgentComposerOptions,
   loadTuttiAgentComposerOptionsWithCatalog,
 } from "./composer-options.js";
-import type { TuttiAgentCatalogEntry, TuttiAgentComposerOptions } from "./contracts.js";
+import type {
+  TuttiAgentCatalog,
+  TuttiAgentCatalogEntry,
+  TuttiAgentComposerOptions,
+} from "./contracts.js";
 import { hasConfiguredTuttiCli, type TuttiCliJsonRunner } from "./cli-json-runner.js";
 
 type IntegrationOptions = {
@@ -26,29 +29,95 @@ export function createTuttiRuntimeIntegration<
   detect: TuttiRuntimeDetector<TKind, TProvider>;
   prepareRun: TuttiRuntimeRunPreparer<TKind, TProvider>;
 } {
-  const cache = new Map<string, Promise<Array<DetectedProvider<TProvider>>>>();
+  const catalogCache = new Map<string, Promise<TuttiAgentCatalog>>();
+  const composerCache = new Map<string, Promise<TuttiAgentComposerOptions>>();
+
+  const clearScope = (scopeKey: string) => {
+    catalogCache.delete(scopeKey);
+    const prefix = `${scopeKey}\u0000`;
+    for (const key of composerCache.keys()) {
+      if (key.startsWith(prefix)) composerCache.delete(key);
+    }
+  };
+
+  const loadCatalog = <TLocalKind extends string, TLocalProvider extends string>(input: {
+    scopeKey: string;
+    context?: DetectContext;
+    descriptors: RuntimeAgentDescriptor<TLocalKind, TLocalProvider>[];
+    env: NodeJS.ProcessEnv;
+  }) => {
+    const existing = catalogCache.get(input.scopeKey);
+    if (existing) return existing;
+    const runtime = descriptorRuntime(input.descriptors);
+    const request = loadTuttiAgentCatalog({
+      runtime,
+      cwd: input.context?.cwd,
+      detectContext: input.context,
+      env: input.env,
+      ...(options.runTuttiCli ? { runTuttiCli: options.runTuttiCli } : {}),
+    }).catch((error) => {
+      catalogCache.delete(input.scopeKey);
+      throw error;
+    });
+    catalogCache.set(input.scopeKey, request);
+    return request;
+  };
+
+  const loadComposer = <TLocalKind extends string, TLocalProvider extends string>(input: {
+    scopeKey: string;
+    agentTargetId: string;
+    context?: DetectContext;
+    descriptors: RuntimeAgentDescriptor<TLocalKind, TLocalProvider>[];
+    env: NodeJS.ProcessEnv;
+    catalog: TuttiAgentCatalog;
+  }) => {
+    const key = `${input.scopeKey}\u0000${input.agentTargetId}`;
+    const existing = composerCache.get(key);
+    if (existing) return existing;
+    const runtime = descriptorRuntime(input.descriptors);
+    const request = loadTuttiAgentComposerOptionsWithCatalog(
+      {
+        runtime,
+        agentTargetId: input.agentTargetId,
+        cwd: input.context?.cwd,
+        detectContext: input.context,
+        env: input.env,
+        ...(options.runTuttiCli ? { runTuttiCli: options.runTuttiCli } : {}),
+      },
+      input.catalog,
+    ).catch((error) => {
+      composerCache.delete(key);
+      throw error;
+    });
+    composerCache.set(key, request);
+    return request;
+  };
 
   const detect: TuttiRuntimeDetector<TKind, TProvider> = async ({ context, descriptors }) => {
     const env = effectiveEnv(context);
     const cliInput = { env, ...(options.runTuttiCli ? { runTuttiCli: options.runTuttiCli } : {}) };
     if (!hasConfiguredTuttiCli(cliInput)) return undefined;
 
-    const key = `${env.TUTTI_CLI ?? "custom-runner"}\u0000${context?.cwd ?? ""}`;
-    if (context?.refresh) cache.delete(key);
-    const existing = cache.get(key);
-    if (existing) return await existing;
-
-    const request = detectTuttiTargets({
-      context,
-      descriptors,
-      env,
-      ...(options.runTuttiCli ? { runTuttiCli: options.runTuttiCli } : {}),
-    }).catch(() => {
-      cache.delete(key);
+    const scopeKey = runtimeScopeKey(env, context?.cwd, Boolean(options.runTuttiCli));
+    if (context?.refresh) clearScope(scopeKey);
+    try {
+      const catalog = await loadCatalog({ scopeKey, context, descriptors, env });
+      return await detectTuttiTargets({
+        context,
+        descriptors,
+        catalog,
+        loadComposer: (agentTargetId) => loadComposer({
+          scopeKey,
+          agentTargetId,
+          context,
+          descriptors,
+          env,
+          catalog,
+        }),
+      });
+    } catch {
       return [];
-    });
-    cache.set(key, request);
-    return await request;
+    }
   };
 
   const prepareRun: TuttiRuntimeRunPreparer<TKind, TProvider> = async ({
@@ -62,18 +131,17 @@ export function createTuttiRuntimeIntegration<
       throw new Error("Tutti runtime runs require an exact agentTargetId.");
     }
 
-    const runtime = descriptorRuntime(descriptors);
-    const composer = await loadTuttiAgentComposerOptions({
-      runtime,
+    const context = { cwd: run.cwd, env };
+    const scopeKey = runtimeScopeKey(env, run.cwd, Boolean(options.runTuttiCli));
+    const catalog = await loadCatalog({ scopeKey, context, descriptors, env });
+    const composer = await waitForSharedRequest(loadComposer({
+      scopeKey,
       agentTargetId: run.agentTargetId,
-      cwd: run.cwd,
+      context,
+      descriptors,
       env,
-      detectContext: { cwd: run.cwd, env },
-      ...(run.model ? { model: run.model } : {}),
-      ...(run.reasoning ? { reasoningEffort: run.reasoning } : {}),
-      ...(run.signal ? { signal: run.signal } : {}),
-      ...(options.runTuttiCli ? { runTuttiCli: options.runTuttiCli } : {}),
-    });
+      catalog,
+    }), run.signal);
     if (composer.providerId !== String(run.provider)) {
       throw new Error(
         `Agent Target provider mismatch: ${run.agentTargetId} resolves to ${composer.providerId}, got ${String(run.provider)}.`,
@@ -88,61 +156,43 @@ export function createTuttiRuntimeIntegration<
 async function detectTuttiTargets<TKind extends string, TProvider extends string>(input: {
   context?: DetectContext;
   descriptors: RuntimeAgentDescriptor<TKind, TProvider>[];
-  env: NodeJS.ProcessEnv;
-  runTuttiCli?: TuttiCliJsonRunner;
+  catalog: TuttiAgentCatalog;
+  loadComposer(agentTargetId: string): Promise<TuttiAgentComposerOptions>;
 }): Promise<Array<DetectedProvider<TProvider>>> {
-  const runtime = descriptorRuntime(input.descriptors);
-  const catalog = await loadTuttiAgentCatalog({
-    runtime,
-    cwd: input.context?.cwd,
-    detectContext: input.context,
-    env: input.env,
-    ...(input.runTuttiCli ? { runTuttiCli: input.runTuttiCli } : {}),
-  });
   const descriptorByProvider = new Map(
     input.descriptors.map((descriptor) => [String(descriptor.id), descriptor]),
   );
   return await Promise.all(
-    catalog.agents.map(async (agent): Promise<DetectedProvider<TProvider>> => {
+    input.catalog.agents.map(async (agent): Promise<DetectedProvider<TProvider>> => {
       const descriptor = descriptorByProvider.get(agent.providerId);
       if (!descriptor || !agent.runtimeSupported) {
         return projectUnavailableTarget<TKind, TProvider>(
           agent,
           undefined,
-          catalog.defaultAgentTargetId,
+          input.catalog.defaultAgentTargetId,
         );
       }
       if (agent.availability.status !== "available") {
         return projectUnavailableTarget<TKind, TProvider>(
           agent,
           descriptor,
-          catalog.defaultAgentTargetId,
+          input.catalog.defaultAgentTargetId,
         );
       }
       try {
-        const composer = await loadTuttiAgentComposerOptionsWithCatalog(
-          {
-            runtime,
-            agentTargetId: agent.agentTargetId,
-            cwd: input.context?.cwd,
-            detectContext: input.context,
-            env: input.env,
-            ...(input.runTuttiCli ? { runTuttiCli: input.runTuttiCli } : {}),
-          },
-          catalog,
-        );
+        const composer = await input.loadComposer(agent.agentTargetId);
         return projectAvailableTarget<TKind, TProvider>(
           agent,
           descriptor,
           composer,
-          catalog.defaultAgentTargetId,
+          input.catalog.defaultAgentTargetId,
         );
       } catch (error) {
         return {
           ...projectUnavailableTarget<TKind, TProvider>(
             agent,
             descriptor,
-            catalog.defaultAgentTargetId,
+            input.catalog.defaultAgentTargetId,
           ),
           reason: `Agent composer options could not be loaded: ${safeErrorMessage(error)}`,
         };
@@ -233,6 +283,32 @@ function applyComposerToRun<TKind extends string, TProvider extends string>(
 
 function effectiveEnv(context?: DetectContext): NodeJS.ProcessEnv {
   return { ...process.env, ...(context?.env ?? {}) };
+}
+
+function runtimeScopeKey(env: NodeJS.ProcessEnv, cwd: string | undefined, customRunner: boolean) {
+  const cli = env.TUTTI_CLI?.trim() || (customRunner ? "custom-runner" : "");
+  const workspaceId = env.TUTTI_WORKSPACE_ID?.trim() || env.NEXTOP_WORKSPACE_ID?.trim();
+  const scope = workspaceId ? `workspace:${workspaceId}` : `cwd:${cwd?.trim() ?? ""}`;
+  return `${cli}\u0000${scope}`;
+}
+
+async function waitForSharedRequest<T>(request: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return await request;
+  if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    request.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function authStateFromReason(reasonCode: string): DetectedProvider["authState"] {

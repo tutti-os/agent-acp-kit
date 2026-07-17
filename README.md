@@ -367,7 +367,10 @@ status, and authoritative model options.
 const modelOptions = await runtime.detect();
 ```
 
-Tutti detection is cached per CLI/workspace for the lifetime of the runtime;
+Tutti agent catalogs are cached per CLI/workspace and composer options are
+cached per CLI/workspace/exact Agent Target for the lifetime of the runtime.
+Changing from the workspace root to an app-local project `cwd` therefore does
+not repeat provider/model discovery or temporarily invalidate the selected Agent Target;
 standalone no-argument detection is cached per Provider. After the catalog,
 credentials, models, or local CLI installation changes, call
 `runtime.detect({ refresh: true })` to refresh it.
