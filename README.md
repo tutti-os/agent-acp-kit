@@ -401,7 +401,7 @@ permission: {
 
 The SDK maps this policy to each provider. Workspace App runs default to
 `full-access` when the host omits `permission`: Codex uses its unrestricted
-sandbox mode, Claude uses `bypassPermissions`, and ACP requests select a
+sandbox mode, Claude uses `--dangerously-skip-permissions`, and ACP requests select a
 recognized permissive option when the peer offers one (otherwise the request
 is cancelled).
 An App can pass an explicit narrower semantic for a run. For ACP, every
@@ -480,6 +480,9 @@ const mcpServers = [
     env: { APP_TOOL_TOKEN: runScopedToken },
     toolTimeoutMs: 30 * 60_000,
     startupTimeoutMs: 2 * 60_000,
+    // Optional override: "auto" | "prompt" | "writes" | "approve".
+    // Run-scoped application MCP servers default to "approve".
+    defaultToolsApprovalMode: "approve" as const,
   },
 ];
 ```
@@ -488,6 +491,10 @@ Timeouts are normalized by provider. Codex writes `startup_timeout_sec` and
 `tool_timeout_sec` into its per-run config. Claude Code writes per-server
 `timeout` for tool calls. Generic ACP providers receive only standard ACP MCP
 server fields because the ACP MCP server schema does not define timeout fields.
+Codex also writes `default_tools_approval_mode`; it defaults to `approve` so
+trusted run-scoped application MCP tools can execute in non-interactive runs.
+Hosts can explicitly choose `auto`, `prompt`, or `writes` for less-trusted MCP
+servers. Claude full-access runs use `--dangerously-skip-permissions`.
 Codex and Claude MCP delivery uses those provider-native, run-scoped config
 paths. Generic ACP providers receive normalized MCP servers through ACP.
 

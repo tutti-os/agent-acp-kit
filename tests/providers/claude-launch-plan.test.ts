@@ -67,7 +67,7 @@ describe("buildClaudeLaunchPlan", () => {
         ...base,
         permission: { modeId: "bypassPermissions", semantic: "full-access" },
       }).args,
-    ).toEqual(expect.arrayContaining(["--permission-mode", "bypassPermissions"]));
+    ).toContain("--dangerously-skip-permissions");
     expect(
       buildClaudeLaunchPlan({
         ...base,
@@ -151,7 +151,7 @@ describe("buildClaudeLaunchPlan", () => {
       const configIndex = plan.args.indexOf("--mcp-config");
       expect(configIndex).toBeGreaterThan(-1);
       expect(plan.args).toEqual(
-        expect.arrayContaining(["--permission-mode", "bypassPermissions"]),
+        expect.arrayContaining(["--dangerously-skip-permissions"]),
       );
       const configPath = plan.args[configIndex + 1];
       expect(configPath).toContain(cwd);

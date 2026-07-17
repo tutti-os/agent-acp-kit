@@ -12,20 +12,25 @@ function resolveProviderResumeId(
   return (resume.providerSessionId ?? resume.resumeToken)?.trim() || undefined;
 }
 
-function resolveClaudePermissionMode(
+function applyClaudePermissionArgs(
+  args: string[],
   permission: AgentRunParams<"local-agent", "claude-code">["permission"],
 ) {
   switch (permission?.semantic) {
     case "accept-edits":
-      return "acceptEdits";
+      args.push("--permission-mode", "acceptEdits");
+      break;
     case "locked-down":
-      return "dontAsk";
+      args.push("--permission-mode", "dontAsk");
+      break;
     case "auto":
-      return "auto";
+      args.push("--permission-mode", "auto");
+      break;
     case "full-access":
-      return "bypassPermissions";
+      args.push("--dangerously-skip-permissions");
+      break;
     default:
-      return undefined;
+      break;
   }
 }
 
@@ -49,10 +54,7 @@ export function buildClaudeLaunchPlan(
   for (const dir of params.extraAllowedDirs ?? []) {
     if (dir) args.push("--add-dir", dir);
   }
-  const permissionMode = resolveClaudePermissionMode(params.permission);
-  if (permissionMode) {
-    args.push("--permission-mode", permissionMode);
-  }
+  applyClaudePermissionArgs(args, params.permission);
   const plan: ProviderLaunchPlan = {
     args,
     command: executablePath,
