@@ -363,6 +363,37 @@ keeping backward-compatible short-name routing.
 
 Hosts should persist enough event data for replay and should treat `done` as the terminal source of truth for a run. Individual `error` events are diagnostics, not terminal status by themselves.
 
+### Opt-in timing diagnostics
+
+Apps can ask the runtime for secret-free preparation and execution timings by
+setting `metadata.timingDiagnostics` on a run:
+
+```ts
+for await (const event of runtime.run({
+  runId,
+  provider: "codex",
+  cwd,
+  prompt,
+  metadata: { timingDiagnostics: true },
+})) {
+  if (event.type === "status" && event.diagnostic?.kind === "timing") {
+    appLogger.info("agent_kit_timing", event.diagnostic);
+    continue;
+  }
+  // Project normal provider events into the UI.
+}
+```
+
+Timing diagnostics separate runtime preparation (`process_env`,
+`tutti_run_context`, and `provider_plan`) from provider execution
+(`transport_started`, `provider_first_event`, `provider_first_text`,
+`provider_first_tool`, and `provider_done`). Failed preparation and provider
+stream stages carry an `outcome` without including the error message. Each
+diagnostic contains stage and total elapsed milliseconds only; it never
+contains prompts, paths, environment values, MCP credentials, or provider
+output. Hosts should persist these events with their own run id and should not
+render them as user-visible agent status messages.
+
 Codex reconnect progress such as `Reconnecting... 2/5 (request timed out)` is a transient provider retry state. The Codex provider maps those JSONL messages to `status` events with `status: "warning"` so hosts can show progress without ending the run.
 
 ## Models

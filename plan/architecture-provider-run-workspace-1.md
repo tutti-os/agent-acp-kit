@@ -72,6 +72,7 @@ This plan defines and executes a provider preparation architecture that keeps fo
 | TASK-011 | Run Cursor and OpenCode executable detection in the development environment and record supported/auth/model outcomes without mutating user configuration. | ✅ | 2026-07-17 |
 | TASK-012 | Run `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm pack:check`, and `pnpm test:packed-consumer`; update this plan status and task completion fields. | ✅ | 2026-07-17 |
 | TASK-013 | Exercise a real stdio MCP tool through Claude, Codex, Cursor, and OpenCode; normalize long-lived ACP peer shutdown and isolate Codex child temp files below its run home. | ✅ | 2026-07-17 |
+| TASK-014 | Add opt-in, secret-free timing diagnostics that separate runtime/provider preparation, transport startup, first event/text/tool, terminal outcome, and stream failure. | ✅ | 2026-07-17 |
 
 ## 3. Alternatives
 
@@ -106,6 +107,7 @@ This plan defines and executes a provider preparation architecture that keeps fo
 - **TEST-006**: Verify the complete package test, build, pack, and packed-consumer commands pass.
 - **TEST-007**: Start a real stdio MCP server and require installed provider CLIs to discover and invoke its `validation_echo` tool, return a run-unique marker, and leave no run temp artifacts.
 - **TEST-008**: Verify a long-lived ACP peer is reclaimed after `session/prompt` acknowledges completion and a wrapper-style exit code 143 is normalized as a completed client shutdown.
+- **TEST-009**: Verify opt-in timing diagnostics report ordered prepare/run stages and contain no cwd, prompt, environment value, credential, or provider output.
 
 Validation record from 2026-07-17:
 

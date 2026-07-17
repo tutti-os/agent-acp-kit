@@ -86,6 +86,116 @@ function createRuntimeAbortSignal(
   return controller.signal;
 }
 
+function timingDiagnosticsEnabled(input: AgentRunInput) {
+  return input.metadata?.timingDiagnostics === true;
+}
+
+function createTimingEvent(input: {
+  phase: "prepare" | "run";
+  stage: string;
+  stageStartedAt: number;
+  runStartedAt: number;
+  outcome?: "completed" | "failed" | "canceled";
+}): AgentEvent {
+  const completedAt = Date.now();
+  return {
+    type: "status",
+    status: input.phase === "prepare" ? "initializing" : "running",
+    message: "agent_timing",
+    diagnostic: {
+      kind: "timing",
+      phase: input.phase,
+      stage: input.stage,
+      elapsedMs: Math.max(0, completedAt - input.stageStartedAt),
+      totalElapsedMs: Math.max(0, completedAt - input.runStartedAt),
+      ...(input.outcome ? { outcome: input.outcome } : {}),
+    },
+  };
+}
+
+async function* instrumentAgentStream(
+  stream: AsyncIterable<AgentEvent>,
+  input: {
+    enabled: boolean;
+    executionStartedAt: number;
+    runStartedAt: number;
+  },
+): AsyncGenerator<AgentEvent> {
+  let sawEvent = false;
+  let sawText = false;
+  let sawTool = false;
+  let sawDone = false;
+
+  try {
+    for await (const event of stream) {
+      if (input.enabled && !sawEvent) {
+        sawEvent = true;
+        yield createTimingEvent({
+          phase: "run",
+          stage: "provider_first_event",
+          stageStartedAt: input.executionStartedAt,
+          runStartedAt: input.runStartedAt,
+        });
+      }
+      if (input.enabled && !sawText && event.type === "text_delta") {
+        sawText = true;
+        yield createTimingEvent({
+          phase: "run",
+          stage: "provider_first_text",
+          stageStartedAt: input.executionStartedAt,
+          runStartedAt: input.runStartedAt,
+        });
+      }
+      if (input.enabled && !sawTool && event.type === "tool_call") {
+        sawTool = true;
+        yield createTimingEvent({
+          phase: "run",
+          stage: "provider_first_tool",
+          stageStartedAt: input.executionStartedAt,
+          runStartedAt: input.runStartedAt,
+        });
+      }
+      if (input.enabled && event.type === "done") {
+        sawDone = true;
+        const outcome =
+          event.status === "failed"
+            ? "failed"
+            : event.status === "canceled"
+              ? "canceled"
+              : "completed";
+        yield createTimingEvent({
+          phase: "run",
+          stage: "provider_done",
+          stageStartedAt: input.executionStartedAt,
+          runStartedAt: input.runStartedAt,
+          outcome,
+        });
+      }
+      yield event;
+    }
+  } catch (error) {
+    if (input.enabled) {
+      yield createTimingEvent({
+        phase: "run",
+        stage: "provider_stream_failed",
+        stageStartedAt: input.executionStartedAt,
+        runStartedAt: input.runStartedAt,
+        outcome: "failed",
+      });
+    }
+    throw error;
+  }
+
+  if (input.enabled && !sawDone) {
+    yield createTimingEvent({
+      phase: "run",
+      stage: "provider_stream_closed",
+      stageStartedAt: input.executionStartedAt,
+      runStartedAt: input.runStartedAt,
+    });
+  }
+}
+
 function hasDetectCacheKeyOverrides(context: DetectContext | undefined) {
   if (!context) {
     return false;
@@ -231,6 +341,8 @@ export function createLocalAgentRuntime<
     },
 
     async *run(input) {
+      const runStartedAt = Date.now();
+      const emitTiming = timingDiagnosticsEnabled(input);
       const initialProviderId = String(input.provider);
       const initialProvider = providers.get(initialProviderId);
       if (!initialProvider) {
@@ -242,11 +354,35 @@ export function createLocalAgentRuntime<
       activeRuns.set(input.runId, { controller, provider: initialProvider });
 
       try {
-        const baseEnv = await buildLocalAgentProcessEnv({
-          ...process.env,
-          ...(input.env ?? {}),
-        });
+        const processEnvStartedAt = Date.now();
+        let baseEnv: Awaited<ReturnType<typeof buildLocalAgentProcessEnv>>;
+        try {
+          baseEnv = await buildLocalAgentProcessEnv({
+            ...process.env,
+            ...(input.env ?? {}),
+          });
+        } catch (error) {
+          if (emitTiming) {
+            yield createTimingEvent({
+              phase: "prepare",
+              stage: "process_env",
+              stageStartedAt: processEnvStartedAt,
+              runStartedAt,
+              outcome: "failed",
+            });
+          }
+          throw error;
+        }
+        if (emitTiming) {
+          yield createTimingEvent({
+            phase: "prepare",
+            stage: "process_env",
+            stageStartedAt: processEnvStartedAt,
+            runStartedAt,
+          });
+        }
         let preparedInput: AgentRunInput<TKind, TProvider>;
+        const tuttiContextStartedAt = Date.now();
         try {
           preparedInput = options.prepareTuttiRun
             ? await options.prepareTuttiRun({
@@ -259,7 +395,24 @@ export function createLocalAgentRuntime<
                 descriptors,
               })
             : input;
+          if (emitTiming) {
+            yield createTimingEvent({
+              phase: "prepare",
+              stage: "tutti_run_context",
+              stageStartedAt: tuttiContextStartedAt,
+              runStartedAt,
+            });
+          }
         } catch (error) {
+          if (emitTiming) {
+            yield createTimingEvent({
+              phase: "prepare",
+              stage: "tutti_run_context",
+              stageStartedAt: tuttiContextStartedAt,
+              runStartedAt,
+              outcome: signal.aborted ? "canceled" : "failed",
+            });
+          }
           if (signal.aborted) {
             yield { type: "done", status: "canceled", reason: "cancelled" };
             return;
@@ -290,18 +443,66 @@ export function createLocalAgentRuntime<
         };
         const adapter = provider.createAdapter?.();
         if (!adapter) {
-          yield* normalizeAgentEvents(provider.run(params));
+          const executionStartedAt = Date.now();
+          if (emitTiming) {
+            yield createTimingEvent({
+              phase: "prepare",
+              stage: "provider_direct_run",
+              stageStartedAt: executionStartedAt,
+              runStartedAt,
+            });
+          }
+          yield* instrumentAgentStream(normalizeAgentEvents(provider.run(params)), {
+            enabled: emitTiming,
+            executionStartedAt,
+            runStartedAt,
+          });
           return;
         }
 
-        const plan = await adapter.buildLaunchPlan(params);
+        const providerPlanStartedAt = Date.now();
+        let plan: LaunchPlan;
+        try {
+          plan = await adapter.buildLaunchPlan(params);
+        } catch (error) {
+          if (emitTiming) {
+            yield createTimingEvent({
+              phase: "prepare",
+              stage: "provider_plan",
+              stageStartedAt: providerPlanStartedAt,
+              runStartedAt,
+              outcome: signal.aborted ? "canceled" : "failed",
+            });
+          }
+          throw error;
+        }
+        if (emitTiming) {
+          yield createTimingEvent({
+            phase: "prepare",
+            stage: "provider_plan",
+            stageStartedAt: providerPlanStartedAt,
+            runStartedAt,
+          });
+        }
+        const executionStartedAt = Date.now();
         const rawStream = resolveTransport(plan).run(plan, signal);
         activeRuns.set(input.runId, {
           controller,
           provider,
           ...(rawStream.cancel ? { transportCancel: rawStream.cancel } : {}),
         });
-        yield* normalizeAgentEvents(adapter.parseEvents(rawStream));
+        if (emitTiming) {
+          yield createTimingEvent({
+            phase: "run",
+            stage: "transport_started",
+            stageStartedAt: executionStartedAt,
+            runStartedAt,
+          });
+        }
+        yield* instrumentAgentStream(
+          normalizeAgentEvents(adapter.parseEvents(rawStream)),
+          { enabled: emitTiming, executionStartedAt, runStartedAt },
+        );
       } finally {
         activeRuns.delete(input.runId);
       }
