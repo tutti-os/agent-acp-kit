@@ -6,6 +6,11 @@ export type LocalAgentMcpEnvEntry = {
 type LocalAgentMcpTimeoutConfig = {
   startupTimeoutMs?: number;
   toolTimeoutMs?: number;
+  /**
+   * Default provider approval policy for tools exposed by this MCP server.
+   * Trusted, run-scoped application MCP servers default to `approve`.
+   */
+  defaultToolsApprovalMode?: "auto" | "prompt" | "writes" | "approve";
 };
 
 export type LocalAgentMcpStdioServerConfig = {
@@ -80,6 +85,7 @@ export function normalizeMcpServerConfig(
 ): NormalizedLocalAgentMcpServerConfig {
   const startupTimeoutMs = normalizePositiveInteger(server.startupTimeoutMs);
   const toolTimeoutMs = normalizePositiveInteger(server.toolTimeoutMs);
+  const defaultToolsApprovalMode = server.defaultToolsApprovalMode ?? "approve";
 
   if (server.type === "http") {
     return {
@@ -89,6 +95,7 @@ export function normalizeMcpServerConfig(
       ...(server.headers ? { headers: { ...server.headers } } : {}),
       ...(startupTimeoutMs ? { startupTimeoutMs } : {}),
       ...(toolTimeoutMs ? { toolTimeoutMs } : {}),
+      defaultToolsApprovalMode,
       env: normalizeMcpEnvEntries(server.env),
     };
   }
@@ -100,6 +107,7 @@ export function normalizeMcpServerConfig(
     ...(server.args ? { args: server.args.slice() } : {}),
     ...(startupTimeoutMs ? { startupTimeoutMs } : {}),
     ...(toolTimeoutMs ? { toolTimeoutMs } : {}),
+    defaultToolsApprovalMode,
     env: normalizeMcpEnvEntries(server.env),
   };
 }

@@ -980,6 +980,7 @@ describe("buildCodexLaunchPlan", () => {
       expect(config).toContain('command = "node"');
       expect(config).toContain("startup_timeout_sec = 120");
       expect(config).toContain("tool_timeout_sec = 1800");
+      expect(config).toContain('default_tools_approval_mode = "approve"');
       expect(config).toContain('AIMC_TOOL_TOKEN = "tool-token"');
       expect(config).not.toContain('command = "old-node"');
       expect(config).not.toContain('OLD_TOKEN = "old-token"');

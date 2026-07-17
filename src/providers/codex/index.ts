@@ -222,6 +222,9 @@ function buildMcpConfigBlock(servers: ReturnType<typeof normalizeMcpServerConfig
     if (server.toolTimeoutMs) {
       lines.push(`tool_timeout_sec = ${Math.ceil(server.toolTimeoutMs / 1000)}`);
     }
+    lines.push(
+      `default_tools_approval_mode = "${server.defaultToolsApprovalMode}"`,
+    );
 
     if (server.env.length > 0) {
       lines.push("", `[mcp_servers.${server.name}.env]`);
