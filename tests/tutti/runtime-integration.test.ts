@@ -141,6 +141,57 @@ describe("Tutti-aware runtime integration", () => {
     expect(runTuttiCli.mock.calls.filter(([args]) => args.includes("list"))).toHaveLength(2);
   });
 
+  it("reuses workspace and exact-target caches when project cwd changes", async () => {
+    const runTuttiCli = vi.fn(async (args: string[]) =>
+      args.includes("list") ? catalog() : composer(args[args.indexOf("--agent-id") + 1]!),
+    );
+    const integration = createTuttiRuntimeIntegration({ runTuttiCli });
+    const env = {
+      TUTTI_CLI: "/opt/tsh/bundle/bin/tutti",
+      TUTTI_WORKSPACE_ID: "workspace-1",
+    };
+
+    await integration.detect({ descriptors, context: { cwd: "/workspace", env } });
+    await integration.detect({
+      descriptors,
+      context: { cwd: "/workspace/.tsh/apps/data/app-1/projects/project-1", env },
+    });
+
+    expect(runTuttiCli.mock.calls.filter(([args]) => args.includes("list"))).toHaveLength(1);
+    expect(runTuttiCli.mock.calls.filter(([args]) => args.includes("composer-options"))).toHaveLength(2);
+  });
+
+  it("reuses the exact-target composer cache during runtime preparation", async () => {
+    const runTuttiCli = vi.fn(async (args: string[]) =>
+      args.includes("list") ? catalog() : composer(args[args.indexOf("--agent-id") + 1]!),
+    );
+    const integration = createTuttiRuntimeIntegration({ runTuttiCli });
+    const env = {
+      TUTTI_CLI: "/opt/tsh/bundle/bin/tutti",
+      TUTTI_WORKSPACE_ID: "workspace-1",
+    };
+    await integration.detect({ descriptors, context: { cwd: "/workspace", env } });
+
+    await integration.prepareRun({
+      descriptors,
+      env,
+      run: {
+        agentTargetId: "team:writer",
+        runId: "run-cached-target",
+        provider: "codex",
+        cwd: "/workspace/.tsh/apps/data/app-1/projects/project-1",
+        prompt: "hello",
+      },
+    });
+
+    expect(runTuttiCli.mock.calls.filter(([args]) => args.includes("list"))).toHaveLength(1);
+    expect(
+      runTuttiCli.mock.calls.filter(
+        ([args]) => args.includes("composer-options") && args.includes("team:writer"),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("applies target-scoped composer defaults before runtime launch", async () => {
     const integration = createTuttiRuntimeIntegration({
       runTuttiCli: async (args) =>
