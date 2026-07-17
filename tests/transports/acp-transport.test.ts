@@ -110,6 +110,76 @@ describe("runAcpTransport", () => {
     ]);
   });
 
+  it("coalesces standard ACP tool_call updates into one call and one result", async () => {
+    const events = [];
+    const script = createFakeAcpPeerScript({
+      updates: [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "call_read_1",
+          title: "read",
+          kind: "read",
+          status: "pending",
+          rawInput: {},
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call_read_1",
+          status: "in_progress",
+          rawInput: { filePath: "/tmp/SKILL.md" },
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call_read_1",
+          title: "/tmp/SKILL.md",
+          status: "completed",
+          rawOutput: { output: "# Skill" },
+        },
+      ],
+    });
+
+    for await (const event of runAcpTransport(
+      {
+        args: ["-e", script],
+        command: process.execPath,
+        cwd: process.cwd(),
+        prompt: "read skill",
+        promptInput: "stdin",
+        transport: "acp-json-rpc",
+      },
+      {
+        cwd: process.cwd(),
+        prompt: "read skill",
+        runId: "run_acp_standard_tool",
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "tool_call",
+        id: "call_read_1",
+        name: "read",
+        input: {},
+      },
+      {
+        type: "tool_result",
+        id: "call_read_1",
+        name: "read",
+        status: "completed",
+        output: { output: "# Skill" },
+      },
+      {
+        type: "done",
+        status: "completed",
+        reason: "completed",
+        exitCode: 0,
+        sessionId: "session_fake",
+      },
+    ]);
+  });
+
   it("waits for lifecycle acknowledgements and sets model before prompt", async () => {
     const events = [];
     const script = createFakeAcpPeerScript({

@@ -115,6 +115,10 @@ the generated `SKILL.md`. OpenCode read and returned the marker in 14.64
 seconds. Cursor read and returned the marker in 24.12 seconds but prefixed one
 explanatory sentence despite the exact-output instruction. Both providers used
 file tools successfully and left the project cwd and runtime root empty.
+The same validation exposed standard ACP `tool_call_update` events being
+projected as duplicate anonymous calls. The transport now coalesces each
+`toolCallId` into one named call and one terminal result. Final live validation
+produced `read`/`completed` call-result pairs for both Cursor and OpenCode.
 
 ## 7. Risks & Assumptions
 

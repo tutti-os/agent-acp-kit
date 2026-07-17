@@ -5,7 +5,30 @@ import { createJsonRpcLineParser, sendJsonRpc } from "./acp-jsonrpc.js";
 import { choosePermissionOutcome } from "./acp-permissions.js";
 import { buildAcpSessionNewParams } from "./acp-session.js";
 
-function pushSessionUpdateEvents(queue: AgentEvent[], params: unknown) {
+type AcpToolCallState = {
+  name: string;
+  rawName?: string;
+  mcpServerName?: string;
+};
+
+function toolCallId(source: Record<string, unknown>) {
+  return String(source.id ?? source.toolCallId ?? source.callId ?? "tool");
+}
+
+function optionalToolCallName(source: Record<string, unknown>) {
+  const value = source.name ?? source.toolName ?? source.kind ?? source.title;
+  return value === undefined || value === null ? undefined : String(value);
+}
+
+function toolCallName(source: Record<string, unknown>) {
+  return optionalToolCallName(source) ?? "tool";
+}
+
+function pushSessionUpdateEvents(
+  queue: AgentEvent[],
+  params: unknown,
+  activeToolCalls: Map<string, AcpToolCallState>,
+) {
   const payload = (params ?? {}) as Record<string, unknown>;
   const update = ((payload.update ?? payload.event ?? payload) ?? {}) as Record<
     string,
@@ -44,46 +67,91 @@ function pushSessionUpdateEvents(queue: AgentEvent[], params: unknown) {
     (update.toolCall ?? update.tool_call ?? update.call) as
       | Record<string, unknown>
       | undefined;
-  if (toolCall || /tool.*(call|start)|call.*start/i.test(kind)) {
-    const source = toolCall ?? update;
-    queue.push({
-      type: "tool_call",
-      id: String(source.id ?? source.toolCallId ?? source.callId ?? "tool"),
-      name: String(source.name ?? source.toolName ?? "tool"),
-      ...(typeof source.rawName === "string" ? { rawName: source.rawName } : {}),
-      ...(typeof source.mcpServerName === "string"
-        ? { mcpServerName: source.mcpServerName }
-        : {}),
-      ...(source.input !== undefined ? { input: source.input } : {}),
-    });
-    return;
-  }
-
   const toolResult =
     (update.toolResult ?? update.tool_result ?? update.result) as
       | Record<string, unknown>
       | undefined;
-  if (toolResult || /tool.*(result|complete|failed)|call.*(complete|failed)/i.test(kind)) {
+  const updateStatus = String(update.status ?? "");
+  const isStandardToolUpdate = kind === "tool_call_update";
+  const isTerminalToolUpdate =
+    isStandardToolUpdate && /completed|failed|cancelled|canceled|error/i.test(updateStatus);
+  if (
+    toolResult ||
+    isTerminalToolUpdate ||
+    /tool.*(result|complete|failed)|call.*(complete|failed)/i.test(kind)
+  ) {
     const source = toolResult ?? update;
+    const id = toolCallId(source);
+    const previous = activeToolCalls.get(id);
     const isFailed =
       source.status === "failed" ||
+      source.status === "cancelled" ||
+      source.status === "canceled" ||
       source.isError === true ||
       source.error !== undefined ||
       /failed|error/i.test(kind);
     queue.push({
       type: "tool_result",
-      id: String(source.id ?? source.toolCallId ?? source.callId ?? "tool"),
-      ...(source.name ?? source.toolName
-        ? { name: String(source.name ?? source.toolName) }
-        : {}),
-      ...(typeof source.rawName === "string" ? { rawName: source.rawName } : {}),
-      ...(typeof source.mcpServerName === "string"
-        ? { mcpServerName: source.mcpServerName }
-        : {}),
+      id,
+      ...(previous?.name
+        ? { name: previous.name }
+        : source.name ?? source.toolName ?? source.kind
+          ? { name: toolCallName(source) }
+          : {}),
+      ...(previous?.rawName
+        ? { rawName: previous.rawName }
+        : typeof source.rawName === "string"
+          ? { rawName: source.rawName }
+          : {}),
+      ...(previous?.mcpServerName
+        ? { mcpServerName: previous.mcpServerName }
+        : typeof source.mcpServerName === "string"
+          ? { mcpServerName: source.mcpServerName }
+          : {}),
       status: isFailed ? "failed" : "completed",
-      ...(source.output !== undefined ? { output: source.output } : {}),
+      ...(source.output !== undefined
+        ? { output: source.output }
+        : source.rawOutput !== undefined
+          ? { output: source.rawOutput }
+          : source.content !== undefined
+            ? { output: source.content }
+            : {}),
       ...(source.error !== undefined ? { error: String(source.error) } : {}),
     });
+    activeToolCalls.delete(id);
+    return;
+  }
+
+  if (toolCall || /tool.*(call|start)|call.*start/i.test(kind)) {
+    const source = toolCall ?? update;
+    const id = toolCallId(source);
+    const previous = activeToolCalls.get(id);
+    const state = {
+      name: optionalToolCallName(source) ?? previous?.name ?? "tool",
+      ...(typeof source.rawName === "string"
+        ? { rawName: source.rawName }
+        : previous?.rawName
+          ? { rawName: previous.rawName }
+          : {}),
+      ...(typeof source.mcpServerName === "string"
+        ? { mcpServerName: source.mcpServerName }
+        : previous?.mcpServerName
+          ? { mcpServerName: previous.mcpServerName }
+        : {}),
+    };
+    if (!activeToolCalls.has(id)) {
+      queue.push({
+        type: "tool_call",
+        id,
+        ...state,
+        ...(source.input !== undefined
+          ? { input: source.input }
+          : source.rawInput !== undefined
+            ? { input: source.rawInput }
+            : {}),
+      });
+    }
+    activeToolCalls.set(id, state);
     return;
   }
 
@@ -126,6 +194,7 @@ export async function* runAcpTransport(
     ...(params.signal ? { signal: params.signal } : {}),
   });
   const queue: AgentEvent[] = [];
+  const activeToolCalls = new Map<string, AcpToolCallState>();
   let done = false;
   let fatalError = false;
   let lifecycleSettled = false;
@@ -254,7 +323,7 @@ export async function* runAcpTransport(
     }
 
     if (message.method === "session/update") {
-      pushSessionUpdateEvents(queue, message.params);
+      pushSessionUpdateEvents(queue, message.params, activeToolCalls);
       return;
     }
   });
