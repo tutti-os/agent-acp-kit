@@ -3,7 +3,6 @@ import {
   copyFile,
   link,
   mkdir,
-  mkdtemp,
   readFile,
   rm,
   symlink,
@@ -18,10 +17,9 @@ import type { RawAgentStream } from "../../core/transport.js";
 import { normalizeMcpServerConfigs } from "../../core/mcp.js";
 import { resolveAgentPermissionSelection } from "../../core/permissions.js";
 import { materializeSkillsIntoRoot } from "../../skills/materialize.js";
-import { cleanupPaths } from "../../skills/cleanup.js";
 import { skillPromptLabel } from "../../skills/prompt-injection.js";
-import { resolveTempDir } from "../../process/env.js";
 import { runJsonlTransport } from "../../transports/jsonl/jsonl-transport.js";
+import { createProviderRunWorkspaceManager } from "../run-workspace.js";
 import { detectCodex } from "./detect.js";
 import { buildCodexLaunchPlan } from "./launch-plan.js";
 import { parseCodexItem } from "./parser.js";
@@ -597,79 +595,64 @@ async function ensureCodexProjectRootMarker(cwd: string) {
   await mkdir(cwd, { recursive: true });
   try {
     await writeFile(markerPath, "", { encoding: "utf8", flag: "wx" });
-    return markerPath;
+    return;
   } catch (error) {
     if (isNodeErrorWithCode(error, "EEXIST")) {
-      return undefined;
+      return;
     }
     throw error;
   }
 }
 
 async function materializeCodexHome(params: {
-  cwd: string;
   defaultHomeDirName: string;
   displayName: string;
   homeEnvKey: string;
   mcpServers?: Parameters<typeof normalizeMcpServerConfigs>[0];
   env?: Record<string, string>;
   model?: string;
-  runHomeDirName: string;
+  runHome: string;
 }) {
   const normalizedServers = normalizeMcpServerConfigs(params.mcpServers ?? []);
   const sourceHome =
     params.env?.[params.homeEnvKey] ??
     process.env[params.homeEnvKey] ??
     join(homedir(), params.defaultHomeDirName);
-  let runHome: string;
-  const tempRoot = resolveTempDir(params.env);
-  await mkdir(tempRoot, { recursive: true });
-  runHome = await mkdtemp(
-    join(
-      tempRoot,
-      `agent-acp-kit-${params.runHomeDirName.replace(/^\./, "")}-home-`,
-    ),
+  const runHome = params.runHome;
+  try {
+    await access(join(sourceHome, "auth.json"));
+    await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
+  } catch {
+    throw new Error(
+      `${params.displayName} auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
+    );
+  }
+
+  await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
+  try {
+    await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
+  } catch {
+    // Plugin cache is an optimization for bundled/plugin-backed assets.
+    // Codex can still run without it, so keep this best-effort like Multica.
+  }
+  await copyOptionalFile(join(sourceHome, "config.json"), join(runHome, "config.json"));
+  await copyOptionalFile(join(sourceHome, "instructions.md"), join(runHome, "instructions.md"));
+
+  const sourceConfig = stripSkillsConfigEntries(
+    (await readOptionalFile(join(sourceHome, "config.toml"))) ?? "",
+  );
+  const mergedConfig = mergeCodexConfigToml({
+    ...(sourceConfig ? { sourceConfig } : {}),
+    ...(params.model ? { model: params.model } : {}),
+    mcpServers: normalizedServers,
+  });
+  await writeFile(
+    join(runHome, "config.toml"),
+    ensureCodexProjectRootMarkers(ensureCodexMultiAgentDisabled(mergedConfig)),
+    "utf8",
   );
 
-  try {
-    try {
-      await access(join(sourceHome, "auth.json"));
-      await linkFile(join(sourceHome, "auth.json"), join(runHome, "auth.json"));
-    } catch {
-      throw new Error(
-        `${params.displayName} auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
-      );
-    }
-
-    await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
-    try {
-      await linkDirectory(join(sourceHome, "plugins", "cache"), join(runHome, "plugins", "cache"));
-    } catch {
-      // Plugin cache is an optimization for bundled/plugin-backed assets.
-      // Codex can still run without it, so keep this best-effort like Multica.
-    }
-    await copyOptionalFile(join(sourceHome, "config.json"), join(runHome, "config.json"));
-    await copyOptionalFile(join(sourceHome, "instructions.md"), join(runHome, "instructions.md"));
-
-    const sourceConfig = stripSkillsConfigEntries(
-      (await readOptionalFile(join(sourceHome, "config.toml"))) ?? "",
-    );
-    const mergedConfig = mergeCodexConfigToml({
-      ...(sourceConfig ? { sourceConfig } : {}),
-      ...(params.model ? { model: params.model } : {}),
-      mcpServers: normalizedServers,
-    });
-    await writeFile(
-      join(runHome, "config.toml"),
-      ensureCodexProjectRootMarkers(ensureCodexMultiAgentDisabled(mergedConfig)),
-      "utf8",
-    );
-
-    return runHome;
-  } catch (error) {
-    await rm(runHome, { recursive: true, force: true }).catch(() => undefined);
-    throw error;
-  }
+  return runHome;
 }
 
 type CodexCompatibleProviderOptions<TProvider extends string> = {
@@ -679,14 +662,15 @@ type CodexCompatibleProviderOptions<TProvider extends string> = {
   homeEnvKey: string;
   providerId: TProvider;
   requiresKnownAuth: boolean;
-  runHomeDirName: string;
   runtimeName: string;
 };
 
 function createCodexCompatibleProvider<TProvider extends string>(
   options: CodexCompatibleProviderOptions<TProvider>,
 ): LocalAgentProviderPlugin<"local-agent", TProvider> {
-  const cleanupByRunId = new Map<string, string[]>();
+  const runWorkspaces = createProviderRunWorkspaceManager(options.providerId, {
+    rootKind: "home",
+  });
 
   async function prepareLaunchPlan(
     params: Parameters<LocalAgentProviderPlugin<"local-agent", TProvider>["buildLaunchPlan"]>[0],
@@ -695,30 +679,34 @@ function createCodexCompatibleProvider<TProvider extends string>(
       ...params,
       permission: resolveAgentPermissionSelection(params.permission),
     };
-    const cleanupTargets: string[] = [];
-    try {
+    return runWorkspaces.prepare(params.runId, params.env, async (workspace) => {
       const codexEnv = params.env;
-      const projectRootMarker = await ensureCodexProjectRootMarker(params.cwd);
-      if (projectRootMarker) cleanupTargets.push(projectRootMarker);
       const normalizedModel = normalizeCodexModel(params.model, options.providerId);
       const redactionSecrets = collectMcpRedactionSecrets(
         normalizeMcpServerConfigs(params.mcpServers ?? []),
       );
-      const codexHome = await materializeCodexHome({
-        cwd: params.cwd,
+      const codexHome = await workspace.getRoot();
+      const homePromise = materializeCodexHome({
         defaultHomeDirName: options.defaultHomeDirName,
         displayName: options.displayName,
         homeEnvKey: options.homeEnvKey,
         ...(codexEnv ? { env: codexEnv } : {}),
         ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
         ...(normalizedModel ? { model: normalizedModel } : {}),
-        runHomeDirName: options.runHomeDirName,
+        runHome: codexHome,
       });
-      cleanupTargets.push(codexHome);
-      const materialized = await materializeSkillsIntoRoot(
+      const skillsPromise = materializeSkillsIntoRoot(
         join(codexHome, "skills"),
         params.skillManifest ?? [],
       );
+      const [homeResult, skillsResult] = await Promise.allSettled([
+        homePromise,
+        skillsPromise,
+      ]);
+      if (homeResult.status === "rejected") throw homeResult.reason;
+      if (skillsResult.status === "rejected") throw skillsResult.reason;
+      const materialized = skillsResult.value;
+      await ensureCodexProjectRootMarker(params.cwd);
       const prompt = buildCodexPrompt({
         prompt: params.prompt,
         ...(params.history ? { history: params.history } : {}),
@@ -741,10 +729,6 @@ function createCodexCompatibleProvider<TProvider extends string>(
         },
         options.command,
       );
-      if (cleanupTargets.length > 0) {
-        cleanupByRunId.set(params.runId, cleanupTargets);
-      }
-
       if (redactionSecrets.length === 0) return plan;
       return {
         ...plan,
@@ -752,16 +736,7 @@ function createCodexCompatibleProvider<TProvider extends string>(
           new Set([...(plan.redactionSecrets ?? []), ...redactionSecrets]),
         ),
       };
-    } catch (error) {
-      await cleanupPaths(cleanupTargets);
-      throw error;
-    }
-  }
-
-  async function cleanupRun(runId: string) {
-    const cleanupTargets = cleanupByRunId.get(runId) ?? [];
-    cleanupByRunId.delete(runId);
-    await cleanupPaths(cleanupTargets);
+    });
   }
 
   const plugin: LocalAgentProviderPlugin<"local-agent", TProvider> = {
@@ -800,12 +775,20 @@ function createCodexCompatibleProvider<TProvider extends string>(
       let adapterRunId: string | undefined;
       return {
         buildLaunchPlan: async (params) => {
+          if (adapterRunId) {
+            throw new Error("Codex-compatible runtime adapters can prepare only one run.");
+          }
           adapterRunId = params.runId;
-          return {
-            ...(await prepareLaunchPlan(params)),
-            runId: params.runId,
-            transport: "jsonl",
-          };
+          try {
+            return {
+              ...(await prepareLaunchPlan(params)),
+              runId: params.runId,
+              transport: "jsonl",
+            };
+          } catch (error) {
+            adapterRunId = undefined;
+            throw error;
+          }
         },
         capabilities: () => plugin.capabilities(),
         parseEvents: async function* (stream) {
@@ -815,7 +798,7 @@ function createCodexCompatibleProvider<TProvider extends string>(
             }
           } finally {
             if (adapterRunId) {
-              await cleanupRun(adapterRunId);
+              await runWorkspaces.cleanup(adapterRunId);
             }
           }
         },
@@ -830,7 +813,7 @@ function createCodexCompatibleProvider<TProvider extends string>(
       try {
         yield* runJsonlTransport(plan, parseCodexItem, params.signal);
       } finally {
-        await cleanupRun(params.runId);
+        await runWorkspaces.cleanup(params.runId);
       }
     },
   };
@@ -846,7 +829,6 @@ export function createCodexProvider() {
     homeEnvKey: "CODEX_HOME",
     providerId: "codex",
     requiresKnownAuth: false,
-    runHomeDirName: ".codex",
     runtimeName: "Codex",
   });
 }
@@ -859,7 +841,6 @@ export function createTuttiAgentProvider() {
     homeEnvKey: "TUTTI_AGENT_HOME",
     providerId: "tutti-agent",
     requiresKnownAuth: true,
-    runHomeDirName: ".tutti-agent",
     runtimeName: "Tutti Agent",
   });
 }

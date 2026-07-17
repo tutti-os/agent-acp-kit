@@ -1,4 +1,12 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +19,7 @@ import {
   createGenericAcpProvider,
   createKnownAcpProvider,
 } from "../../src/index.js";
+import { createFakeAcpPeerScript } from "../../src/testing/index.js";
 
 describe("ACP provider wrappers", () => {
   const tempDirs: string[] = [];
@@ -83,7 +92,8 @@ setTimeout(() => process.exit(42), 10);
   it("exposes concrete provider plugins backed by the shared ACP transport", async () => {
     for (const spec of ACP_PROVIDER_SPECS) {
       const provider = createKnownAcpProvider(spec.id);
-      const plan = await provider.buildLaunchPlan({
+      const adapter = provider.createAdapter!();
+      const plan = await adapter.buildLaunchPlan({
         runId: `run_${provider.id}`,
         cwd: "/tmp",
         prompt: "hello",
@@ -97,7 +107,11 @@ setTimeout(() => process.exit(42), 10);
         modeId: "full-access",
         semantic: "full-access",
       });
-      const defaultPlan = await provider.buildLaunchPlan({
+      for await (const _event of adapter.parseEvents((async function* () {})())) {
+        // Drain to clean the run-scoped provider temp root.
+      }
+      const defaultAdapter = provider.createAdapter!();
+      const defaultPlan = await defaultAdapter.buildLaunchPlan({
         runId: `run_default_${provider.id}`,
         cwd: "/tmp",
         prompt: "hello",
@@ -105,6 +119,9 @@ setTimeout(() => process.exit(42), 10);
         runtimeProvider: provider.id,
       });
       expect(defaultPlan.permission).toEqual({ semantic: "full-access" });
+      for await (const _event of defaultAdapter.parseEvents((async function* () {})())) {
+        // Drain to clean the run-scoped provider temp root.
+      }
       expect(plan.args).toEqual(spec.args);
       expect(provider.capabilities()).toMatchObject({
         maxConcurrentRuns: Number.MAX_SAFE_INTEGER,
@@ -123,5 +140,172 @@ setTimeout(() => process.exit(42), 10);
     expect(providers.map((provider) => provider.kind)).toEqual(
       providers.map(() => "local-agent"),
     );
+  });
+
+  for (const providerId of ["cursor", "opencode"] as const) {
+    it(`materializes selected skills under TMPDIR for ${providerId} and cleans the adapter run`, async () => {
+      const scratch = mkdtempSync(join(tmpdir(), `agent-acp-kit-${providerId}-skills-`));
+      tempDirs.push(scratch);
+      const cwd = join(scratch, "workspace");
+      const runtimeTmp = join(scratch, "runtime-tmp");
+      mkdirSync(cwd, { recursive: true });
+      const provider = createKnownAcpProvider(providerId);
+      const adapter = provider.createAdapter!();
+      const mcpServers = [
+        {
+          type: "stdio" as const,
+          name: "workspace-tools",
+          command: "workspace-mcp",
+          args: ["serve"],
+          env: { TOOL_TOKEN: "run-token" },
+        },
+      ];
+
+      const plan = await adapter.buildLaunchPlan({
+        runId: `run-${providerId}-skills`,
+        cwd,
+        prompt: "Use the selected workspace skill.",
+        env: { TMPDIR: runtimeTmp },
+        mcpServers,
+        skillManifest: [
+          {
+            skillId: "workspace/editor",
+            slug: "workspace-editor",
+            deliveryMode: "materialized-files",
+            content: "# Workspace editor\n",
+          },
+          {
+            skillId: "workspace/rules",
+            slug: "workspace-rules",
+            deliveryMode: "prompt-injection",
+            content: "Keep formal files in the workspace data directory.",
+          },
+        ],
+      });
+
+      const [runDir] = readdirSync(runtimeTmp);
+      const skillPath = join(runtimeTmp, runDir!, "skills", "workspace-editor");
+      expect(readFileSync(join(skillPath, "SKILL.md"), "utf8")).toBe(
+        "# Workspace editor\n",
+      );
+      expect(plan.prompt).toContain(`${skillPath}/SKILL.md`);
+      expect(plan.prompt).toContain("Keep formal files in the workspace data directory.");
+      expect(plan.mcpServers).toEqual(mcpServers);
+      expect(plan.env).toMatchObject({
+        TMPDIR: join(runtimeTmp, runDir!, "tmp"),
+        TEMP: join(runtimeTmp, runDir!, "tmp"),
+        TMP: join(runtimeTmp, runDir!, "tmp"),
+      });
+      expect(readdirSync(cwd)).toEqual([]);
+      expect(readdirSync(join(runtimeTmp, runDir!)).sort()).toEqual(["skills", "tmp"]);
+
+      await expect(
+        provider.buildLaunchPlan({
+          runId: `run-${providerId}-skills`,
+          cwd,
+          prompt: "duplicate",
+          env: { TMPDIR: runtimeTmp },
+          skillManifest: [
+            {
+              skillId: "workspace/editor",
+              slug: "workspace-editor",
+              deliveryMode: "materialized-files",
+              content: "# Duplicate",
+            },
+          ],
+        }),
+      ).rejects.toThrow("already prepared");
+
+      for await (const _event of adapter.parseEvents((async function* () {})())) {
+        // Drain the adapter stream to trigger provider-owned cleanup.
+      }
+      expect(readdirSync(runtimeTmp)).toEqual([]);
+    });
+  }
+
+  it("cleans a failed Generic ACP skill preparation and permits adapter retry", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "agent-acp-kit-acp-failure-"));
+    tempDirs.push(scratch);
+    const cwd = join(scratch, "workspace");
+    const runtimeTmp = join(scratch, "runtime-tmp");
+    mkdirSync(cwd, { recursive: true });
+    const adapter = createKnownAcpProvider("opencode").createAdapter!();
+
+    await expect(
+      adapter.buildLaunchPlan({
+        runId: "run-failed-skills",
+        cwd,
+        prompt: "fail",
+        env: { TMPDIR: runtimeTmp },
+        skillManifest: [
+          {
+            skillId: "duplicate/one",
+            slug: "duplicate",
+            deliveryMode: "materialized-files",
+            content: "one",
+          },
+          {
+            skillId: "duplicate/two",
+            slug: "duplicate",
+            deliveryMode: "materialized-files",
+            content: "two",
+          },
+        ],
+      }),
+    ).rejects.toThrow("Duplicate skill materialization path");
+    expect(readdirSync(runtimeTmp)).toEqual([]);
+
+    await expect(
+      adapter.buildLaunchPlan({
+        runId: "run-retry-skills",
+        cwd,
+        prompt: "retry",
+        env: { TMPDIR: runtimeTmp },
+      }),
+    ).resolves.toMatchObject({ runId: "run-retry-skills" });
+  });
+
+  it("cleans Generic ACP provider temp files after a complete transport run", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "agent-acp-kit-acp-run-"));
+    tempDirs.push(scratch);
+    const cwd = join(scratch, "workspace");
+    const runtimeTmp = join(scratch, "runtime-tmp");
+    mkdirSync(cwd, { recursive: true });
+    const provider = createGenericAcpProvider({
+      args: [
+        "-e",
+        createFakeAcpPeerScript({
+          updates: [{ type: "text_delta", text: "ACP_OK" }],
+        }),
+      ],
+      command: process.execPath,
+      displayName: "Lifecycle ACP",
+      providerId: "lifecycle-acp",
+    });
+    const events = [];
+
+    for await (const event of provider.run({
+      runId: "run-lifecycle",
+      cwd,
+      prompt: "validate cleanup",
+      env: { TMPDIR: runtimeTmp },
+      skillManifest: [
+        {
+          skillId: "validation/response",
+          slug: "validation-response",
+          deliveryMode: "materialized-files",
+          content: "# Validation response\n",
+        },
+      ],
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({ type: "text_delta", text: "ACP_OK" });
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", status: "completed" }),
+    );
+    expect(readdirSync(runtimeTmp)).toEqual([]);
+    expect(readdirSync(cwd)).toEqual([]);
   });
 });

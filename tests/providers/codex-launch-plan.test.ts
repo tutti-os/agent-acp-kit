@@ -604,7 +604,7 @@ describe("buildCodexLaunchPlan", () => {
         // Drain to trigger run-scoped cleanup.
       }
 
-      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).rejects.toThrow();
+      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).resolves.toBe("");
       runHome = undefined;
     } finally {
       await rm(sourceHome, { recursive: true, force: true });
@@ -612,6 +612,98 @@ describe("buildCodexLaunchPlan", () => {
       if (runHome) {
         await rm(runHome, { recursive: true, force: true });
       }
+    }
+  });
+
+  it("rejects duplicate Codex preparation and cleans only the adapter run home", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "codex-duplicate-run-"));
+    const sourceHome = join(scratch, "source-home");
+    const cwd = join(scratch, "workspace");
+    const runtimeTmp = join(scratch, "runtime-tmp");
+    await mkdir(sourceHome, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(join(sourceHome, "auth.json"), "{}", "utf8");
+
+    try {
+      const provider = createCodexProvider();
+      const adapter = provider.createAdapter!();
+      const plan = await adapter.buildLaunchPlan({
+        runId: "run-duplicate",
+        cwd,
+        prompt: "first",
+        env: { CODEX_HOME: sourceHome, TMPDIR: runtimeTmp },
+      });
+      const runHome = plan.env!.CODEX_HOME!;
+
+      await expect(
+        provider.buildLaunchPlan({
+          runId: "run-duplicate",
+          cwd,
+          prompt: "duplicate",
+          env: { CODEX_HOME: sourceHome, TMPDIR: runtimeTmp },
+        }),
+      ).rejects.toThrow("already prepared");
+      await expect(
+        adapter.buildLaunchPlan({
+          runId: "run-second",
+          cwd,
+          prompt: "second",
+          env: { CODEX_HOME: sourceHome, TMPDIR: runtimeTmp },
+        }),
+      ).rejects.toThrow("only one run");
+
+      for await (const _event of adapter.parseEvents((async function* () {})())) {
+        // Drain to trigger cleanup.
+      }
+      await expect(access(runHome)).rejects.toThrow();
+      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).resolves.toBe("");
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the shared cwd marker while concurrent Codex runs clean independent homes", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "codex-concurrent-marker-"));
+    const sourceHome = join(scratch, "source-home");
+    const cwd = join(scratch, "workspace");
+    const runtimeTmp = join(scratch, "runtime-tmp");
+    await mkdir(sourceHome, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(join(sourceHome, "auth.json"), "{}", "utf8");
+
+    try {
+      const provider = createCodexProvider();
+      const firstAdapter = provider.createAdapter!();
+      const secondAdapter = provider.createAdapter!();
+      const [first, second] = await Promise.all([
+        firstAdapter.buildLaunchPlan({
+          runId: "run-first",
+          cwd,
+          prompt: "first",
+          env: { CODEX_HOME: sourceHome, TMPDIR: runtimeTmp },
+        }),
+        secondAdapter.buildLaunchPlan({
+          runId: "run-second",
+          cwd,
+          prompt: "second",
+          env: { CODEX_HOME: sourceHome, TMPDIR: runtimeTmp },
+        }),
+      ]);
+
+      for await (const _event of firstAdapter.parseEvents((async function* () {})())) {
+        // Drain first run only.
+      }
+      await expect(access(first.env!.CODEX_HOME!)).rejects.toThrow();
+      await expect(access(second.env!.CODEX_HOME!)).resolves.toBeUndefined();
+      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).resolves.toBe("");
+
+      for await (const _event of secondAdapter.parseEvents((async function* () {})())) {
+        // Drain second run.
+      }
+      await expect(access(second.env!.CODEX_HOME!)).rejects.toThrow();
+      await expect(readFile(join(cwd, ".agent-acp-kit-codex-root"), "utf8")).resolves.toBe("");
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
     }
   });
 
