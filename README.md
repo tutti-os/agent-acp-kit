@@ -506,21 +506,27 @@ Keep tool tokens run-scoped and short-lived. Do not pass broad application secre
 
 - `materialized-files`: writes selected skills into the run-scoped native
   provider home when the provider supports it (`CODEX_HOME/skills` for Codex
-  and `TUTTI_AGENT_HOME/skills` for Tutti Agent), then references them in the
-  prompt. Other providers retain their run-workspace delivery layout.
+  and `TUTTI_AGENT_HOME/skills` for Tutti Agent), or into a provider-owned
+  temporary run root for Claude Code, then references them in the prompt.
+  Other providers retain their run-workspace delivery layout.
 - `prompt-injection`: injects skill content into the provider prompt.
 - `project-instructions`: injects instruction-style skill content.
 
-The package handles delivery and cleanup. The host remains the source of truth for skill selection, permission, and storage.
+The package handles delivery and cleanup for runtime and adapter execution. A
+host that calls a provider's low-level `buildLaunchPlan()` directly owns the
+resulting launch-plan artifact lifetime. The host remains the source of truth
+for skill selection, permission, and storage.
 
-Codex-compatible provider homes are already run-scoped. Their parent directory
+Codex-compatible provider homes and Claude Code invocation artifacts are
+run-scoped. Their parent directory
 comes from run env `TMPDIR`, `TEMP`, or `TMP`, falling back to the process env
 and then the operating-system temp directory. Consequently VM callers can set
 `TMPDIR` to an App runtime directory while non-VM callers need no special
 configuration. Selected skills never mutate the source or global provider
-home. For these native provider homes, `materializedPath` is treated as an
-input hint only; the provider rewrites the effective path to
-`<run-home>/skills/<safe-slug>`.
+home, or the project working directory. Claude Code's generated MCP config is
+kept in the same temporary run root. For provider-owned roots,
+`materializedPath` is treated as an input hint only; the provider rewrites the
+effective path to `<run-home>/skills/<safe-slug>`.
 
 Hosts can also pass skill manifests produced by external commands. Tutti
 workspace apps can use the Tutti subpath helper to load dynamic CLI skills, then
