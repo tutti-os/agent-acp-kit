@@ -189,6 +189,25 @@ async function linkFile(source: string, target: string) {
   }
 }
 
+// Codex loads its remote model catalog before it can start a turn. Run homes
+// are intentionally transient, so a private models_cache.json here would make
+// every ACP run cold-start model discovery. Keep this one writable metadata
+// file shared with the stable provider Home while leaving run-specific config,
+// MCP, skills and temporary files isolated.
+async function linkWritableModelsCache(source: string, target: string) {
+  try {
+    await access(source);
+  } catch (error) {
+    if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
+    try {
+      await writeFile(source, "", { encoding: "utf8", flag: "wx" });
+    } catch (createError) {
+      if (!isNodeErrorWithCode(createError, "EEXIST")) throw createError;
+    }
+  }
+  await linkFile(source, target);
+}
+
 function buildMcpConfigBlock(servers: ReturnType<typeof normalizeMcpServerConfigs>) {
   const lines: string[] = [];
 
@@ -627,6 +646,11 @@ async function materializeCodexHome(params: {
       `${params.displayName} auth is unavailable for local-agent runs. Expected auth.json under ${sourceHome}.`,
     );
   }
+
+  await linkWritableModelsCache(
+    join(sourceHome, "models_cache.json"),
+    join(runHome, "models_cache.json"),
+  );
 
   await linkDirectory(join(sourceHome, "sessions"), join(runHome, "sessions"));
   try {
