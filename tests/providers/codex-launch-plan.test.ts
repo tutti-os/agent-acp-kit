@@ -713,7 +713,7 @@ describe("buildCodexLaunchPlan", () => {
     }
   });
 
-  it("shares Codex sessions, auth, plugin cache, and copied config files with the source home", async () => {
+  it("shares Codex sessions, auth, model cache, plugin cache, and copied config files with the source home", async () => {
     const sourceHome = await mkdtemp(join(tmpdir(), "codex-source-home-"));
     const cwd = await mkdtemp(join(tmpdir(), "codex-provider-plan-"));
     let runHome: string | undefined;
@@ -727,6 +727,7 @@ describe("buildCodexLaunchPlan", () => {
         "utf8",
       );
       await writeFile(join(sourceHome, "config.json"), JSON.stringify({ model: "o3" }), "utf8");
+      await writeFile(join(sourceHome, "models_cache.json"), "{\"models\":[\"cached\"]}", "utf8");
       await writeFile(join(sourceHome, "instructions.md"), "Be helpful.", "utf8");
       await writeFile(
         join(sourceHome, "plugins", "cache", "superpowers", "SKILL.md"),
@@ -753,6 +754,7 @@ describe("buildCodexLaunchPlan", () => {
         "utf8",
       );
       await writeFile(join(runHome!, "plugins", "cache", "probe.txt"), "plugin-cache", "utf8");
+      await writeFile(join(runHome!, "models_cache.json"), "{\"models\":[\"fresh\"]}", "utf8");
 
       await expect(readFile(join(sourceHome, "sessions", "probe.jsonl"), "utf8")).resolves.toBe(
         "session-log",
@@ -762,6 +764,9 @@ describe("buildCodexLaunchPlan", () => {
       );
       await expect(readFile(join(sourceHome, "plugins", "cache", "probe.txt"), "utf8")).resolves.toBe(
         "plugin-cache",
+      );
+      await expect(readFile(join(sourceHome, "models_cache.json"), "utf8")).resolves.toBe(
+        "{\"models\":[\"fresh\"]}",
       );
       await expect(readFile(join(runHome!, "config.json"), "utf8")).resolves.toBe(
         JSON.stringify({ model: "o3" }),
