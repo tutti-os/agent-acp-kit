@@ -174,6 +174,19 @@ describe("injectSystemProxyEnv", () => {
 });
 
 describe("buildLocalAgentProcessEnv", () => {
+  it("preserves host-owned environment values without business filtering", async () => {
+    const env = await buildLocalAgentProcessEnv({
+      PATH: "/usr/bin",
+      TUTTI_APP_DATA_DIR: "/app/data",
+      TUTTI_WORKSPACE_ROOT: "/opaque/host/workspace",
+      HOST_RUNTIME_MARKER: "runtime-value",
+    });
+
+    expect(env.TUTTI_APP_DATA_DIR).toBe("/app/data");
+    expect(env.TUTTI_WORKSPACE_ROOT).toBe("/opaque/host/workspace");
+    expect(env.HOST_RUNTIME_MARKER).toBe("runtime-value");
+  });
+
   it("removes Claude's nested-session marker from child agent environments", async () => {
     const env = await buildLocalAgentProcessEnv({
       PATH: "/usr/bin",

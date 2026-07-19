@@ -155,9 +155,8 @@ import {
 } from "@tutti-os/agent-acp-kit/tutti";
 
 const runtime = createDefaultLocalAgentRuntime();
-const cwd = process.env.TUTTI_WORKSPACE_ROOT ?? process.cwd();
-const env = { ...process.env };
-const detectContext = { cwd, env };
+const projectCwd = await resolveAppLocalProjectCwd(projectId);
+const detectContext = { cwd: projectCwd };
 const agents = await runtime.detect(detectContext);
 const agent =
   agents.find(
@@ -172,21 +171,31 @@ if (!agent.agentTargetId) throw new Error("Selected Agent has no target identity
 const skills = await loadTuttiAgentSkillContext({
   agentTargetId: agent.agentTargetId,
   agentSessionId: runId,
-  cwd: appLocalCwd,
+  cwd: projectCwd,
   detectContext,
 });
 for await (const event of runtime.run({
   agentTargetId: agent.agentTargetId,
   runId,
   provider: agent.provider,
-  cwd,
-  env,
+  cwd: projectCwd,
   prompt,
   skillManifest: skills.skillManifest,
 })) {
   // Persist or stream normalized Agent events in the App.
 }
 ```
+
+The host owns both `cwd` and environment policy. Pass the app-local run or
+project directory explicitly; the kit does not derive a business workspace
+root from `TUTTI_WORKSPACE_ROOT` or another host path alias. When `env` is
+omitted, runtime detection and execution inherit the host process environment.
+When `env` is present, its values overlay that ambient environment. The kit
+does not apply an application-specific allowlist or remove arbitrary host
+variables; it only performs provider/runtime operational normalization such as
+removing a nested Claude session marker and extending `PATH`. A host that must
+exclude product secrets is responsible for constructing an appropriate process
+environment before invoking the runtime.
 
 There is no app-facing mode switch. `runtime.detect()` is the single discovery
 API. When `TUTTI_CLI` is configured it uses `agent list` plus target-scoped
