@@ -202,8 +202,12 @@ API. When `TUTTI_CLI` is configured it uses `agent list` plus target-scoped
 composer JSON and preserves every exact Agent Target, including multiple
 targets backed by one runtime provider. Without `TUTTI_CLI` it performs direct
 Provider plugin detection. `runtime.run()` accepts the selected
-`agentTargetId` and applies its latest composer defaults internally before
-launching the app-owned local Provider process.
+`agentTargetId` and applies its latest target-scoped model and reasoning
+defaults internally before launching the app-owned local Provider process.
+Composer permission defaults are UI presentation state and do not override an
+autonomous Workspace App run. Permission comes only from an explicit
+`AgentRunInput.permission` selection or the SDK autonomous default described
+below.
 
 `loadTuttiAgentCatalog()` and `loadTuttiAgentComposerOptions()` remain available
 as low-level compatibility APIs, but Workspace Apps should not compose them
@@ -454,6 +458,11 @@ is cancelled).
 An App can pass an explicit narrower semantic for a run. For ACP, every
 non-`full-access` semantic cancels permission requests because the protocol
 adapter cannot safely infer a tool's risk from a provider-specific option id.
+The `permissionConfig.defaultValue` returned by a Tutti composer is the UI's
+initial selection, not an explicit App run selection. Hosts that intentionally
+offer a permission picker must pass the user's explicit choice in
+`AgentRunInput.permission`; the automatic Tutti runtime integration never
+promotes the composer default into execution policy.
 
 ## VM-local Codex Home
 
