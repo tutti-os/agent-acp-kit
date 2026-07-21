@@ -127,6 +127,47 @@ describe("createLocalAgentRuntime", () => {
     expect(providerDetect).not.toHaveBeenCalled();
   });
 
+  it("resolves the autonomous permission default after Tutti preparation and preserves explicit permissions", async () => {
+    const permissions: AgentRunParams["permission"][] = [];
+    const provider: LocalAgentProviderPlugin<"local-agent", "fake"> = {
+      ...createFakeProvider(),
+      createAdapter: undefined,
+      async *run(params) {
+        permissions.push(params.permission);
+        yield { type: "done", status: "completed" };
+      },
+    };
+    const runtime = createLocalAgentRuntime({
+      providers: [provider],
+      prepareTuttiRun: async ({ run }) => ({ ...run, model: "managed-model" }),
+    });
+
+    for (const input of [
+      {
+        runId: "managed-default-permission",
+        provider: "fake" as const,
+        cwd: process.cwd(),
+        prompt: "use the autonomous default",
+      },
+      {
+        runId: "managed-explicit-permission",
+        provider: "fake" as const,
+        cwd: process.cwd(),
+        prompt: "stay locked down",
+        permission: { semantic: "locked-down" as const, modeId: "read-only" },
+      },
+    ]) {
+      for await (const _event of runtime.run(input)) {
+        // Drain the provider stream.
+      }
+    }
+
+    expect(permissions).toEqual([
+      { semantic: "full-access" },
+      { semantic: "locked-down", modeId: "read-only" },
+    ]);
+  });
+
   it("cancels a run while Tutti composer preparation is still active", async () => {
     let preparationStarted!: () => void;
     const started = new Promise<void>((resolve) => {

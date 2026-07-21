@@ -268,16 +268,12 @@ function applyComposerToRun<TKind extends string, TProvider extends string>(
 ): AgentRunInput<TKind, TProvider> {
   const model = run.model || composer.modelConfig.currentValue || composer.modelConfig.defaultValue;
   const reasoning = run.reasoning || composer.reasoningConfig.currentValue || composer.reasoningConfig.defaultValue;
-  const defaultPermission = composer.permissionConfig.modes.find(
-    (mode) => mode.id === composer.permissionConfig.defaultValue,
-  );
   return {
     ...run,
     ...(model ? { model } : {}),
     ...(reasoning ? { reasoning } : {}),
-    ...(!run.permission && defaultPermission
-      ? { permission: { semantic: defaultPermission.semantic, modeId: defaultPermission.id } }
-      : {}),
+    // Composer permission defaults are UI state. Execution permission comes
+    // only from an explicit run selection or the autonomous runtime default.
   };
 }
 

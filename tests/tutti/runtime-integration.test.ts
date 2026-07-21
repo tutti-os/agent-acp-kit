@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { createClaudeProvider } from "../../src/providers/claude/index.js";
 import type { RuntimeAgentDescriptor } from "../../src/runtime/create-runtime.js";
 import { createTuttiRuntimeIntegration } from "../../src/tutti/runtime-integration.js";
 
@@ -49,6 +50,21 @@ function catalog() {
   };
 }
 
+function claudeCatalog() {
+  return {
+    schemaVersion: 1,
+    defaultAgentTargetId: "local:claude-code",
+    agents: [
+      {
+        id: "local:claude-code",
+        name: "Claude Code",
+        provider: "claude-code",
+        availability: { status: "available", reasonCode: "", detail: "" },
+      },
+    ],
+  };
+}
+
 function composer(agentTargetId: string) {
   const model = agentTargetId === "team:writer" ? "writer-model" : "reviewer-model";
   return {
@@ -72,6 +88,44 @@ function composer(agentTargetId: string) {
       currentValue: "high",
       defaultValue: "medium",
       options: [{ id: "high", value: "high", label: "High" }],
+    },
+    speedConfig: {
+      configurable: false,
+      currentValue: "",
+      defaultValue: "",
+      options: [],
+    },
+  };
+}
+
+function claudeComposer() {
+  return {
+    schemaVersion: 2,
+    agentTargetId: "local:claude-code",
+    providerId: "claude-code",
+    effectiveSettings: { model: "default", permissionModeId: "default" },
+    modelConfig: {
+      configurable: true,
+      currentValue: "default",
+      defaultValue: "default",
+      options: [{ id: "default", value: "default", label: "Default" }],
+    },
+    permissionConfig: {
+      configurable: true,
+      defaultValue: "default",
+      modes: [
+        {
+          id: "default",
+          label: "Default",
+          semantic: "ask-before-write",
+        },
+      ],
+    },
+    reasoningConfig: {
+      configurable: false,
+      currentValue: "",
+      defaultValue: "",
+      options: [],
     },
     speedConfig: {
       configurable: false,
@@ -192,7 +246,7 @@ describe("Tutti-aware runtime integration", () => {
     ).toHaveLength(1);
   });
 
-  it("applies target-scoped composer defaults before runtime launch", async () => {
+  it("applies target-scoped model and reasoning defaults without applying the permission UI default", async () => {
     const integration = createTuttiRuntimeIntegration({
       runTuttiCli: async (args) =>
         args.includes("list") ? catalog() : composer("team:writer"),
@@ -211,8 +265,62 @@ describe("Tutti-aware runtime integration", () => {
     expect(prepared).toMatchObject({
       model: "writer-model",
       reasoning: "high",
-      permission: { semantic: "auto", modeId: "auto" },
     });
+    expect(prepared).not.toHaveProperty("permission");
+  });
+
+  it("preserves an explicit run permission instead of replacing it with the permission UI default", async () => {
+    const integration = createTuttiRuntimeIntegration({
+      runTuttiCli: async (args) =>
+        args.includes("list") ? catalog() : composer("team:writer"),
+    });
+    const prepared = await integration.prepareRun({
+      descriptors,
+      env: { TUTTI_CLI: "/usr/bin/tutti-cli" },
+      run: {
+        agentTargetId: "team:writer",
+        runId: "run-explicit-permission",
+        provider: "codex",
+        cwd: "/workspace/project",
+        prompt: "hello",
+        permission: { semantic: "locked-down", modeId: "read-only" },
+      },
+    });
+
+    expect(prepared.permission).toEqual({
+      semantic: "locked-down",
+      modeId: "read-only",
+    });
+  });
+
+  it("lets the Claude provider apply the autonomous default after ignoring its permission UI default", async () => {
+    const integration = createTuttiRuntimeIntegration<"local-agent", "claude-code">({
+      runTuttiCli: async (args) =>
+        args.includes("list") ? claudeCatalog() : claudeComposer(),
+    });
+    const claudeDescriptors: RuntimeAgentDescriptor<"local-agent", "claude-code">[] = [
+      {
+        id: "claude-code",
+        displayName: "Claude Code",
+        kind: "local-agent",
+        requiresKnownAuth: true,
+      },
+    ];
+    const prepared = await integration.prepareRun({
+      descriptors: claudeDescriptors,
+      env: { TUTTI_CLI: "/usr/bin/tutti-cli" },
+      run: {
+        agentTargetId: "local:claude-code",
+        runId: "run-claude-autonomous-default",
+        provider: "claude-code",
+        cwd: "/workspace/project",
+        prompt: "call the app tool",
+      },
+    });
+
+    expect(prepared).not.toHaveProperty("permission");
+    const plan = await createClaudeProvider().buildLaunchPlan(prepared);
+    expect(plan.args).toContain("--dangerously-skip-permissions");
   });
 
   it("rejects provider-only runs when Tutti CLI is active", async () => {
